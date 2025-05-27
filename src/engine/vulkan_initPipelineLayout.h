@@ -3,6 +3,6 @@
 
 #include <stdbool.h>
 
-bool initPipelineLayout();
+bool initPipelineLayout(size_t pushConstantsSize);
 
 #endif

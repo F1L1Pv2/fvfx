@@ -85,3 +85,15 @@ bool platform_still_running(){
 void platform_sleep(size_t milis){
     usleep(milis);
 }
+
+uint64_t platform_get_time(){
+    #ifdef CLOCK_REALTIME
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+    #else
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return (uint64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+    #endif
+}

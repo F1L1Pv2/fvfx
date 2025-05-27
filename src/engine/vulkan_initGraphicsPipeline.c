@@ -12,28 +12,14 @@
 VkPipeline pipeline;
 
 bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader){
-    // VkVertexInputBindingDescription vertexInputBindingDescription = {0};
-    // vertexInputBindingDescription.binding = 0;
-    // vertexInputBindingDescription.stride = sizeof(Vertex);
-    // vertexInputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    // VkVertexInputAttributeDescription vertexInputAttributeDescriptions[] = {
-    //     {
-    //         .location = 0,
-    //         .binding = 0,
-    //         .format = VK_FORMAT_R32G32_SFLOAT,
-    //         .offset = offsetof(Vertex, pos)
-    //     }
-    // };
-
     VkPipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo = {0};
     pipelineVertexInputStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     pipelineVertexInputStateCreateInfo.pNext = NULL;
     pipelineVertexInputStateCreateInfo.flags = 0;
-    // pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 1;
-    // pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = &vertexInputBindingDescription;
-    // pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = ARRAY_LEN(vertexInputAttributeDescriptions);
-    // pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = vertexInputAttributeDescriptions;
+    pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 0;
+    pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = NULL;
+    pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = 0;
+    pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = NULL;
 
     VkPipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo = {0};
     pipelineInputAssemblyStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;

@@ -11,15 +11,26 @@
 
 VkPipelineLayout pipelineLayout;
 
-bool initPipelineLayout(){
+bool initPipelineLayout(size_t pushConstantsSize){
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {0};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = NULL;
     pipelineLayoutCreateInfo.flags = 0;
     pipelineLayoutCreateInfo.setLayoutCount = 0;
     pipelineLayoutCreateInfo.pSetLayouts = NULL;
-    pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-    pipelineLayoutCreateInfo.pPushConstantRanges = NULL;
+
+    if(pushConstantsSize > 0){
+        VkPushConstantRange pushConstantRange = {0};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = pushConstantsSize;
+
+        pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+        pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
+    }else{
+        pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+        pipelineLayoutCreateInfo.pPushConstantRanges = NULL;
+    }
 
     VkResult result = vkCreatePipelineLayout(device,&pipelineLayoutCreateInfo,NULL,&pipelineLayout);
     if(result != VK_SUCCESS){

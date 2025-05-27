@@ -40,15 +40,6 @@ extern MultipleVkQueueFamilyProperties multipleQueueFamilyProperties;
 extern VkCommandPool commandPool;
 extern VkCommandBuffer cmd;
 
-typedef struct {
-    float x;
-    float y;
-} vec2;
-
-typedef struct {
-    vec2 pos;
-} Vertex;
-
 extern VkPipelineLayout pipelineLayout;
 extern VkPipeline pipeline;
 

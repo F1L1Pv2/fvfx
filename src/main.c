@@ -38,6 +38,17 @@ bool platform_resize_window_callback(){
     return true;
 }
 
+typedef struct {
+    float x;
+    float y;
+} vec2;
+
+typedef struct{
+    vec2 offset;
+    vec2 scale;
+    float rotation;
+} PushConstants;
+
 int main(){
     platform_create_window("TRIEX",640,480);
 
@@ -45,7 +56,7 @@ int main(){
     if(!createSurface()) return 1;
     if(!getDevice()) return 1;
     if(!initSwapchain()) return 1;
-    if(!initPipelineLayout()) return 1;
+    if(!initPipelineLayout(sizeof(PushConstants))) return 1;
     if(!initCommandPool()) return 1;
     if(!initCommandBuffer()) return 1;
     if(!createAllNeededSyncrhonizationObjects()) return 1;
@@ -66,6 +77,10 @@ int main(){
     if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return 1;
 
     if(!initGraphicsPipeline(vertexShader,fragmentShader)) return 1;
+
+    PushConstants pcs = {0};
+    pcs.offset = (vec2){-1.0f,-1.0f};
+    pcs.scale = (vec2){2.0f,2.0f};
     
     // uint32_t indices[] = {
     //     0,2,1
@@ -89,8 +104,25 @@ int main(){
 
     uint32_t imageIndex;
 
+    uint64_t oldTime = platform_get_time();
+
+
+    size_t targetFPS = 120;
+    float frameDuration = 1.0f / targetFPS;
+
     while(platform_still_running()){
         if(!platform_window_handle_events()) return 1;
+
+        uint64_t time = platform_get_time();
+        float deltaTime = (float)(time - oldTime) / 1000.0f;
+        oldTime = time;
+
+        pcs.offset.y -= deltaTime;
+
+        if(pcs.offset.y < -4) pcs.offset.y = 2.0f;
+
+        pcs.rotation += deltaTime;
+
 
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFence);
@@ -173,9 +205,8 @@ int main(){
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         VkDeviceSize vOffset = 0;
-        // vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &vOffset);
-        // vkCmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        // vkCmdDrawIndexed(cmd,ARRAY_LEN(indices),1,0,0,0);
+
+        vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 
         vkCmdDraw(cmd,6,1,0,0);
 
@@ -227,6 +258,9 @@ int main(){
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &imageIndex;
         vkQueuePresentKHR(presentQueue, &presentInfo);
+
+        uint64_t frameTook = platform_get_time() - time;
+        if(((float)(frameTook)/1000.0f) < frameDuration) platform_sleep(frameDuration*1000.0f - frameTook);
     }
 
     return 0;

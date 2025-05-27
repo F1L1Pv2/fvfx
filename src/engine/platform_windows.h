@@ -1,6 +1,7 @@
 #include "MinWin.h"
 #include <stdbool.h>
 #include <malloc.h>
+#include <stdint.h>
 
 #include "platform.h"
 #include "platform_globals.h"
@@ -84,4 +85,13 @@ bool platform_window_handle_events(){
 
 void platform_sleep(size_t milis){
     Sleep(milis);
+}
+
+uint64_t platform_get_time(){
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (uli.QuadPart - 116444736000000000ULL) / 10000ULL;
 }

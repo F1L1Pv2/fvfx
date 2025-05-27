@@ -8,5 +8,6 @@ bool platform_window_handle_events();
 bool platform_still_running();
 void platform_sleep(size_t milis);
 bool platform_resize_window_callback();
+uint64_t platform_get_time();
 
 #endif
