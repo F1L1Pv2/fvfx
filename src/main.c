@@ -13,6 +13,9 @@
 #include "engine/vulkan_compileShader.h"
 #include "engine/vulkan_helpers.h"
 #include "engine/vulkan_buffer.h"
+#include "engine/vulkan_images.h"
+
+#include "3rdparty/stb_image.h"
 
 typedef struct {
     float x;
@@ -31,6 +34,8 @@ typedef struct{
 
 typedef struct {
     mat4 transform;
+    uint32_t textureID;
+    uint32_t padding[3];
 } SpriteDrawCommand;
 
 static PushConstants pcs;
@@ -110,10 +115,52 @@ int main(){
             0,200,0,0,
             0,0,1,0,
             0,0,0,1,
-        }
+        },
+        .textureID = -1,
     };
     
     transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
+
+    int width, height;
+
+    char* data = (char*)stbi_load("assets/test.png",&width,&height, NULL, 4);
+    if(data == NULL){
+        printf("ERROR: Couldn't read image from disk\n");
+        return 1;
+    }
+
+    VkImage image;
+    VkDeviceMemory imageMemory;
+    VkImageView imageView;
+
+    if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &image, &imageMemory)){
+        return 1;
+    }
+
+    if(!sendDataToImage(image,data,width,width*sizeof(uint32_t),height)){
+        return 1;
+    }
+
+    if(!createImageView(image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, &imageView)){
+        return 1;
+    }
+
+    VkDescriptorImageInfo descriptorImageInfo = {0};
+    descriptorImageInfo.sampler = samplerLinear;
+    descriptorImageInfo.imageView = imageView;
+    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet writeDescriptorSet = {0};
+    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet.pNext = NULL;
+    writeDescriptorSet.dstSet = bindlessDescriptorSet;
+    writeDescriptorSet.dstBinding = 0;
+    writeDescriptorSet.dstArrayElement = 0;
+    writeDescriptorSet.descriptorCount = 1;
+    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+    vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
 
     return engineStart();
 }
@@ -125,7 +172,8 @@ bool update(float deltaTime){
             0,200,0,0,
             0,0,1,0,
             swapchainExtent.width / 2 - 100,swapchainExtent.height / 2 - 100,0,1,
-        }
+        },
+        .textureID = 0,
     };
 
     transferDataToMemory(spriteDrawMemory,&instanceData[1],sizeof(instanceData[0]),sizeof(instanceData[0]));
@@ -167,6 +215,7 @@ bool draw(){
     });
         
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
 
     vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 

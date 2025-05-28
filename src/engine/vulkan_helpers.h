@@ -6,6 +6,8 @@
 #include "vulkan/vulkan.h"
 int getNeededQueueFamilyIndex(VkQueueFlags flags);
 bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index);
+VkCommandBuffer beginSingleTimeCommands();
+void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
 void beginDrawing();
 void endDrawing();

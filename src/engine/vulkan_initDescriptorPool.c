@@ -11,8 +11,6 @@
 
 VkDescriptorPool descriptorPool;
 
-static const uint32_t k_max_bindless_resources = 16536;
-
 // Took from https://jorenjoestar.github.io/post/vulkan_bindless_texture/ (slightly modified)
 bool initDescriptorPool(){
 

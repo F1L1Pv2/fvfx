@@ -5,6 +5,8 @@
 
 struct SpriteDrawCommand {
     mat4 transform;
+    uint textureID;
+    uint padding[3];
 };
 
 layout (buffer_reference, scalar) readonly buffer SpriteDrawBuffer {
@@ -19,6 +21,7 @@ layout (push_constant) uniform constants
 } pcs;
 
 layout(location = 0) out vec2 uv;
+layout(location = 1) out flat uint InstanceIndex;
 
 void main() {
     uint b = 1 << (gl_VertexIndex % 6);
@@ -26,4 +29,5 @@ void main() {
     uv = baseCoord;
 
     gl_Position = pcs.proj * pcs.view * pcs.spriteDrawBuffer.commands[gl_InstanceIndex].transform * vec4(baseCoord, 0.0f, 1.0f);
+    InstanceIndex = gl_InstanceIndex;
 }

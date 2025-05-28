@@ -44,6 +44,11 @@ extern VkSemaphore imageAvailableSemaphore;
 extern VkSemaphore renderFinishedSemaphore;
 extern VkFence inFlightFence;
 
+static const uint32_t k_max_bindless_resources = 16536;
 extern VkDescriptorPool descriptorPool;
+extern VkDescriptorSetLayout descriptorSetLayout;
+extern VkDescriptorSet bindlessDescriptorSet;
+
+extern VkSampler samplerLinear;
 
 #endif
