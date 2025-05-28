@@ -17,7 +17,7 @@ const char* vulkanSDKPathINC;
 #define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshaderc_shared", "-lshaderc_util", "-lglslang", "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt",
 #else
 #define PLATFORM_COMPILER_ARGS
-#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc",
+#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc",
 #endif
 
 #define COMPILER_NAME "clang"

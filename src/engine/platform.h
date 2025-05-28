@@ -2,6 +2,7 @@
 #define TRIEX_PLATFORM
 
 #include <stdbool.h>
+#include <stdint.h>
 
 void platform_create_window(const char* title, size_t width, size_t height);
 bool platform_window_handle_events();

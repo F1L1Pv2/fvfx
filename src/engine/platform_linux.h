@@ -12,7 +12,10 @@
 #include "platform.h"
 #include "platform_globals.h"
 
-bool running = false;
+#include <stdint.h>
+#include <sys/time.h>
+
+static bool running = false;
 static Atom wmDeleteWindow;
 
 
@@ -21,7 +24,7 @@ static Atom wmDeleteWindow;
 Window window;
 Display* display;
 
-bool platform_create_window(const char* title, size_t width, size_t height){
+void platform_create_window(const char* title, size_t width, size_t height){
     display = XOpenDisplay(NULL);
 
     window = XCreateSimpleWindow(display, 
@@ -52,18 +55,21 @@ bool platform_create_window(const char* title, size_t width, size_t height){
   running = true;
 
   XStoreName(display, window, title);
-
-  return true;
 }
 
-void platform_window_handle_events() {
+bool platform_window_handle_events() {
     while (XPending(display)) {
         XEvent event;
         XNextEvent(display, &event);
 
-        NOB_TODO("IMPLEMENT CALLING SIZE CALLBACK");
-
         switch(event.type) {
+            case ConfigureNotify: {
+                if (event.xconfigure.width != 0 && event.xconfigure.height != 0) {
+                    if(!platform_resize_window_callback()) return false;
+                }
+                break;
+            }
+
             case ClientMessage: {
                 Atom wmProtocol = XInternAtom(display, "WM_PROTOCOLS", False);
                 Atom wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
@@ -76,6 +82,8 @@ void platform_window_handle_events() {
             }
         }
     }
+
+    return true;
 }
 
 bool platform_still_running(){
