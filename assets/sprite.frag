@@ -7,7 +7,7 @@
 struct SpriteDrawCommand {
     mat4 transform;
     uint textureID;
-    uint padding[3];
+    vec3 albedo;
 };
 
 layout (buffer_reference, scalar) readonly buffer SpriteDrawBuffer {
@@ -30,7 +30,7 @@ layout(location = 1) in flat uint InstanceIndex;
 void main() {
     uint textureID = pcs.spriteDrawBuffer.commands[InstanceIndex].textureID;
     if(textureID == -1){
-        outColor = vec4(uv, 0.0f,1.0f);
+        outColor = vec4(pcs.spriteDrawBuffer.commands[InstanceIndex].albedo,1.0f);
     }else{
         outColor = texture(textures[textureID], uv);
     }

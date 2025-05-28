@@ -6,7 +6,7 @@
 struct SpriteDrawCommand {
     mat4 transform;
     uint textureID;
-    uint padding[3];
+    vec3 albedo;
 };
 
 layout (buffer_reference, scalar) readonly buffer SpriteDrawBuffer {

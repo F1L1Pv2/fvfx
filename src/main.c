@@ -24,6 +24,12 @@ typedef struct {
 } vec2;
 
 typedef struct {
+    float x;
+    float y;
+    float z;
+} vec3;
+
+typedef struct {
     float v[16];
 } mat4;
 
@@ -36,7 +42,7 @@ typedef struct{
 typedef struct {
     mat4 transform;
     uint32_t textureID;
-    uint32_t padding[3];
+    vec3 albedo;
 } SpriteDrawCommand;
 
 static PushConstants pcs;
@@ -69,7 +75,6 @@ bool afterResize(){
     return true;
 }
 
-static String_Builder sb;
 static SpriteDrawCommand instanceData[MAX_SPRITE_COUNT] = {0};
 static VkPipeline pipeline;
 static VkPipelineLayout pipelineLayout;
@@ -97,130 +102,131 @@ int width, height;
 int main(){
     if(!engineInit("FVFX", 640,480)) return 1;
 
-    nob_read_entire_file("assets/sprite.vert",&sb);
-    sb_append_null(&sb);
-    
-    VkShaderModule vertexShader;
-    if(!compileShader(sb.items, shaderc_vertex_shader,&vertexShader)) return false;
-    
-    sb.count = 0;
-    nob_read_entire_file("assets/sprite.frag",&sb);
-    sb_append_null(&sb);
-    
-    VkShaderModule fragmentShader;
-    if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return false;
-    
-    if(!createGraphicPipeline(vertexShader,fragmentShader, sizeof(PushConstants), &pipeline, &pipelineLayout)) return false;
-    
-    pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
-    pcs.view = (mat4){
-        1,0,0,0,
-        0,1,0,0,
-        0,0,1,0,
-        -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
-    };
-    
-    if(!createBuffer(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(SpriteDrawCommand)*MAX_SPRITE_COUNT,&spriteDrawBuffer,&spriteDrawMemory)) return false;
-    
-    VkBufferDeviceAddressInfoKHR addrInfo = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
-        .buffer = spriteDrawBuffer,
-    };
-    pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddress(device, &addrInfo);
-    
-    instanceData[0] = (SpriteDrawCommand){
-        .transform = (mat4){
-            200,0,0,0,
-            0,200,0,0,
-            0,0,1,0,
-            0,0,0,1,
-        },
-        .textureID = -1,
-    };
-    
-    transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
-
-    File_Paths children = {0};
-
-    nob_read_entire_dir("assets/video",&children);
-
-    String_Builder sb = {0};
-    sb_append_cstr(&sb, "assets/video/");
-    size_t savedCount = sb.count;
-
-    for(int i = 0; i < children.count; i++){
-        if(strcmp(children.items[i], ".") == 0){
-            continue;
-        }
-
-        if(strcmp(children.items[i], "..") == 0){
-            continue;
-        }
-
-        sb.count = savedCount;
-        sb_append_cstr(&sb,children.items[i]);
+    {
+        String_Builder sb = {0};
+        nob_read_entire_file("assets/sprite.vert",&sb);
         sb_append_null(&sb);
+        
+        VkShaderModule vertexShader;
+        if(!compileShader(sb.items, shaderc_vertex_shader,&vertexShader)) return false;
+        
+        sb.count = 0;
+        nob_read_entire_file("assets/sprite.frag",&sb);
+        sb_append_null(&sb);
+        
+        VkShaderModule fragmentShader;
+        if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return false;
+        
+        if(!createGraphicPipeline(vertexShader,fragmentShader, sizeof(PushConstants), &pipeline, &pipelineLayout)) return false;
+        
+        pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
+        pcs.view = (mat4){
+            1,0,0,0,
+            0,1,0,0,
+            0,0,1,0,
+            -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
+        };
+        
+        if(!createBuffer(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(SpriteDrawCommand)*MAX_SPRITE_COUNT,&spriteDrawBuffer,&spriteDrawMemory)) return false;
+        
+        VkBufferDeviceAddressInfoKHR addrInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
+            .buffer = spriteDrawBuffer,
+        };
+        pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddress(device, &addrInfo);
+        
+        instanceData[1] = (SpriteDrawCommand){
+            .transform = (mat4){
+                200,0,0,0,
+                0,200,0,0,
+                0,0,1,0,
+                0,0,0,1,
+            },
+            .textureID = -1,
+            .albedo = (vec3){1.0f,0.0,0.5},
+        };
+        
+        transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
+    
+        File_Paths children = {0};
+    
+        nob_read_entire_dir("assets/video",&children);
+    
+        sb.count = 0;
+        sb_append_cstr(&sb, "assets/video/");
+        size_t savedCount = sb.count;
+    
+        for(int i = 0; i < children.count; i++){
+            if(!sv_end_with(sv_from_cstr(children.items[i]),".png")) continue;
+    
+            sb.count = savedCount;
+            sb_append_cstr(&sb,children.items[i]);
+            sb_append_null(&sb);
+    
+            STB_Image img = {0};
+    
+            img.data = (char*)stbi_load(sb.items,&width,&height, NULL, 4);
+            if(img.data == NULL){
+                printf("ERROR: Couldn't read image from disk (%s)\n", children.items[i]);
+                return 1;
+            }
+    
+            da_append(&images,img);
+        }
 
-        STB_Image img = {0};
-
-        img.data = (char*)stbi_load(sb.items,&width,&height, NULL, 4);
-        if(img.data == NULL){
-            printf("ERROR: Couldn't read image from disk (%s)\n", children.items[i]);
+        da_free(children);
+    
+        VkImage image;
+        VkDeviceMemory imageMemory;
+        VkImageView imageView;
+    
+        if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &image, &imageMemory)){
+            return 1;
+        }
+    
+        if(!sendDataToImage(image,images.items[imageIndex].data,width,width*sizeof(uint32_t),height)){
+            return 1;
+        }
+    
+        if(!createImageView(image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, &imageView)){
+            return 1;
+        }
+    
+        VkDescriptorImageInfo descriptorImageInfo = {0};
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageView = imageView;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    
+        VkWriteDescriptorSet writeDescriptorSet = {0};
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.pNext = NULL;
+        writeDescriptorSet.dstSet = bindlessDescriptorSet;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+    
+        vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
+    
+        VkResult result = vkMapMemory(device,imageMemory,0,width*height*sizeof(uint32_t),0,(void**)&mapped);
+        if(result != VK_SUCCESS){
             return 1;
         }
 
-        da_append(&images,img);
-    }
-
-    VkImage image;
-    VkDeviceMemory imageMemory;
-    VkImageView imageView;
-
-    if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &image, &imageMemory)){
-        return 1;
-    }
-
-    if(!sendDataToImage(image,images.items[imageIndex].data,width,width*sizeof(uint32_t),height)){
-        return 1;
-    }
-
-    if(!createImageView(image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, &imageView)){
-        return 1;
-    }
-
-    VkDescriptorImageInfo descriptorImageInfo = {0};
-    descriptorImageInfo.sampler = samplerLinear;
-    descriptorImageInfo.imageView = imageView;
-    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet writeDescriptorSet = {0};
-    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSet.pNext = NULL;
-    writeDescriptorSet.dstSet = bindlessDescriptorSet;
-    writeDescriptorSet.dstBinding = 0;
-    writeDescriptorSet.dstArrayElement = 0;
-    writeDescriptorSet.descriptorCount = 1;
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
-
-    vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
-
-    VkResult result = vkMapMemory(device,imageMemory,0,width*height*sizeof(uint32_t),0,(void**)&mapped);
-    if(result != VK_SUCCESS){
-        return 1;
+        da_free(sb);
     }
 
     return engineStart();
 }
 
 bool update(float deltaTime){
-
     float aspectRatio = (float)width / (float)height;
 
     float uwidth = swapchainExtent.height * aspectRatio;
     float uheight = swapchainExtent.height;
 
-    instanceData[1] = (SpriteDrawCommand){
+    instanceData[0] = (SpriteDrawCommand){
         .transform = (mat4){
             uwidth,0,0,0,
             0,uheight,0,0,
@@ -230,7 +236,7 @@ bool update(float deltaTime){
         .textureID = 0,
     };
 
-    transferDataToMemory(spriteDrawMemory,&instanceData[1],sizeof(instanceData[0]),sizeof(instanceData[0]));
+    transferDataToMemory(spriteDrawMemory,&instanceData[0],0,sizeof(instanceData[0]));
 
     time += deltaTime;
 
