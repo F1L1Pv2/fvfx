@@ -40,11 +40,10 @@ extern MultipleVkQueueFamilyProperties multipleQueueFamilyProperties;
 extern VkCommandPool commandPool;
 extern VkCommandBuffer cmd;
 
-extern VkPipelineLayout pipelineLayout;
-extern VkPipeline pipeline;
-
 extern VkSemaphore imageAvailableSemaphore;
 extern VkSemaphore renderFinishedSemaphore;
 extern VkFence inFlightFence;
+
+extern VkDescriptorPool descriptorPool;
 
 #endif

@@ -7,4 +7,9 @@
 int getNeededQueueFamilyIndex(VkQueueFlags flags);
 bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index);
 
+void beginDrawing();
+void endDrawing();
+VkImageView getSwapchainImageView();
+
+
 #endif

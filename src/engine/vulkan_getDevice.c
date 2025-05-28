@@ -148,15 +148,22 @@ bool getDevice(){
         printf("ERROR: Your physical device doesn't have any Of needed queues\n");
         return false;
     }
+    
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0};
+    descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+    descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
+    descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
 
     VkPhysicalDeviceBufferDeviceAddressFeatures deviceBufferDeviceAddressFeatures = {0};
     deviceBufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+    deviceBufferDeviceAddressFeatures.pNext = &descriptorIndexingFeatures;
     deviceBufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
     
     VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature  = {0};
     dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
     dynamicRenderingFeature.pNext = &deviceBufferDeviceAddressFeatures;
     dynamicRenderingFeature.dynamicRendering = VK_TRUE;
+
 
     VkDeviceCreateInfo deviceInfo = {0};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

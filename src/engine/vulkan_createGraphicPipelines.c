@@ -7,12 +7,10 @@
 #include "vulkan/vulkan.h"
 
 #include "vulkan_globals.h"
-#include "vulkan_initGraphicsPipeline.h"
+#include "vulkan_createGraphicPipelines.h"
 
-VkPipeline pipeline;
-VkPipelineLayout pipelineLayout;
 
-bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader, size_t pushConstantsSize){
+bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader, size_t pushConstantsSize, VkPipeline* pipeline, VkPipelineLayout* pipelineLayout){
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {0};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = NULL;
@@ -33,7 +31,7 @@ bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentSh
         pipelineLayoutCreateInfo.pPushConstantRanges = NULL;
     }
 
-    VkResult result = vkCreatePipelineLayout(device,&pipelineLayoutCreateInfo,NULL,&pipelineLayout);
+    VkResult result = vkCreatePipelineLayout(device,&pipelineLayoutCreateInfo,NULL,pipelineLayout);
     if(result != VK_SUCCESS){
         printf("Couldn't create pipeline layout\n");
         return false;
@@ -184,14 +182,14 @@ bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentSh
     graphicsPipelineCreateInfo.pDepthStencilState = &pipelineDepthStencilStateCreateInfo;
     graphicsPipelineCreateInfo.pColorBlendState = &pipelineColorBlendStateCreateInfo;
     graphicsPipelineCreateInfo.pDynamicState = &pipelineDynamicStateCreateInfo;
-    graphicsPipelineCreateInfo.layout = pipelineLayout;
+    graphicsPipelineCreateInfo.layout = *pipelineLayout;
     graphicsPipelineCreateInfo.renderPass = NULL;
     graphicsPipelineCreateInfo.subpass = 0;
     graphicsPipelineCreateInfo.basePipelineHandle = NULL; // OPTIONAL
     graphicsPipelineCreateInfo.basePipelineIndex = -1;    // OPTIONAL
     
 
-    result = vkCreateGraphicsPipelines(device,NULL,1,&graphicsPipelineCreateInfo,NULL,&pipeline);
+    result = vkCreateGraphicsPipelines(device,NULL,1,&graphicsPipelineCreateInfo,NULL,pipeline);
 
     if(result != VK_SUCCESS){
         printf("ERROR: Couldn't create graphics pipeline\n");
