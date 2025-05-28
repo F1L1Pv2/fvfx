@@ -16,6 +16,7 @@
 #include "engine/vulkan_images.h"
 
 #include "3rdparty/stb_image.h"
+#include "math.h"
 
 typedef struct {
     float x;
@@ -75,6 +76,24 @@ static VkPipelineLayout pipelineLayout;
 static VkBuffer spriteDrawBuffer;
 static VkDeviceMemory spriteDrawMemory;
 
+typedef struct{
+    char* data;
+} STB_Image;
+
+typedef struct {
+    STB_Image* items;
+    size_t count;
+    size_t capacity;
+} STB_Images;
+
+STB_Images images = {0};
+float time;
+
+size_t imageIndex = 0;
+
+char* mapped;
+int width, height;
+
 int main(){
     if(!engineInit("FVFX", 640,480)) return 1;
 
@@ -121,23 +140,47 @@ int main(){
     
     transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
 
-    int width, height;
+    File_Paths children = {0};
 
-    char* data = (char*)stbi_load("assets/test.png",&width,&height, NULL, 4);
-    if(data == NULL){
-        printf("ERROR: Couldn't read image from disk\n");
-        return 1;
+    nob_read_entire_dir("assets/video",&children);
+
+    String_Builder sb = {0};
+    sb_append_cstr(&sb, "assets/video/");
+    size_t savedCount = sb.count;
+
+    for(int i = 0; i < children.count; i++){
+        if(strcmp(children.items[i], ".") == 0){
+            continue;
+        }
+
+        if(strcmp(children.items[i], "..") == 0){
+            continue;
+        }
+
+        sb.count = savedCount;
+        sb_append_cstr(&sb,children.items[i]);
+        sb_append_null(&sb);
+
+        STB_Image img = {0};
+
+        img.data = (char*)stbi_load(sb.items,&width,&height, NULL, 4);
+        if(img.data == NULL){
+            printf("ERROR: Couldn't read image from disk (%s)\n", children.items[i]);
+            return 1;
+        }
+
+        da_append(&images,img);
     }
 
     VkImage image;
     VkDeviceMemory imageMemory;
     VkImageView imageView;
 
-    if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &image, &imageMemory)){
+    if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &image, &imageMemory)){
         return 1;
     }
 
-    if(!sendDataToImage(image,data,width,width*sizeof(uint32_t),height)){
+    if(!sendDataToImage(image,images.items[imageIndex].data,width,width*sizeof(uint32_t),height)){
         return 1;
     }
 
@@ -162,21 +205,42 @@ int main(){
 
     vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
 
+    VkResult result = vkMapMemory(device,imageMemory,0,width*height*sizeof(uint32_t),0,(void**)&mapped);
+    if(result != VK_SUCCESS){
+        return 1;
+    }
+
     return engineStart();
 }
 
 bool update(float deltaTime){
+
+    float aspectRatio = (float)width / (float)height;
+
+    float uwidth = swapchainExtent.height * aspectRatio;
+    float uheight = swapchainExtent.height;
+
     instanceData[1] = (SpriteDrawCommand){
         .transform = (mat4){
-            200,0,0,0,
-            0,200,0,0,
+            uwidth,0,0,0,
+            0,uheight,0,0,
             0,0,1,0,
-            swapchainExtent.width / 2 - 100,swapchainExtent.height / 2 - 100,0,1,
+            swapchainExtent.width / 2 - uwidth / 2,swapchainExtent.height / 2 -uheight / 2,0,1,
         },
         .textureID = 0,
     };
 
     transferDataToMemory(spriteDrawMemory,&instanceData[1],sizeof(instanceData[0]),sizeof(instanceData[0]));
+
+    time += deltaTime;
+
+    size_t currentIndex = (size_t)(floorf(time * 60)) % (images.count-1);
+
+    if(currentIndex != imageIndex){
+        imageIndex = currentIndex;
+
+        memcpy(mapped,images.items[imageIndex].data, width*height*sizeof(uint32_t));
+    }
 
     return true;
 }

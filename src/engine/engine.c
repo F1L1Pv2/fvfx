@@ -60,8 +60,8 @@ bool engineInit(char* title, size_t width, size_t height){
 
     uint64_t oldTime = platform_get_time();
 
-    size_t targetFPS = 120;
-    float frameDuration = 1.0f / targetFPS;
+    targetFPS = 120;
+    frameDuration = 1.0f / targetFPS;
 
     return true;
 }
@@ -72,6 +72,7 @@ int engineStart(){
 
         uint64_t time = platform_get_time();
         float deltaTime = (float)(time - oldTime) / 1000.0f;
+        if(deltaTime > frameDuration) deltaTime = frameDuration;
         oldTime = time;
 
         if(!update(deltaTime)) return 1;
