@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -13,8 +17,8 @@
 const char* vulkanSDKPathLIB;
 const char* vulkanSDKPathINC;
 
-#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC,
-#define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshaderc_shared", "-lshaderc_util", "-lglslang", "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt",
+#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations",
+#define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshaderc_shared", "-lshaderc_util", "-lglslang", "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt", "-Wno-deprecated-declarations",
 #else
 #define PLATFORM_COMPILER_ARGS
 #define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc",
@@ -471,12 +475,12 @@ int main(int argc, char** argv){
     for(int i = 0; i < src_paths.count; i++) {
         sb2.count = 0;
         sb_append_cstr(&sb2,BUILD_PATH);
-        change_extension(&sb2,src_paths.items[i],"o");
+        change_extension(&sb2,(char*)src_paths.items[i],"o");
         sb_append_null(&sb2);
         
         if(!nob_c_needs_rebuild1(&sb, &paths, sb2.items,src_paths.items[i])) continue;
         needed_rebuild = true;
-        if(!build(&cmd, &sb, &sb3,(char**)src_paths.items[i], debug)) return 1;
+        if(!build(&cmd, &sb, &sb3,(char*)src_paths.items[i], debug)) return 1;
     }
 
     if(needed_rebuild || !file_exists(outputfilename))

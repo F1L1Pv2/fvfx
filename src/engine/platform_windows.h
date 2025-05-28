@@ -22,7 +22,7 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         case WM_SETCURSOR: {
             if (LOWORD(lParam) == HTCLIENT) {
-                SetCursor(LoadCursorW(NULL, IDC_ARROW));
+                SetCursor(LoadCursorW(NULL, (const unsigned short *)IDC_ARROW));
                 return TRUE;
             }
             break;

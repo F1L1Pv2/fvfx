@@ -7,12 +7,12 @@
 #include "vulkan/vulkan.h"
 
 #include "engine/engine.h"
+#include "engine/app.h"
 #include "engine/vulkan_globals.h"
-#include "engine/vulkan_helpers.h"
-#include "engine/vulkan_buffer.h"
 #include "engine/vulkan_createGraphicPipelines.h"
 #include "engine/vulkan_compileShader.h"
-#include "engine/app.h"
+#include "engine/vulkan_helpers.h"
+#include "engine/vulkan_buffer.h"
 
 typedef struct {
     float x;
@@ -147,8 +147,7 @@ bool draw(){
 
     VkRenderingInfo renderingInfo = {0};
     renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    VkOffset2D offset = {0};
-    renderingInfo.renderArea.offset = offset;
+    renderingInfo.renderArea.offset = (VkOffset2D){0};
     renderingInfo.renderArea.extent = swapchainExtent;
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = 1;
@@ -158,23 +157,16 @@ bool draw(){
 
     vkCmdBeginRendering(cmd, &renderingInfo);
 
-    VkViewport viewport = {0};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = swapchainExtent.width;
-    viewport.height = swapchainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height
+    });
         
-    VkRect2D scissor = {0};
-    scissor.offset = offset;
-    scissor.extent = swapchainExtent;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+        .extent = swapchainExtent,
+    });
         
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-    VkDeviceSize vOffset = 0;
 
     vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 
