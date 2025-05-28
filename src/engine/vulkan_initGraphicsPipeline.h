@@ -4,6 +4,6 @@
 #include <stdbool.h>
 #include <vulkan/vulkan.h>
 
-bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader);
+bool initGraphicsPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader, size_t pushConstantsSize);
 
 #endif

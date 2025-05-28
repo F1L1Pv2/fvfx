@@ -38,6 +38,15 @@ bool createBuffer(VkBufferUsageFlagBits usage, VkMemoryPropertyFlagBits memoryPr
         return false;
     }
     vertexMemoryAllocateInfo.memoryTypeIndex = index;
+
+    VkMemoryAllocateFlagsInfo memoryAllocateFlagsInfo = {0};
+    if(usage == VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT){
+        memoryAllocateFlagsInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+        memoryAllocateFlagsInfo.pNext = NULL;
+        memoryAllocateFlagsInfo.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+        vertexMemoryAllocateInfo.pNext = &memoryAllocateFlagsInfo;
+    }
+
     result = vkAllocateMemory(device, &vertexMemoryAllocateInfo,NULL,outMemory);
     if(result != VK_SUCCESS){
         printf("ERROR: Couldn't allocate memory\n");

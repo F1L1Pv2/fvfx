@@ -149,8 +149,13 @@ bool getDevice(){
         return false;
     }
 
+    VkPhysicalDeviceBufferDeviceAddressFeatures deviceBufferDeviceAddressFeatures = {0};
+    deviceBufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+    deviceBufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
+    
     VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature  = {0};
     dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+    dynamicRenderingFeature.pNext = &deviceBufferDeviceAddressFeatures;
     dynamicRenderingFeature.dynamicRendering = VK_TRUE;
 
     VkDeviceCreateInfo deviceInfo = {0};
@@ -161,7 +166,7 @@ bool getDevice(){
     deviceInfo.pQueueCreateInfos = queueCreateInfos.items;
     const char* extensions[] = {
         "VK_KHR_swapchain",
-        "VK_KHR_dynamic_rendering"
+        "VK_KHR_dynamic_rendering",
     };
     deviceInfo.enabledExtensionCount = ARRAY_LEN(extensions);
     deviceInfo.ppEnabledExtensionNames = extensions;

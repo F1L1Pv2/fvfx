@@ -11,12 +11,48 @@
 #include "engine/vulkan_initSwapchain.h"
 #include "engine/vulkan_initCommandPool.h"
 #include "engine/vulkan_initCommandBuffer.h"
-#include "engine/vulkan_initPipelineLayout.h"
 #include "engine/vulkan_compileShader.h"
 #include "engine/vulkan_initGraphicsPipeline.h"
 #include "engine/vulkan_synchro.h"
 #include "engine/vulkan_buffer.h"
 #include "engine/platform.h"
+
+typedef struct {
+    float x;
+    float y;
+} vec2;
+
+typedef struct {
+    float v[16];
+} mat4;
+
+typedef struct{
+    mat4 proj;
+    mat4 view;
+    VkDeviceAddress SpriteDrawBufferPtr;
+} PushConstants;
+
+typedef struct {
+    mat4 transform;
+} SpriteDrawCommand;
+
+static PushConstants pcs;
+
+#define MAX_SPRITE_COUNT 16
+
+mat4 ortho2D(float width, float height){
+    float left = -width/2;
+    float right = width/2;
+    float top = height/2;
+    float bottom = -height/2;
+
+    return (mat4){
+    2 / (right - left),0                 , 0, -(right + left) / (right - left),
+          0           ,2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+          0           ,     0            ,-1,                 0,
+          0           ,     0            , 0,                 1,
+    };
+}
 
 bool platform_resize_window_callback(){
     if(!swapchain) return true;
@@ -35,19 +71,16 @@ bool platform_resize_window_callback(){
 
     if(!initSwapchain()) return false;
 
+    pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
+    pcs.view = (mat4){
+        1,0,0,0,
+        0,1,0,0,
+        0,0,1,0,
+        -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
+    };
+
     return true;
 }
-
-typedef struct {
-    float x;
-    float y;
-} vec2;
-
-typedef struct{
-    vec2 offset;
-    vec2 scale;
-    float rotation;
-} PushConstants;
 
 int main(){
     platform_create_window("TRIEX",640,480);
@@ -56,59 +89,62 @@ int main(){
     if(!createSurface()) return 1;
     if(!getDevice()) return 1;
     if(!initSwapchain()) return 1;
-    if(!initPipelineLayout(sizeof(PushConstants))) return 1;
     if(!initCommandPool()) return 1;
     if(!initCommandBuffer()) return 1;
     if(!createAllNeededSyncrhonizationObjects()) return 1;
 
-    
     String_Builder sb = {0};
-    nob_read_entire_file("assets/triangle.vert",&sb);
+    nob_read_entire_file("assets/sprite.vert",&sb);
     sb_append_null(&sb);
     
     VkShaderModule vertexShader;
     if(!compileShader(sb.items, shaderc_vertex_shader,&vertexShader)) return 1;
 
     sb.count = 0;
-    nob_read_entire_file("assets/triangle.frag",&sb);
+    nob_read_entire_file("assets/sprite.frag",&sb);
     sb_append_null(&sb);
     
     VkShaderModule fragmentShader;
     if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return 1;
 
-    if(!initGraphicsPipeline(vertexShader,fragmentShader)) return 1;
+    if(!initGraphicsPipeline(vertexShader,fragmentShader, sizeof(PushConstants))) return 1;
 
-    PushConstants pcs = {0};
-    pcs.offset = (vec2){-1.0f,-1.0f};
-    pcs.scale = (vec2){2.0f,2.0f};
-    
-    // uint32_t indices[] = {
-    //     0,2,1
-    // };
+    pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
+    pcs.view = (mat4){
+        1,0,0,0,
+        0,1,0,0,
+        0,0,1,0,
+        -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
+    };
 
-    // Vertex vertices[] = {
-    //     {-0.5f,0.5f},
-    //     {0.5f,0.5f},
-    //     {0.0f,-0.5f},
-    // };
+    VkBuffer spriteDrawBuffer;
+    VkDeviceMemory spriteDrawMemory;
+    if(!createBuffer(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(SpriteDrawCommand)*MAX_SPRITE_COUNT,&spriteDrawBuffer,&spriteDrawMemory)) return 1;
 
-    // VkBuffer vertexBuffer;
-    // VkDeviceMemory vertexMemory;
-    // if(!createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(vertices),&vertexBuffer,&vertexMemory)) return 1;
-    // if(!transferDataToMemory(vertexMemory, vertices, 0, sizeof(vertices))) return 1;
-
-    // VkBuffer indexBuffer;
-    // VkDeviceMemory indexMemory;
-    // if(!createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(indices),&indexBuffer,&indexMemory)) return 1;
-    // if(!transferDataToMemory(indexMemory, indices, 0, sizeof(indices))) return 1;
+    VkBufferDeviceAddressInfoKHR addrInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
+        .buffer = spriteDrawBuffer,
+    };
+    pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddress(device, &addrInfo);
 
     uint32_t imageIndex;
 
     uint64_t oldTime = platform_get_time();
 
-
     size_t targetFPS = 120;
     float frameDuration = 1.0f / targetFPS;
+
+    SpriteDrawCommand instanceData[MAX_SPRITE_COUNT] = {0};
+    instanceData[0] = (SpriteDrawCommand){
+        .transform = (mat4){
+            200,0,0,0,
+            0,200,0,0,
+            0,0,1,0,
+            0,0,0,1,
+        }
+    };
+
+    transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
 
     while(platform_still_running()){
         if(!platform_window_handle_events()) return 1;
@@ -117,12 +153,16 @@ int main(){
         float deltaTime = (float)(time - oldTime) / 1000.0f;
         oldTime = time;
 
-        pcs.offset.y -= deltaTime;
+        instanceData[1] = (SpriteDrawCommand){
+            .transform = (mat4){
+                200,0,0,0,
+                0,200,0,0,
+                0,0,1,0,
+                swapchainExtent.width / 2 - 100,swapchainExtent.height / 2 - 100,0,1,
+            }
+        };
 
-        if(pcs.offset.y < -4) pcs.offset.y = 2.0f;
-
-        pcs.rotation += deltaTime;
-
+        transferDataToMemory(spriteDrawMemory,&instanceData[1],sizeof(instanceData[0]),sizeof(instanceData[0]));
 
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFence);
@@ -208,7 +248,7 @@ int main(){
 
         vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 
-        vkCmdDraw(cmd,6,1,0,0);
+        vkCmdDraw(cmd,6,2,0,0);
 
 
         vkCmdEndRendering(cmd);
