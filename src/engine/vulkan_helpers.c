@@ -148,3 +148,38 @@ void endDrawing(){
 VkImageView getSwapchainImageView(){
     return swapchainImageViews.items[imageIndex];
 }
+
+void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args){
+    VkRenderingAttachmentInfo colorAttachment = {0};
+    if(args.colorAttachment != NULL){
+        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        colorAttachment.imageView = args.colorAttachment;
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorAttachment.loadOp = args.doNotClearColor ? 0 : VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.clearValue.color.float32[0] = args.clearColor.r;
+        colorAttachment.clearValue.color.float32[1] = args.clearColor.g;
+        colorAttachment.clearValue.color.float32[2] = args.clearColor.b;
+        colorAttachment.clearValue.color.float32[3] = args.clearColor.a;
+    }
+    
+    VkRenderingInfo renderingInfo = {0};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea.offset = (VkOffset2D){0};
+    renderingInfo.renderArea.extent = swapchainExtent;
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = args.colorAttachment != NULL ? 1 : 0;
+    renderingInfo.pColorAttachments = args.colorAttachment != NULL ? &colorAttachment : 0;
+    renderingInfo.pDepthAttachment = NULL;
+    renderingInfo.pStencilAttachment = NULL;
+
+    vkCmdBeginRendering(commandBuffer, &renderingInfo);
+}
+
+VkDeviceAddress vkGetBufferDeviceAddressEX(VkBuffer buffer){
+    VkBufferDeviceAddressInfoKHR addrInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
+        .buffer = buffer,
+    };
+    return vkGetBufferDeviceAddress(device, &addrInfo);
+}

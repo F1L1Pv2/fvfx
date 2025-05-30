@@ -10,19 +10,19 @@
 #include "vulkan_createGraphicPipelines.h"
 
 
-bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader, size_t pushConstantsSize, VkPipeline* pipeline, VkPipelineLayout* pipelineLayout){
+bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {0};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = NULL;
     pipelineLayoutCreateInfo.flags = 0;
-    pipelineLayoutCreateInfo.setLayoutCount = 1;
-    pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
+    pipelineLayoutCreateInfo.setLayoutCount = args.descriptorSetLayoutCount;
+    pipelineLayoutCreateInfo.pSetLayouts = args.descriptorSetLayouts;
 
-    if(pushConstantsSize > 0){
+    if(args.pushConstantsSize > 0){
         VkPushConstantRange pushConstantRange = {0};
         pushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
         pushConstantRange.offset = 0;
-        pushConstantRange.size = pushConstantsSize;
+        pushConstantRange.size = args.pushConstantsSize;
 
         pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
         pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
@@ -31,7 +31,7 @@ bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentS
         pipelineLayoutCreateInfo.pPushConstantRanges = NULL;
     }
 
-    VkResult result = vkCreatePipelineLayout(device,&pipelineLayoutCreateInfo,NULL,pipelineLayout);
+    VkResult result = vkCreatePipelineLayout(device,&pipelineLayoutCreateInfo,NULL,args.pipelineLayoutOUT);
     if(result != VK_SUCCESS){
         printf("Couldn't create pipeline layout\n");
         return false;
@@ -141,7 +141,7 @@ bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentS
     pipelineShaderStageCreateInfoVertex.pNext = NULL;
     pipelineShaderStageCreateInfoVertex.flags = 0;
     pipelineShaderStageCreateInfoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    pipelineShaderStageCreateInfoVertex.module = vertexShader;
+    pipelineShaderStageCreateInfoVertex.module = args.vertexShader;
     pipelineShaderStageCreateInfoVertex.pName = "main";
     pipelineShaderStageCreateInfoVertex.pSpecializationInfo = NULL;
 
@@ -150,7 +150,7 @@ bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentS
     pipelineShaderStageCreateInfoFragment.pNext = NULL;
     pipelineShaderStageCreateInfoFragment.flags = 0;
     pipelineShaderStageCreateInfoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pipelineShaderStageCreateInfoFragment.module = fragmentShader;
+    pipelineShaderStageCreateInfoFragment.module = args.fragmentShader;
     pipelineShaderStageCreateInfoFragment.pName = "main";
     pipelineShaderStageCreateInfoFragment.pSpecializationInfo = NULL;
 
@@ -182,14 +182,14 @@ bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentS
     graphicsPipelineCreateInfo.pDepthStencilState = &pipelineDepthStencilStateCreateInfo;
     graphicsPipelineCreateInfo.pColorBlendState = &pipelineColorBlendStateCreateInfo;
     graphicsPipelineCreateInfo.pDynamicState = &pipelineDynamicStateCreateInfo;
-    graphicsPipelineCreateInfo.layout = *pipelineLayout;
+    graphicsPipelineCreateInfo.layout = *args.pipelineLayoutOUT;
     graphicsPipelineCreateInfo.renderPass = NULL;
     graphicsPipelineCreateInfo.subpass = 0;
     graphicsPipelineCreateInfo.basePipelineHandle = NULL; // OPTIONAL
     graphicsPipelineCreateInfo.basePipelineIndex = -1;    // OPTIONAL
     
 
-    result = vkCreateGraphicsPipelines(device,NULL,1,&graphicsPipelineCreateInfo,NULL,pipeline);
+    result = vkCreateGraphicsPipelines(device,NULL,1,&graphicsPipelineCreateInfo,NULL,args.pipelineOUT);
 
     if(result != VK_SUCCESS){
         printf("ERROR: Couldn't create graphics pipeline\n");

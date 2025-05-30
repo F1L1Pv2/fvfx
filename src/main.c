@@ -15,23 +15,10 @@
 #include "engine/vulkan_buffer.h"
 #include "engine/vulkan_images.h"
 
-#include "3rdparty/stb_image.h"
 #include "math.h"
-
-typedef struct {
-    float x;
-    float y;
-} vec2;
-
-typedef struct {
-    float x;
-    float y;
-    float z;
-} vec3;
-
-typedef struct {
-    float v[16];
-} mat4;
+#include "modules/gmath.h"
+#include "modules/bindlessTexturesManager.h"
+#include "fvfx/spriteManager.h"
 
 typedef struct{
     mat4 proj;
@@ -39,15 +26,7 @@ typedef struct{
     VkDeviceAddress SpriteDrawBufferPtr;
 } PushConstants;
 
-typedef struct {
-    mat4 transform;
-    uint32_t textureID;
-    vec3 albedo;
-} SpriteDrawCommand;
-
 static PushConstants pcs;
-
-#define MAX_SPRITE_COUNT 16
 
 mat4 ortho2D(float width, float height){
     float left = -width/2;
@@ -75,34 +54,20 @@ bool afterResize(){
     return true;
 }
 
-static SpriteDrawCommand instanceData[MAX_SPRITE_COUNT] = {0};
 static VkPipeline pipeline;
 static VkPipelineLayout pipelineLayout;
-static VkBuffer spriteDrawBuffer;
-static VkDeviceMemory spriteDrawMemory;
 
-typedef struct{
-    char* data;
-} STB_Image;
-
-typedef struct {
-    STB_Image* items;
-    size_t count;
-    size_t capacity;
-} STB_Images;
-
-STB_Images images = {0};
-float time;
-
-size_t imageIndex = 0;
-
-char* mapped;
-int width, height;
+size_t lenaTextureID;
 
 int main(){
     if(!engineInit("FVFX", 640,480)) return 1;
 
     {
+        File_Paths initialTextures = {0};
+        da_append(&initialTextures,"assets/test.png");
+        if(!initBindlessTextures(initialTextures)) return 1;
+        lenaTextureID = getTextureID("assets/test.png");
+
         String_Builder sb = {0};
         nob_read_entire_file("assets/sprite.vert",&sb);
         sb_append_null(&sb);
@@ -117,102 +82,19 @@ int main(){
         VkShaderModule fragmentShader;
         if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return false;
         
-        if(!createGraphicPipeline(vertexShader,fragmentShader, sizeof(PushConstants), &pipeline, &pipelineLayout)) return false;
+        if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
+            .vertexShader = vertexShader,
+            .fragmentShader = fragmentShader,
+            .pushConstantsSize = sizeof(PushConstants),
+            .pipelineOUT = &pipeline, 
+            .pipelineLayoutOUT = &pipelineLayout,
+            .descriptorSetLayoutCount = 1,
+            .descriptorSetLayouts = &bindlessDescriptorSetLayout,
+        })) return false;
         
-        pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
-        pcs.view = (mat4){
-            1,0,0,0,
-            0,1,0,0,
-            0,0,1,0,
-            -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
-        };
-        
-        if(!createBuffer(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(SpriteDrawCommand)*MAX_SPRITE_COUNT,&spriteDrawBuffer,&spriteDrawMemory)) return false;
-        
-        VkBufferDeviceAddressInfoKHR addrInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
-            .buffer = spriteDrawBuffer,
-        };
-        pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddress(device, &addrInfo);
-        
-        instanceData[1] = (SpriteDrawCommand){
-            .transform = (mat4){
-                200,0,0,0,
-                0,200,0,0,
-                0,0,1,0,
-                0,0,0,1,
-            },
-            .textureID = -1,
-            .albedo = (vec3){1.0f,0.0,0.5},
-        };
-        
-        transferDataToMemory(spriteDrawMemory,&instanceData,0,sizeof(instanceData));
-    
-        File_Paths children = {0};
-    
-        nob_read_entire_dir("assets/video",&children);
-    
-        sb.count = 0;
-        sb_append_cstr(&sb, "assets/video/");
-        size_t savedCount = sb.count;
-    
-        for(int i = 0; i < children.count; i++){
-            if(!sv_end_with(sv_from_cstr(children.items[i]),".png")) continue;
-    
-            sb.count = savedCount;
-            sb_append_cstr(&sb,children.items[i]);
-            sb_append_null(&sb);
-    
-            STB_Image img = {0};
-    
-            img.data = (char*)stbi_load(sb.items,&width,&height, NULL, 4);
-            if(img.data == NULL){
-                printf("ERROR: Couldn't read image from disk (%s)\n", children.items[i]);
-                return 1;
-            }
-    
-            da_append(&images,img);
-        }
-
-        da_free(children);
-    
-        VkImage image;
-        VkDeviceMemory imageMemory;
-        VkImageView imageView;
-    
-        if(!createImage(width,height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &image, &imageMemory)){
-            return 1;
-        }
-    
-        if(!sendDataToImage(image,images.items[imageIndex].data,width,width*sizeof(uint32_t),height)){
-            return 1;
-        }
-    
-        if(!createImageView(image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, &imageView)){
-            return 1;
-        }
-    
-        VkDescriptorImageInfo descriptorImageInfo = {0};
-        descriptorImageInfo.sampler = samplerLinear;
-        descriptorImageInfo.imageView = imageView;
-        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    
-        VkWriteDescriptorSet writeDescriptorSet = {0};
-        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writeDescriptorSet.pNext = NULL;
-        writeDescriptorSet.dstSet = bindlessDescriptorSet;
-        writeDescriptorSet.dstBinding = 0;
-        writeDescriptorSet.dstArrayElement = 0;
-        writeDescriptorSet.descriptorCount = 1;
-        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
-    
-        vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
-    
-        VkResult result = vkMapMemory(device,imageMemory,0,width*height*sizeof(uint32_t),0,(void**)&mapped);
-        if(result != VK_SUCCESS){
-            return 1;
-        }
+        afterResize();
+        if(!initSpriteManager()) return 1;
+        pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddressEX(spriteDrawBuffer);
 
         da_free(sb);
     }
@@ -220,60 +102,73 @@ int main(){
     return engineStart();
 }
 
+float time;
+
+vec2 pos = (vec2){300, 50};
+vec2 acc = (vec2){5.0f,-2.0};
+vec2 size = (vec2){200,200};
+
+size_t jimboTextureID = -1;
+
 bool update(float deltaTime){
-    float aspectRatio = (float)width / (float)height;
-
-    float uwidth = swapchainExtent.height * aspectRatio;
-    float uheight = swapchainExtent.height;
-
-    instanceData[0] = (SpriteDrawCommand){
-        .transform = (mat4){
-            uwidth,0,0,0,
-            0,uheight,0,0,
-            0,0,1,0,
-            swapchainExtent.width / 2 - uwidth / 2,swapchainExtent.height / 2 -uheight / 2,0,1,
-        },
-        .textureID = 0,
-    };
-
-    transferDataToMemory(spriteDrawMemory,&instanceData[0],0,sizeof(instanceData[0]));
-
     time += deltaTime;
 
-    size_t currentIndex = (size_t)(floorf(time * 60)) % (images.count-1);
-
-    if(currentIndex != imageIndex){
-        imageIndex = currentIndex;
-
-        memcpy(mapped,images.items[imageIndex].data, width*height*sizeof(uint32_t));
+    acc.y += deltaTime * 9.8f;
+    
+    if(pos.x + size.x + acc.x < swapchainExtent.width && pos.x + acc.x > 0){
+        pos.x += acc.x;
+    }else{
+        acc.x = acc.x * -1.0f;
     }
+
+    if(pos.y + size.y + acc.y < swapchainExtent.height){
+        pos.y += acc.y;
+    }else{
+        acc.y = acc.y * -0.96f;
+    }
+
+    drawSprite((SpriteDrawCommand){
+        .transform = (mat4){
+            200,0,0,0,
+            0,200,0,0,
+            0,0,1,0,
+            0,0,0,1,
+        },
+        .textureID = -1,
+        .albedo = (vec3){0.0,1.0,0.0},
+    });
+
+    size_t textureID;
+
+    if(jimboTextureID == -1){
+        textureID = lenaTextureID;
+    }else{
+        textureID = (uint32_t)(floorf(time*10)) % 2 ? lenaTextureID : jimboTextureID;
+    }
+
+    if(time > 5.0f && jimboTextureID == -1){
+        jimboTextureID = addBindlessTextureFromDisk("assets/Jimbo100x.png");
+    }
+
+    drawSprite((SpriteDrawCommand){
+        .transform = (mat4){
+            size.x,0,0,0,
+            0,size.y,0,0,
+            0,0,1,0,
+            pos.x,pos.y,0,1,
+        },
+        .textureID = textureID,
+        .albedo = (vec3){1.0,0.0,0.0},
+    });
 
     return true;
 }
 
 bool draw(){
-    VkRenderingAttachmentInfo colorAttachment = {0};
-    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    colorAttachment.imageView = getSwapchainImageView();
-    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color.float32[0] = 0.0f;
-    colorAttachment.clearValue.color.float32[1] = 0.0f;
-    colorAttachment.clearValue.color.float32[2] = 0.0f;
-    colorAttachment.clearValue.color.float32[3] = 1.0f;
-
-    VkRenderingInfo renderingInfo = {0};
-    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea.offset = (VkOffset2D){0};
-    renderingInfo.renderArea.extent = swapchainExtent;
-    renderingInfo.layerCount = 1;
-    renderingInfo.colorAttachmentCount = 1;
-    renderingInfo.pColorAttachments = &colorAttachment;
-    renderingInfo.pDepthAttachment = NULL;
-    renderingInfo.pStencilAttachment = NULL;
-
-    vkCmdBeginRendering(cmd, &renderingInfo);
+    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+        .colorAttachment = getSwapchainImageView(),
+        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f}
+    });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
         .width = swapchainExtent.width,
@@ -289,7 +184,7 @@ bool draw(){
 
     vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 
-    vkCmdDraw(cmd,6,2,0,0);
+    renderSprites();
 
     vkCmdEndRendering(cmd);
 

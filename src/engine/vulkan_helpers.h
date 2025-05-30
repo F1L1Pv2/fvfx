@@ -9,6 +9,23 @@ bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint3
 VkCommandBuffer beginSingleTimeCommands();
 void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
+typedef struct {
+    float r;
+    float g;
+    float b;
+    float a;
+} Color;
+
+typedef struct{
+    VkImageView colorAttachment;
+    Color clearColor;
+    bool doNotClearColor;
+} BeginRenderingEX;
+
+void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args);
+
+VkDeviceAddress vkGetBufferDeviceAddressEX(VkBuffer buffer);
+
 void beginDrawing();
 void endDrawing();
 VkImageView getSwapchainImageView();

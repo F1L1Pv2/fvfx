@@ -13,7 +13,6 @@
 #include "vulkan_initCommandBuffer.h"
 #include "vulkan_synchro.h"
 #include "vulkan_initDescriptorPool.h"
-#include "vulkan_initDescriptorSet.h"
 #include "vulkan_initSamplers.h"
 #include "vulkan_helpers.h"
 #include "platform.h"
@@ -55,7 +54,6 @@ bool engineInit(char* title, size_t width, size_t height){
     if(!initCommandBuffer()) return false;
     if(!createAllNeededSyncrhonizationObjects()) return false;
     if(!initDescriptorPool()) return false;
-    if(!initDescriptorSet()) return false;
     if(!initSamplers()) return false;
 
     uint64_t oldTime = platform_get_time();

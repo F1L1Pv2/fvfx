@@ -4,6 +4,16 @@
 #include <stdbool.h>
 #include <vulkan/vulkan.h>
 
-bool createGraphicPipeline(VkShaderModule vertexShader, VkShaderModule fragmentShader, size_t pushConstantsSize, VkPipeline* pipeline, VkPipelineLayout* pipelineLayout);
+typedef struct {
+    VkShaderModule vertexShader;
+    VkShaderModule fragmentShader;
+    size_t pushConstantsSize;
+    VkPipeline* pipelineOUT;
+    VkPipelineLayout* pipelineLayoutOUT;
+    size_t descriptorSetLayoutCount;
+    VkDescriptorSetLayout* descriptorSetLayouts;
+} CreateGraphicsPipelineARGS;
+
+bool createGraphicPipeline(CreateGraphicsPipelineARGS args);
 
 #endif
