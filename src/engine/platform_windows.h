@@ -268,6 +268,12 @@ void platform_fill_keycode_lookup_table(){
   KeyCodeLookupTable[VK_NUMPAD9] = KEY_NUMPAD_9;
 }
 
+void platform_set_mouse_position(size_t x, size_t y) {
+    POINT pt = { (LONG)x, (LONG)y };
+    ClientToScreen(hwnd, &pt); // Convert to screen coordinates
+    SetCursorPos(pt.x, pt.y);
+}
+
 #ifndef DEBUG
 
 int WinMain(

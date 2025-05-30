@@ -301,3 +301,8 @@ void platform_fill_keycode_lookup_table(){
     KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_8)] = KEY_NUMPAD_8;
     KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_9)] = KEY_NUMPAD_9;
 }
+
+void platform_set_mouse_position(size_t x, size_t y) {
+    XWarpPointer(display, None, window, 0, 0, 0, 0, (int)x, (int)y);
+    XFlush(display);
+}

@@ -10,5 +10,6 @@ bool platform_still_running();
 void platform_sleep(size_t milis);
 bool platform_resize_window_callback();
 uint64_t platform_get_time();
+void platform_set_mouse_position(size_t x, size_t y);
 
 #endif

@@ -7,6 +7,7 @@
 #include "engine/vulkan_images.h"
 #include "engine/vulkan_buffer.h"
 #include "engine/input.h"
+#include "engine/platform.h"
 
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -69,6 +70,7 @@ bool initDepthImage(){
 int main(){
     engineInit("Cube Example", 640, 480);
     afterResize();
+    platform_set_mouse_position(swapchainExtent.width/2, swapchainExtent.height/2);
 
     String_Builder sb = {0};
     read_entire_file("assets/shaders/compiled/model.vert.spv", &sb);
@@ -186,6 +188,17 @@ bool update(float deltaTime){
     if(input.keys[KEY_DOWN].isDown) rot.y -= deltaTime;
     if(input.keys[KEY_LEFT].isDown) rot.x += deltaTime;
     if(input.keys[KEY_RIGHT].isDown) rot.x -= deltaTime;
+
+
+    float sensitivity = deltaTime;
+
+    float valX =  (float)((int)input.mouse_x - (int)swapchainExtent.width/2) / swapchainExtent.width;
+    float valY =  (float)((int)input.mouse_y - (int)swapchainExtent.height/2) / swapchainExtent.height;
+
+    rot.x -= valX;
+    rot.y -= valY;
+
+    platform_set_mouse_position(swapchainExtent.width/2, swapchainExtent.height/2);
 
     pcs.view = (mat4){
         1,0,0,0,
