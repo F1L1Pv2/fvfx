@@ -69,20 +69,20 @@ int main(){
         lenaTextureID = getTextureID("assets/test.png");
 
         String_Builder sb = {0};
-        nob_read_entire_file("assets/shaders/compile/Vsprite.spv",&sb);
+        nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
         sb_append_null(&sb);
         
         VkShaderModule vertexShader;
         // if(!compileShader(sb.items, shaderc_vertex_shader,&vertexShader)) return false;
-        if(!compileShaderFromBinary(sb.items,sb.count-1,&vertexShader)) return false;
+        if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&vertexShader)) return false;
         
         sb.count = 0;
-        nob_read_entire_file("assets/shaders/compile/Fsprite.spv",&sb);
+        nob_read_entire_file("assets/shaders/compiled/sprite.frag.spv",&sb);
         sb_append_null(&sb);
         
         VkShaderModule fragmentShader;
         // if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return false;
-        if(!compileShaderFromBinary(sb.items,sb.count-1,&fragmentShader)) return false;
+        if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&fragmentShader)) return false;
         
         if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
             .vertexShader = vertexShader,

@@ -527,10 +527,13 @@ static bool compile_shader(const char* input_path, const char* output_path) {
     if (!filename) filename = strrchr(input_path, '\\');
     if (!filename) filename = input_path;
     else filename++;
+
+    String_View sv = sv_from_cstr(input_path);
+    sv_chop_by_delim(&sv, '.');
     
-    if (filename[0] == 'V') {
+    if(sv_eq(sv,sv_from_cstr("vert.glsl"))) {
         nob_cmd_append(&cmd, "-fshader-stage=vertex");
-    } else if (filename[0] == 'F') {
+    } else if (sv_eq(sv,sv_from_cstr("frag.glsl"))) {
         nob_cmd_append(&cmd, "-fshader-stage=fragment");
     }
 
@@ -549,13 +552,21 @@ static bool build_shaders(bool force_all) {
         return false;
     }
 
+    if(!folder_exists("assets/shaders/compiled")) mkdir_if_not_exists("assets/shaders/compiled");
+
     bool all_compiled = true;
     for (size_t i = 0; i < shader_files.count; i++) {
         const char* input_path = shader_files.items[i];
 
+        String_View sv = sv_from_cstr(input_path);
+        sv_chop_by_delim(&sv, '.');
+
+        if(sv_eq(sv,sv_from_cstr("glsl"))) continue;
+
         // Create output path by changing extension to .spv
         Nob_String_Builder output_path = {0};
-        sb_append_cstr(&output_path, input_path);
+        sb_append_cstr(&output_path, "assets/shaders/compiled");
+        sb_append_cstr(&output_path, strrchr(input_path, '/'));
         change_sb_extension(&output_path, "spv");
         sb_append_null(&output_path);
 

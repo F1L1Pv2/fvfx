@@ -152,11 +152,6 @@ bool getDevice(){
     VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures = {0};
     indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
 
-    VkPhysicalDeviceFeatures2 physicalFeatures2 = {0};
-    physicalFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    physicalFeatures2.pNext = &indexingFeatures;
-    vkGetPhysicalDeviceFeatures2(physicalDevice, &physicalFeatures2);
-
     VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0};
     descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
     descriptorIndexingFeatures.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;

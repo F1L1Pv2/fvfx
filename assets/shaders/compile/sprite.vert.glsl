@@ -1,6 +1,6 @@
 #version 450
 
-#include "sprite.pcs"
+#include "sprite_pcs.glsl"
 
 layout(location = 0) out vec2 uv;
 layout(location = 1) out flat uint InstanceIndex;

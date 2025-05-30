@@ -1,6 +1,6 @@
 #version 450
 
-#include "sprite.pcs"
+#include "sprite_pcs.glsl"
 
 layout (set = 0, binding = 0) uniform sampler2D textures[];
 
