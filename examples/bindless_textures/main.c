@@ -14,6 +14,7 @@
 #include "engine/vulkan_helpers.h"
 #include "engine/vulkan_buffer.h"
 #include "engine/vulkan_images.h"
+#include "engine/input.h"
 
 #include "math.h"
 #include "modules/gmath.h"
@@ -59,7 +60,6 @@ int main(){
         sb_append_null(&sb);
         
         VkShaderModule vertexShader;
-        // if(!compileShader(sb.items, shaderc_vertex_shader,&vertexShader)) return false;
         if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&vertexShader)) return false;
         
         sb.count = 0;
@@ -67,7 +67,6 @@ int main(){
         sb_append_null(&sb);
         
         VkShaderModule fragmentShader;
-        // if(!compileShader(sb.items, shaderc_fragment_shader,&fragmentShader)) return false;
         if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&fragmentShader)) return false;
         
         if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
@@ -98,6 +97,8 @@ vec2 size = (vec2){200,200};
 
 size_t jimboTextureID = -1;
 
+vec2 pos2 = {0};
+
 bool update(float deltaTime){
     time += deltaTime;
 
@@ -115,12 +116,17 @@ bool update(float deltaTime){
         acc.y = acc.y * -0.96f;
     }
 
+    if(input.keys[KEY_RIGHT].isDown) pos2.x += deltaTime * 200;
+    if(input.keys[KEY_LEFT].isDown) pos2.x -= deltaTime * 200;
+    if(input.keys[KEY_DOWN].isDown) pos2.y += deltaTime * 200;
+    if(input.keys[KEY_UP].isDown) pos2.y -= deltaTime * 200;
+
     drawSprite((SpriteDrawCommand){
         .transform = (mat4){
             200,0,0,0,
             0,200,0,0,
             0,0,1,0,
-            0,0,0,1,
+            pos2.x,pos2.y,0,1,
         },
         .textureID = -1,
         .albedo = (vec3){0.0,1.0,0.0},
