@@ -16,4 +16,6 @@ typedef struct {
     float v[16];
 } mat4;
 
+mat4 ortho2D(float width, float height);
+
 #endif
