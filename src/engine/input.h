@@ -2,6 +2,7 @@
 #define FVFX_INPUT
 
 #include <stdbool.h>
+#include <stdlib.h>
 
 typedef enum {
   KEY_MOUSE_LEFT,

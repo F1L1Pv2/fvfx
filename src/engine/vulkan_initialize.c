@@ -17,7 +17,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     void* pUserData) {
 
     // Print debug messages
-    printf("%s\n", pCallbackData->pMessage);
+    fprintf(stderr, "%s\n", pCallbackData->pMessage);
 
     // Optionally, return VK_FALSE if you want to stop Vulkan from continuing after the message.
     // VK_TRUE means the message is handled, and Vulkan can continue as usual.

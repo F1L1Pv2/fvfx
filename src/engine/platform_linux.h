@@ -61,15 +61,16 @@ void platform_create_window(const char* title, size_t width, size_t height){
 
   platform_fill_keycode_lookup_table();
 }
+static int BUTTONS_KEYCODE_OFFSET = 250;
 
 bool platform_window_handle_events() {
-    static struct {
-        int scroll_delta = 0;
-        struct {
-            Time last_click_time[3] = {0};  // For left, middle, right buttons
-            int click_count[3] = {0};      // For left, middle, right buttons
-        } double_click;
-    } mouse_state;
+    //static struct {
+    //    int scroll_delta = 0;
+    //    struct {
+    //        Time last_click_time[3] = {0};  // For left, middle, right buttons
+    //        int click_count[3] = {0};      // For left, middle, right buttons
+    //    } double_click;
+    //} mouse_state = {0};
 
     Window root;
     Window child;
@@ -78,10 +79,9 @@ bool platform_window_handle_events() {
     int win_x;
     int win_y;
     unsigned int mask_return;
-    XQueryPointer(display, myWindow, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
+    XQueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
 
-    input.scroll = mouse_state.scroll_delta;
-    mouse_state.scroll_delta = 0;
+    input.scroll;
 
     input.mouse_x = win_x;
     input.mouse_y = win_y;
@@ -103,7 +103,7 @@ bool platform_window_handle_events() {
             {
                 bool isDown = event.type == KeyPress;
                 KeyCodeID keyCode = KeyCodeLookupTable[event.xkey.keycode];
-                Key* key = &input->keys[keyCode];
+                Key* key = &input.keys[keyCode];
 
                 key->justPressed = !key->justPressed && !key->isDown && isDown;
                 key->justReleased = !key->justReleased && key->isDown && !isDown;
@@ -120,13 +120,13 @@ bool platform_window_handle_events() {
 
                 if(isDown){
                     switch(event.xbutton.button) {
-                        case Button4: mouse_state.scroll_delta += 1; return; // Wheel up
-                        case Button5: mouse_state.scroll_delta -= 1; return; // Wheel down
+                        case Button4: input.scroll += 1; break; // Wheel up
+                        case Button5: input.scroll -= 1; break; // Wheel down
                     }
                 }
 
                 KeyCodeID keyCode = KeyCodeLookupTable[BUTTONS_KEYCODE_OFFSET + event.xbutton.button];
-                Key* key = &input->keys[keyCode];
+                Key* key = &input.keys[keyCode];
 
                 key->justPressed = !key->justPressed && !key->isDown && isDown;
                 key->justReleased = !key->justReleased && key->isDown && !isDown;
@@ -157,7 +157,7 @@ bool platform_still_running(){
 }
 
 void platform_sleep(size_t milis){
-    usleep(milis);
+    usleep(milis*1000);
 }
 
 uint64_t platform_get_time(){
@@ -168,7 +168,7 @@ uint64_t platform_get_time(){
     #else
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        return (uint64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+        return ((uint64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
     #endif
 }
 

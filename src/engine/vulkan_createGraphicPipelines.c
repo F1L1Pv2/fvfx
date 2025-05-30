@@ -42,8 +42,8 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineVertexInputStateCreateInfo.pNext = NULL;
     pipelineVertexInputStateCreateInfo.flags = 0;
 
+    VkVertexInputBindingDescription vertexInputBindingDescription = {0};
     if(args.vertexSize > 0){
-        VkVertexInputBindingDescription vertexInputBindingDescription = {0};
         vertexInputBindingDescription.binding = 0;
         vertexInputBindingDescription.stride = args.vertexSize;
         vertexInputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
