@@ -18,7 +18,7 @@
 #include "math.h"
 #include "modules/gmath.h"
 #include "modules/bindlessTexturesManager.h"
-#include "fvfx/spriteManager.h"
+#include "modules/spriteManager.h"
 
 typedef struct{
     mat4 proj;

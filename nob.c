@@ -18,6 +18,13 @@
 #define NOB_STRIP_PREFIX
 #include "nob.h"
 
+// Configuration
+#define DEFAULT_EXAMPLE "bindless_textures"
+#define OUTPUT_PROGRAM_NAME "main"
+#define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
+#define COMPILER_ARGS PLATFORM_COMPILER_ARGS "-I./", "-I./src"
+#define LINKER_FLAGS PLATFORM_LINKER_FLAGS
+
 #ifdef _WIN32
 #define VULKAN_SDK_SEARCH_PATH "C:/VulkanSDK"
 const char* vulkanSDKPathLIB;
@@ -32,11 +39,6 @@ const char* vulkanSDKPathINC;
 #define PLATFORM_COMPILER_ARGS
 #define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm"
 #endif
-
-#define OUTPUT_PROGRAM_NAME "main"
-#define COMPILER_ARGS PLATFORM_COMPILER_ARGS "-I./", "-I./src"
-#define LINKER_FLAGS PLATFORM_LINKER_FLAGS
-#define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
 static char* strltrim(char* s) {
     while (isspace(*s)) s++;
@@ -222,18 +224,21 @@ static bool folder_exists(const char* path) {
 #endif
 }
 
-static void make_needed_folders_recursive(String_View filename) {
-    if (filename.count == 0) return;
-    if(folder_exists(filename.data)) return;
-    String_View sv = filename;
-
+static void make_needed_folders_recursive(const char* path) {
+    if (folder_exists(path)) return;
+    String_View sv = sv_from_cstr(path);
+    String_View dir = sv;
+    sv_chop_by_delim(&dir, '/');
+    
     String_Builder sb = {0};
     while (sv.count > 0) {
-        sv_chop_by_delim(&sv, '/');
-        sb.count = 0;
-        sb_append_buf(&sb, filename.data, sv.data - filename.data);
+        String_View component = sv_chop_by_delim(&sv, '/');
+        if (component.count == 0) continue;
+        sb_append_buf(&sb, component.data, component.count);
+        sb_append_cstr(&sb, "/");
         sb_append_null(&sb);
-        mkdir_if_not_exists(sb.items);
+        nob_mkdir_if_not_exists(sb.items);
+        sb.count--; // Remove null terminator
     }
     sb_free(sb);
 }
@@ -246,6 +251,24 @@ static bool change_extension(String_Builder* sb, const char* filename, const cha
     sb_append_buf(sb, filename, sv.data - filename);
     sb_append_cstr(sb, new_ext);
     return true;
+}
+
+static void change_sb_extension(String_Builder* sb, const char* new_ext) {
+    // Find the last '.' in the last path component
+    size_t i = sb->count;
+    while (i > 0) {
+        char c = sb->items[i-1];
+        if (c == '.') {
+            sb->count = i-1;
+            break;
+        }
+        if (c == '/' || c == '\\') {
+            break;
+        }
+        i--;
+    }
+    sb_append_cstr(sb, ".");
+    sb_append_cstr(sb, new_ext);
 }
 
 static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
@@ -264,7 +287,10 @@ static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
                 return false;
             }
         } else {
-            nob_da_append(paths, nob_temp_strdup(fullpath));
+            const char* ext = nob_get_ext(child);
+            if (ext && strcmp(ext, "c") == 0) {
+                nob_da_append(paths, nob_temp_strdup(fullpath));
+            }
         }
     }
 
@@ -272,17 +298,47 @@ static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
     return true;
 }
 
-static bool build(Nob_Cmd* cmd, const char* filename, bool debug) {
+static bool build_source_file(Nob_Cmd* cmd, const char* filename, const char* example_name, bool debug) {
+    bool is_example = false;
+    char* relative_path = NULL;
+    if (strstr(filename, "src/") == filename) {
+        relative_path = (char*)filename + 4;
+    } else if (strstr(filename, "examples/") == filename) {
+        relative_path = (char*)filename + 9;
+        is_example = true;
+    } else {
+        nob_log(NOB_ERROR, "File %s is not in src or examples", filename);
+        return false;
+    }
+
+    // Form the object file path
     Nob_String_Builder obj_path = {0};
     sb_append_cstr(&obj_path, BUILD_PATH(debug));
-    if (!change_extension(&obj_path, filename, "o")) return false;
+    if (is_example) {
+        sb_append_cstr(&obj_path, "examples/");
+    } else {
+        sb_append_cstr(&obj_path, "src/");
+    }
+    sb_append_cstr(&obj_path, relative_path);
+    change_sb_extension(&obj_path, "o");
     sb_append_null(&obj_path);
 
+    // Make sure the directory exists
     String_View dir = get_dirname(obj_path.items);
     if (dir.count > 0) {
         char dir_str[1024];
         snprintf(dir_str, sizeof(dir_str), "%.*s", (int)dir.count, dir.data);
-        make_needed_folders_recursive(sv_from_cstr(dir_str));
+        make_needed_folders_recursive(dir_str);
+    }
+
+    Nob_String_Builder string_buffer = {0};
+    Nob_File_Paths deps = {0};
+    bool needs_build = nob_c_needs_rebuild(&string_buffer, &deps, obj_path.items, filename);
+    if (!needs_build) {
+        nob_sb_free(obj_path);
+        nob_sb_free(string_buffer);
+        nob_da_free(deps);
+        return true;
     }
 
     cmd->count = 0;
@@ -292,33 +348,152 @@ static bool build(Nob_Cmd* cmd, const char* filename, bool debug) {
     nob_cmd_append(cmd, COMPILER_ARGS);
     nob_cmd_append(cmd, debug ? "-g" : "-O3");
     if (debug) nob_cmd_append(cmd, "-DDEBUG");
+    nob_cmd_append(cmd, "-I./src");
+    if (is_example) {
+        char* example_include = nob_temp_sprintf("-I./examples/%s", example_name);
+        nob_cmd_append(cmd, example_include);
+    }
 
     bool res = nob_cmd_run_sync(*cmd);
     nob_sb_free(obj_path);
+    nob_sb_free(string_buffer);
+    nob_da_free(deps);
     return res;
 }
 
-static bool link_files(Nob_Cmd* cmd, const char* output_filename, 
-                       Nob_File_Paths* src_paths, bool debug) {
-    cmd->count = 0;
-    nob_cc(cmd);
+static bool build_example(const char* example_name, bool debug) {
+    // Ensure build directory exists
+    const char* build_path = BUILD_PATH(debug);
+    make_needed_folders_recursive(build_path);
 
-    for (size_t i = 0; i < src_paths->count; i++) {
-        Nob_String_Builder obj_path = {0};
-        sb_append_cstr(&obj_path, BUILD_PATH(debug));
-        if (!change_extension(&obj_path, src_paths->items[i], "o")) {
-            nob_sb_free(obj_path);
+    Nob_File_Paths src_files = {0};
+    if (!collect_source_files("src", &src_files)) {
+        nob_log(NOB_ERROR, "Failed to collect source files");
+        return false;
+    }
+
+    char* example_dir = nob_temp_sprintf("examples/%s", example_name);
+    Nob_File_Paths example_files = {0};
+    if (!collect_source_files(example_dir, &example_files)) {
+        nob_log(NOB_ERROR, "Failed to collect example files for %s", example_name);
+        nob_da_free(src_files);
+        return false;
+    }
+
+    Nob_Cmd cmd = {0};
+    for (size_t i = 0; i < src_files.count; i++) {
+        if (!build_source_file(&cmd, src_files.items[i], example_name, debug)) {
+            nob_log(NOB_ERROR, "Failed to build %s", src_files.items[i]);
+            nob_da_free(src_files);
+            nob_da_free(example_files);
+            nob_cmd_free(cmd);
             return false;
         }
+    }
+
+    for (size_t i = 0; i < example_files.count; i++) {
+        if (!build_source_file(&cmd, example_files.items[i], example_name, debug)) {
+            nob_log(NOB_ERROR, "Failed to build %s", example_files.items[i]);
+            nob_da_free(src_files);
+            nob_da_free(example_files);
+            nob_cmd_free(cmd);
+            return false;
+        }
+    }
+
+    // Form executable path
+    char* exe_path = nob_temp_sprintf("%s%s%s", build_path, example_name,
+#ifdef _WIN32
+        ".exe"
+#else
+        ""
+#endif
+    );
+
+    // Collect all object files
+    Nob_File_Paths obj_files = {0};
+    for (size_t i = 0; i < src_files.count; i++) {
+        Nob_String_Builder obj_path = {0};
+        sb_append_cstr(&obj_path, build_path);
+        sb_append_cstr(&obj_path, "src/");
+        const char* rel_path = src_files.items[i] + 4; // Skip "src/"
+        sb_append_cstr(&obj_path, rel_path);
+        change_sb_extension(&obj_path, "o");
         sb_append_null(&obj_path);
-        nob_cmd_append(cmd, nob_temp_strdup(obj_path.items));
+        nob_da_append(&obj_files, nob_temp_strdup(obj_path.items));
         nob_sb_free(obj_path);
     }
 
-    nob_cc_output(cmd, output_filename);
-    nob_cmd_append(cmd, LINKER_FLAGS);
-    if (debug) nob_cmd_append(cmd, "-g");
-    return nob_cmd_run_sync(*cmd);
+    for (size_t i = 0; i < example_files.count; i++) {
+        Nob_String_Builder obj_path = {0};
+        sb_append_cstr(&obj_path, build_path);
+        sb_append_cstr(&obj_path, "examples/");
+        const char* rel_path = example_files.items[i] + 9; // Skip "examples/"
+        sb_append_cstr(&obj_path, rel_path);
+        change_sb_extension(&obj_path, "o");
+        sb_append_null(&obj_path);
+        nob_da_append(&obj_files, nob_temp_strdup(obj_path.items));
+        nob_sb_free(obj_path);
+    }
+
+    // Check if executable needs rebuilding
+    if (nob_needs_rebuild(exe_path, (const char**)obj_files.items, obj_files.count) == 0) {
+        nob_log(NOB_INFO, "Executable %s is up to date", exe_path);
+        nob_da_free(src_files);
+        nob_da_free(example_files);
+        nob_da_free(obj_files);
+        nob_cmd_free(cmd);
+        return true;
+    }
+
+    // Link executable
+    cmd.count = 0;
+    nob_cc(&cmd);
+    for (size_t i = 0; i < obj_files.count; i++) {
+        nob_cmd_append(&cmd, obj_files.items[i]);
+    }
+    nob_cc_output(&cmd, exe_path);
+    nob_cmd_append(&cmd, LINKER_FLAGS);
+    if (debug) nob_cmd_append(&cmd, "-g");
+
+    bool res = nob_cmd_run_sync(cmd);
+    nob_da_free(src_files);
+    nob_da_free(example_files);
+    nob_da_free(obj_files);
+    nob_cmd_free(cmd);
+    return res;
+}
+
+static bool run_example(const char* example_name, bool debug) {
+    char* exe_path = nob_temp_sprintf("%s%s%s", BUILD_PATH(debug), example_name,
+#ifdef _WIN32
+        ".exe"
+#else
+        ""
+#endif
+    );
+
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, exe_path);
+    return nob_cmd_run_sync(cmd);
+}
+
+static bool get_all_examples(Nob_File_Paths* examples) {
+    Nob_File_Paths children = {0};
+    if (!nob_read_entire_dir("examples", &children)) return false;
+
+    for (size_t i = 0; i < children.count; ++i) {
+        const char* child = children.items[i];
+        if (child[0] == '.') continue;
+
+        char* fullpath = nob_temp_sprintf("examples/%s", child);
+        if (is_dir(fullpath)) {
+            nob_da_append(examples, nob_temp_strdup(child));
+        }
+    }
+
+    nob_da_free(children);
+    return true;
 }
 
 #ifdef _WIN32
@@ -374,6 +549,7 @@ int main(int argc, char** argv) {
     bool debug = true;
     bool run_after = false;
     bool clean = false;
+    Nob_File_Paths examples_to_build = {0};
 
     char* program = nob_shift_args(&argc, &argv);
     while (argc > 0) {
@@ -381,6 +557,9 @@ int main(int argc, char** argv) {
         if (strcmp(arg, "release") == 0) debug = false;
         else if (strcmp(arg, "run") == 0) run_after = true;
         else if (strcmp(arg, "clean") == 0) clean = true;
+        else {
+            nob_da_append(&examples_to_build, arg);
+        }
     }
 
     if (clean) {
@@ -388,80 +567,32 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    const char* output_filename = nob_temp_sprintf(
-        "%s%s%s", 
-        BUILD_PATH(debug), 
-        OUTPUT_PROGRAM_NAME
-#ifdef _WIN32
-        ,".exe"
-#else
-        ,""
-#endif
-    );
-
-    Nob_File_Paths src_paths = {0};
-    if (!collect_source_files("src", &src_paths)) {
-        nob_log(NOB_ERROR, "Failed to collect source files");
-        return 1;
-    }
-
-    Nob_File_Paths c_files = {0};
-    for (size_t i = 0; i < src_paths.count; i++) {
-        const char* ext = nob_get_ext(src_paths.items[i]);
-        if (ext && strcmp(ext, "c") == 0) {
-            nob_da_append(&c_files, nob_temp_strdup(src_paths.items[i]));
-        }
-    }
-
-    bool needs_rebuild = false;
-    Nob_Cmd cmd = {0};
-    Nob_String_Builder sb = {0};
-    Nob_File_Paths deps = {0};
-
-    for (size_t i = 0; i < c_files.count; i++) {
-        const char* src_file = c_files.items[i];
-        
-        Nob_String_Builder obj_path = {0};
-        sb_append_cstr(&obj_path, BUILD_PATH(debug));
-        if (!change_extension(&obj_path, src_file, "o")) {
-            nob_log(NOB_ERROR, "Failed to change extension for %s", src_file);
-            return 1;
-        }
-        sb_append_null(&obj_path);
-        const char* obj_file = nob_temp_strdup(obj_path.items);
-
-        if (nob_c_needs_rebuild(&sb, &deps, obj_file, src_file)) {
-            needs_rebuild = true;
-            if (!build(&cmd, src_file, debug)) {
-                nob_log(NOB_ERROR, "Failed to build %s", src_file);
-                return 1;
-            }
-        }
-        nob_sb_free(obj_path);
-    }
-
-    if (needs_rebuild || !file_exists(output_filename)) {
-        if (!link_files(&cmd, output_filename, &c_files, debug)) {
-            nob_log(NOB_ERROR, "Linking failed");
+    if (examples_to_build.count == 0) {
+        if (!get_all_examples(&examples_to_build)) {
+            nob_log(NOB_ERROR, "Failed to collect examples");
             return 1;
         }
     }
 
-    if (run_after) {
-        cmd.count = 0;
-        nob_cmd_append(&cmd, output_filename);
-        if (!nob_cmd_run_sync(cmd)) {
-            nob_log(NOB_ERROR, "Failed to run the program");
-            return 1;
+    bool all_built = true;
+    for (size_t i = 0; i < examples_to_build.count; i++) {
+        const char* example = examples_to_build.items[i];
+        nob_log(NOB_INFO, "Building example: %s", example);
+        if (!build_example(example, debug)) {
+            nob_log(NOB_ERROR, "Failed to build example: %s", example);
+            all_built = false;
         }
     }
 
-    // Free resources
-    nob_da_free(src_paths);
-    nob_da_free(c_files);
-    nob_da_free(deps);
-    nob_sb_free(sb);
-    nob_cmd_free(cmd);
+    if (run_after && all_built) {
+        const char* example_to_run = examples_to_build.count > 0 ? 
+            examples_to_build.items[0] : DEFAULT_EXAMPLE;
+        nob_log(NOB_INFO, "Running example: %s", example_to_run);
+        if (!run_example(example_to_run, debug)) {
+            nob_log(NOB_ERROR, "Failed to run example: %s", example_to_run);
+        }
+    }
 
-    return 0;
+    nob_da_free(examples_to_build);
+    return all_built ? 0 : 1;
 }

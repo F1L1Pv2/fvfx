@@ -66,17 +66,26 @@ bool engineInit(char* title, size_t width, size_t height){
 
 int engineStart(){
     while(platform_still_running()){
-        if(!platform_window_handle_events()) return 1;
+        if(!platform_window_handle_events()) {
+            printf("ERROR: Couldn't handle window events\n");
+            return 1;
+        }
 
         uint64_t time = platform_get_time();
         float deltaTime = (float)(time - oldTime) / 1000.0f;
         if(deltaTime > frameDuration) deltaTime = frameDuration;
         oldTime = time;
 
-        if(!update(deltaTime)) return 1;
+        if(!update(deltaTime)){
+            printf("ERROR: Couldn't update frame\n");
+            return 1;   
+        }
         
         beginDrawing();
-        if(!draw()) return 1;
+        if(!draw()) {
+            printf("ERROR: Couldn't draw frame\n");
+            return 1;
+        }
         endDrawing();
 
         uint64_t frameTook = platform_get_time() - time;
