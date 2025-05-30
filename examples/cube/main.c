@@ -67,7 +67,7 @@ bool initDepthImage(){
 }
 
 int main(){
-    engineInit("normal_texture Example", 640, 480);
+    engineInit("Cube Example", 640, 480);
     afterResize();
 
     String_Builder sb = {0};
