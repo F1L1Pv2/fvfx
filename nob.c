@@ -38,7 +38,6 @@ const char* vulkanSDKPathINC;
 #define LINKER_FLAGS PLATFORM_LINKER_FLAGS
 #define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
-// Implement missing functions
 static char* strltrim(char* s) {
     while (isspace(*s)) s++;
     return s;
@@ -64,7 +63,7 @@ static const char* nob_get_ext(const char* path) {
         if (*end == '/' || *end == '\\') break;
         end--;
     }
-    return path + strlen(path); // Return empty string if no extension
+    return path + strlen(path);
 }
 
 static void remove_directory(const char *path) {
@@ -128,7 +127,6 @@ static void remove_directory(const char *path) {
 
 static void remove_backslashes(char* data) {
     char* backslash;
-    // NOTE: Assumes strchr returns NULL on not found
     while((backslash=strchr(data, '\\'))) {
         switch(backslash[1]) {
         case '\n':
@@ -142,7 +140,6 @@ static void remove_backslashes(char* data) {
 }
 
 static bool dep_analyse_str(char* data, char** result, Nob_File_Paths* paths) {
-    // NOTE: Assumes strchr returns NULL on not found
     char* result_end = strchr(data, ':');
     if(!result_end) return false;
     result_end[0] = '\0';
@@ -151,7 +148,7 @@ static bool dep_analyse_str(char* data, char** result, Nob_File_Paths* paths) {
     remove_backslashes(data);
     char* lineend;
     if((lineend=strchr(data, '\n')))
-        lineend[0] = '\0'; // Ignore all the stuff after the newline
+        lineend[0] = '\0';
     while((data=(char*)strltrim(data))[0]) {
         char* path=data;
         while(data[0] && data[0] != ' ') data++;
@@ -164,7 +161,6 @@ static bool dep_analyse_str(char* data, char** result, Nob_File_Paths* paths) {
     return true;
 }
 
-// Implement nob_c_needs_rebuild for dependency analysis
 static bool nob_c_needs_rebuild(Nob_String_Builder* string_buffer, Nob_File_Paths* paths, 
                                const char* output_path, const char* input_path) {
     string_buffer->count = 0;
@@ -186,7 +182,6 @@ static bool nob_c_needs_rebuild(Nob_String_Builder* string_buffer, Nob_File_Path
     char* obj;
     char* data = string_buffer->items;
 
-    // Fix backslashes
     char* current_pos = data;
     while ((current_pos = strchr(current_pos, '\r'))) {
         memmove(current_pos, current_pos + 1, strlen(current_pos + 1) + 1);
@@ -199,7 +194,6 @@ static bool nob_c_needs_rebuild(Nob_String_Builder* string_buffer, Nob_File_Path
         current_pos++;
     }
 
-    // Parse dependencies
     if(!dep_analyse_str(data, &obj, paths)) return true;
     
     return nob_needs_rebuild(output_path, (const char**)paths->items, paths->count) != 0;
@@ -317,7 +311,7 @@ static bool link_files(Nob_Cmd* cmd, const char* output_filename,
             return false;
         }
         sb_append_null(&obj_path);
-        nob_cmd_append(cmd, nob_temp_strdup(obj_path.items)); // Use temp memory for persistent string
+        nob_cmd_append(cmd, nob_temp_strdup(obj_path.items));
         nob_sb_free(obj_path);
     }
 
@@ -411,7 +405,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Filter to only .c files
     Nob_File_Paths c_files = {0};
     for (size_t i = 0; i < src_paths.count; i++) {
         const char* ext = nob_get_ext(src_paths.items[i]);
