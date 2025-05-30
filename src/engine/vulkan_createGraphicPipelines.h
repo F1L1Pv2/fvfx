@@ -12,6 +12,12 @@ typedef struct {
     VkPipelineLayout* pipelineLayoutOUT;
     size_t descriptorSetLayoutCount;
     VkDescriptorSetLayout* descriptorSetLayouts;
+    size_t vertexSize;
+    size_t vertexInputAttributeDescriptionsCount;
+    VkVertexInputAttributeDescription* vertexInputAttributeDescriptions;
+    bool culling;
+    bool depthTest;
+    bool depthWrite;
 } CreateGraphicsPipelineARGS;
 
 bool createGraphicPipeline(CreateGraphicsPipelineARGS args);

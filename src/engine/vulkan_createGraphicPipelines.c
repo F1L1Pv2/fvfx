@@ -41,10 +41,24 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineVertexInputStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     pipelineVertexInputStateCreateInfo.pNext = NULL;
     pipelineVertexInputStateCreateInfo.flags = 0;
-    pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 0;
-    pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = NULL;
-    pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = 0;
-    pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = NULL;
+
+    if(args.vertexSize > 0){
+        VkVertexInputBindingDescription vertexInputBindingDescription = {0};
+        vertexInputBindingDescription.binding = 0;
+        vertexInputBindingDescription.stride = args.vertexSize;
+        vertexInputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 1;
+        pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = &vertexInputBindingDescription;
+        pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = args.vertexInputAttributeDescriptionsCount;
+        pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = args.vertexInputAttributeDescriptions;
+    }else{
+        pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 0;
+        pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = NULL;
+        pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = 0;
+        pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = NULL;
+    }
+
 
     VkPipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo = {0};
     pipelineInputAssemblyStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -69,7 +83,11 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineRasterizationStateCreateInfo.depthClampEnable = VK_FALSE;
     pipelineRasterizationStateCreateInfo.rasterizerDiscardEnable = VK_FALSE;
     pipelineRasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
-    pipelineRasterizationStateCreateInfo.cullMode = VK_CULL_MODE_NONE;
+    if(args.culling){
+        pipelineRasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    }else{
+        pipelineRasterizationStateCreateInfo.cullMode = VK_CULL_MODE_NONE;
+    }
     pipelineRasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
     pipelineRasterizationStateCreateInfo.depthBiasEnable = VK_FALSE;
     pipelineRasterizationStateCreateInfo.depthBiasConstantFactor = 0.0f;
@@ -92,14 +110,11 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineDepthStencilStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     pipelineDepthStencilStateCreateInfo.pNext = NULL;
     pipelineDepthStencilStateCreateInfo.flags = 0;
-    pipelineDepthStencilStateCreateInfo.depthTestEnable = VK_FALSE;
-    pipelineDepthStencilStateCreateInfo.depthWriteEnable = VK_FALSE;
+    pipelineDepthStencilStateCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+    pipelineDepthStencilStateCreateInfo.depthTestEnable = args.depthTest;
+    pipelineDepthStencilStateCreateInfo.depthWriteEnable = args.depthWrite;
     pipelineDepthStencilStateCreateInfo.depthBoundsTestEnable = VK_FALSE;
     pipelineDepthStencilStateCreateInfo.stencilTestEnable = VK_FALSE;
-    // pipelineDepthStencilStateCreateInfo.front = {0}; // Optional
-    // pipelineDepthStencilStateCreateInfo.back = {0}; // Optional
-    pipelineDepthStencilStateCreateInfo.minDepthBounds = 0.0f;
-    pipelineDepthStencilStateCreateInfo.maxDepthBounds = 1.0f;
 
     VkPipelineColorBlendAttachmentState pipelineColorBlendAttachmentState = {0};
     pipelineColorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -164,7 +179,11 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineRenderingCreateInfo.viewMask = 0;
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
     pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchainImageFormat;
-    pipelineRenderingCreateInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+    if(args.depthTest || args.depthWrite){
+        pipelineRenderingCreateInfo.depthAttachmentFormat = VK_FORMAT_D16_UNORM;
+    }else{
+        pipelineRenderingCreateInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+    }
     pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
     VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {0};

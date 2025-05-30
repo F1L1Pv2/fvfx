@@ -162,6 +162,16 @@ void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args)
         colorAttachment.clearValue.color.float32[2] = args.clearColor.b;
         colorAttachment.clearValue.color.float32[3] = args.clearColor.a;
     }
+
+    VkRenderingAttachmentInfo depthAttachment = {0};
+    if(args.depthAttachment != NULL){
+        depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        depthAttachment.imageView = args.depthAttachment;
+        depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAttachment.clearValue.depthStencil = (VkClearDepthStencilValue){1.0f,0.0};
+    }
     
     VkRenderingInfo renderingInfo = {0};
     renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -169,8 +179,8 @@ void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args)
     renderingInfo.renderArea.extent = swapchainExtent;
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = args.colorAttachment != NULL ? 1 : 0;
-    renderingInfo.pColorAttachments = args.colorAttachment != NULL ? &colorAttachment : 0;
-    renderingInfo.pDepthAttachment = NULL;
+    renderingInfo.pColorAttachments = args.colorAttachment != NULL ? &colorAttachment : NULL;
+    renderingInfo.pDepthAttachment = args.depthAttachment != NULL ? &depthAttachment : NULL;
     renderingInfo.pStencilAttachment = NULL;
 
     vkCmdBeginRendering(commandBuffer, &renderingInfo);

@@ -20,6 +20,7 @@ typedef struct{
     VkImageView colorAttachment;
     Color clearColor;
     bool doNotClearColor;
+    VkImageView depthAttachment;
 } BeginRenderingEX;
 
 void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args);
