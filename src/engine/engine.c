@@ -44,6 +44,10 @@ static size_t targetFPS;
 static float frameDuration;
 
 bool engineInit(char* title, size_t width, size_t height){
+#ifndef _WIN32
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+#endif
     platform_create_window(title,width,height);
 
     if(!initialize_vulkan()) return false;

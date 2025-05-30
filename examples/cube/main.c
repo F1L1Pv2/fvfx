@@ -108,17 +108,24 @@ int main(){
     };
 
     uint32_t indices[] = {
-        2,7,3, 2,6,7,
-
-        1,4,0, 1,5,4,
-
-        0,3,1, 0,2,3,
-
-        4,5,7, 4,7,6,
-
-        0,6,2, 0,4,6,
-
-        1,7,5, 1,3,7,
+        //front
+        5,1,0,
+        5,0,4,
+        //back
+        2,3,7,
+        2,7,6,
+        //top
+        0,1,3,
+        0,3,2,
+        //bottom
+        4,7,5,
+        4,6,7,
+        //left
+        4,0,2,
+        4,2,6,
+        //right
+        5,7,3,
+        5,3,1,
     };
 
     pcs.model = (mat4){
@@ -148,8 +155,8 @@ bool afterResize(){
 }
 
 bool update(float deltaTime){
-    vec3 forward = {sinf(rot.x),0,cosf(rot.x)};
-    vec3 right = {-cosf(rot.x),0,sinf(rot.x)};
+    vec3 forward = {-sinf(rot.x),0,cosf(rot.x)};
+    vec3 right = {cosf(rot.x),0,sinf(rot.x)};
 
 
     if(input.keys[KEY_W].isDown){
@@ -184,24 +191,24 @@ bool update(float deltaTime){
         1,0,0,0,
         0,1,0,0,
         0,0,1,0,
-        position.x,position.y,position.z,1,
+        -position.x,-position.y,position.z,1,
     };
 
     //yaw
-    pcs.view = mat4mul((mat4){
+    pcs.view = mat4mul(&(mat4){
         cosf(rot.x),0,sinf(rot.x),0,
         0,1,0,0,
         -sinf(rot.x),0,cosf(rot.x),0,
         0,0,0,1,
-    }, pcs.view);
+    }, &pcs.view);
 
     //pitch
-    pcs.view = mat4mul(pcs.view, (mat4){
+    pcs.view = mat4mul(&(mat4){
         1,0,0,0,
         0,cosf(rot.y),sinf(rot.y),0,
         0,-sinf(rot.y),cosf(rot.y),0,
         0,0,0,1,
-    });
+    }, &pcs.view);
 
     return true;
 }
