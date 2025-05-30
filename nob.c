@@ -271,7 +271,7 @@ static void change_sb_extension(String_Builder* sb, const char* new_ext) {
     sb_append_cstr(sb, new_ext);
 }
 
-static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
+static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths, char* extension) {
     Nob_File_Paths children = {0};
     if (!nob_read_entire_dir(dirpath, &children)) return false;
 
@@ -282,13 +282,13 @@ static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
         char* fullpath = nob_temp_sprintf("%s/%s", dirpath, child);
 
         if (is_dir(fullpath)) {
-            if (!collect_source_files(fullpath, paths)) {
+            if (!collect_source_files(fullpath, paths, extension)) {
                 nob_da_free(children);
                 return false;
             }
         } else {
             const char* ext = nob_get_ext(child);
-            if (ext && strcmp(ext, "c") == 0) {
+            if (ext && strcmp(ext, extension) == 0) {
                 nob_da_append(paths, nob_temp_strdup(fullpath));
             }
         }
@@ -367,14 +367,14 @@ static bool build_example(const char* example_name, bool debug) {
     make_needed_folders_recursive(build_path);
 
     Nob_File_Paths src_files = {0};
-    if (!collect_source_files("src", &src_files)) {
+    if (!collect_source_files("src", &src_files, "c")) {
         nob_log(NOB_ERROR, "Failed to collect source files");
         return false;
     }
 
     char* example_dir = nob_temp_sprintf("examples/%s", example_name);
     Nob_File_Paths example_files = {0};
-    if (!collect_source_files(example_dir, &example_files)) {
+    if (!collect_source_files(example_dir, &example_files, "c")) {
         nob_log(NOB_ERROR, "Failed to collect example files for %s", example_name);
         nob_da_free(src_files);
         return false;
@@ -517,6 +517,73 @@ static bool is_version_newer(const char* v1, const char* v2) {
 }
 #endif
 
+// Add this function near the other utility functions
+static bool compile_shader(const char* input_path, const char* output_path) {
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, "glslc");
+    
+    // Add appropriate flags based on shader type
+    const char* filename = strrchr(input_path, '/');
+    if (!filename) filename = strrchr(input_path, '\\');
+    if (!filename) filename = input_path;
+    else filename++;
+    
+    if (filename[0] == 'V') {
+        nob_cmd_append(&cmd, "-fshader-stage=vertex");
+    } else if (filename[0] == 'F') {
+        nob_cmd_append(&cmd, "-fshader-stage=fragment");
+    }
+
+    nob_cmd_append(&cmd, input_path, "-o", output_path);
+    
+    bool result = nob_cmd_run_sync(cmd);
+    nob_cmd_free(cmd);
+    return result;
+}
+
+// Add this function to collect and compile shaders
+static bool build_shaders(bool force_all) {
+    Nob_File_Paths shader_files = {0};
+    if (!collect_source_files("assets/shaders/compile", &shader_files, "glsl")) {
+        nob_log(NOB_ERROR, "Failed to collect shader files");
+        return false;
+    }
+
+    bool all_compiled = true;
+    for (size_t i = 0; i < shader_files.count; i++) {
+        const char* input_path = shader_files.items[i];
+
+        // Create output path by changing extension to .spv
+        Nob_String_Builder output_path = {0};
+        sb_append_cstr(&output_path, input_path);
+        change_sb_extension(&output_path, "spv");
+        sb_append_null(&output_path);
+
+        // Make sure output directory exists
+        String_View dir = get_dirname(output_path.items);
+        if (dir.count > 0) {
+            char dir_str[1024];
+            snprintf(dir_str, sizeof(dir_str), "%.*s", (int)dir.count, dir.data);
+            make_needed_folders_recursive(dir_str);
+        }
+
+        if (force_all || nob_needs_rebuild1(output_path.items, input_path)) {
+            nob_log(NOB_INFO, "Compiling shader: %s", input_path);
+            if (!compile_shader(input_path, output_path.items)) {
+                nob_log(NOB_ERROR, "Failed to compile shader: %s", input_path);
+                all_compiled = false;
+            }
+        } else {
+            nob_log(NOB_INFO, "Shader %s is up to date", input_path);
+        }
+
+        nob_sb_free(output_path);
+    }
+
+    nob_da_free(shader_files);
+    return all_compiled;
+}
+
 int main(int argc, char** argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
@@ -549,6 +616,7 @@ int main(int argc, char** argv) {
     bool debug = true;
     bool run_after = false;
     bool clean = false;
+    bool shaders_only = false;
     Nob_File_Paths examples_to_build = {0};
 
     char* program = nob_shift_args(&argc, &argv);
@@ -557,6 +625,7 @@ int main(int argc, char** argv) {
         if (strcmp(arg, "release") == 0) debug = false;
         else if (strcmp(arg, "run") == 0) run_after = true;
         else if (strcmp(arg, "clean") == 0) clean = true;
+        else if (strcmp(arg, "shaders") == 0) shaders_only = true;
         else {
             nob_da_append(&examples_to_build, arg);
         }
@@ -565,6 +634,16 @@ int main(int argc, char** argv) {
     if (clean) {
         remove_directory("build");
         return 0;
+    }
+
+    if (shaders_only) {
+        return build_shaders(true) ? 0 : 1;
+    }
+
+    // Compile shaders before building examples
+    if (!build_shaders(false)) {
+        nob_log(NOB_ERROR, "Failed to compile shaders");
+        return 1;
     }
 
     if (examples_to_build.count == 0) {
