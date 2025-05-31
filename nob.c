@@ -464,20 +464,6 @@ static bool build_example(const char* example_name, bool debug) {
     return res;
 }
 
-static bool run_example(const char* example_name, bool debug) {
-    char* exe_path = nob_temp_sprintf("%s%s%s", BUILD_PATH(debug), example_name,
-#ifdef _WIN32
-        ".exe"
-#else
-        ""
-#endif
-    );
-
-    Nob_Cmd cmd = {0};
-    nob_cmd_append(&cmd, exe_path);
-    return nob_cmd_run_sync(cmd);
-}
-
 static bool get_all_examples(Nob_File_Paths* examples) {
     Nob_File_Paths children = {0};
     if (!nob_read_entire_dir("examples", &children)) return false;
@@ -630,13 +616,23 @@ int main(int argc, char** argv) {
     bool shaders_only = false;
     Nob_File_Paths examples_to_build = {0};
 
+    File_Paths argsToPass = {0};
+
+    bool collectingArgs = false;
+
     char* program = nob_shift_args(&argc, &argv);
     while (argc > 0) {
         char* arg = nob_shift_args(&argc, &argv);
+        if(collectingArgs){
+            nob_da_append(&argsToPass, arg);
+            continue;
+        }
+
         if (strcmp(arg, "release") == 0) debug = false;
         else if (strcmp(arg, "run") == 0) run_after = true;
         else if (strcmp(arg, "clean") == 0) clean = true;
         else if (strcmp(arg, "shaders") == 0) shaders_only = true;
+        else if (strcmp(arg, "--") == 0) collectingArgs = true;
         else {
             nob_da_append(&examples_to_build, arg);
         }
@@ -678,7 +674,21 @@ int main(int argc, char** argv) {
         const char* example_to_run = examples_to_build.count > 0 ? 
             examples_to_build.items[0] : DEFAULT_EXAMPLE;
         nob_log(NOB_INFO, "Running example: %s", example_to_run);
-        if (!run_example(example_to_run, debug)) {
+
+        char* exe_path = nob_temp_sprintf("%s%s%s", BUILD_PATH(debug), example_to_run,
+        #ifdef _WIN32
+                ".exe"
+        #else
+                ""
+        #endif
+            );
+        
+        Cmd cmd = {0};
+        nob_cmd_append(&cmd, exe_path);
+        for(int i = 0; i <argsToPass.count; i++){
+            nob_cmd_append(&cmd, argsToPass.items[i]);
+        }
+        if(!nob_cmd_run_sync(cmd)){
             nob_log(NOB_ERROR, "Failed to run example: %s", example_to_run);
         }
     }

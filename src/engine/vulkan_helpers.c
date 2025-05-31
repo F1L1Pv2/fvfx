@@ -169,7 +169,7 @@ void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args)
         depthAttachment.imageView = args.depthAttachment;
         depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.clearValue.depthStencil = (VkClearDepthStencilValue){1.0f,0.0};
     }
     

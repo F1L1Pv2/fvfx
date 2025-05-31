@@ -131,13 +131,9 @@ bool createGraphicPipeline(CreateGraphicsPipelineARGS args){
     pipelineColorBlendStateCreateInfo.pNext = NULL;
     pipelineColorBlendStateCreateInfo.flags = 0;
     pipelineColorBlendStateCreateInfo.logicOpEnable = VK_FALSE;
-    pipelineColorBlendStateCreateInfo.logicOp = VK_LOGIC_OP_COPY; // Optional
+    pipelineColorBlendStateCreateInfo.logicOp = VK_LOGIC_OP_COPY;
     pipelineColorBlendStateCreateInfo.attachmentCount = 1;
     pipelineColorBlendStateCreateInfo.pAttachments = &pipelineColorBlendAttachmentState;
-    pipelineColorBlendStateCreateInfo.blendConstants[0] = 0.0f; // Optional
-    pipelineColorBlendStateCreateInfo.blendConstants[1] = 0.0f; // Optional
-    pipelineColorBlendStateCreateInfo.blendConstants[2] = 0.0f; // Optional
-    pipelineColorBlendStateCreateInfo.blendConstants[3] = 0.0f; // Optional
 
     VkDynamicState dynamicStates[] = {
         VK_DYNAMIC_STATE_VIEWPORT,

@@ -28,5 +28,6 @@ typedef struct {
 mat4 ortho2D(float width, float height);
 mat4 perspective(float fov, float aspect, float zNear, float zFar);
 mat4 mat4mul(mat4 *a, mat4 *b);
+mat4 mat4transpose(mat4 *a);
 
 #endif

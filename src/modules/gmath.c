@@ -20,7 +20,7 @@ mat4 perspective(float fov, float aspect, float zNear, float zFar){
     float S = 1.0f / tanf(fov*PI/180/2);
     return (mat4){
         S/aspect,  0,             0                 ,     0,
-            0   ,  S,             0                 ,     0,
+            0   , -S,             0                 ,     0,
             0   ,  0,    -zFar / (zFar - zNear)     ,    -1,
             0   ,  0, -zFar * zNear / (zFar - zNear),     0,
     };
@@ -44,4 +44,13 @@ mat4 mat4mul(mat4 *a, mat4 *b) {
     }
 
     return result;
+}
+
+mat4 mat4transpose(mat4 *a) {
+    return (mat4){
+        a->v[ 0],a->v[ 4],a->v[ 8],a->v[12],
+        a->v[ 1],a->v[ 5],a->v[ 9],a->v[13],
+        a->v[ 2],a->v[ 6],a->v[10],a->v[14],
+        a->v[ 3],a->v[ 7],a->v[11],a->v[15],
+    };
 }
