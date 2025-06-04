@@ -23,11 +23,11 @@
 const char* vulkanSDKPathLIB;
 const char* vulkanSDKPathINC;
 
-#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations",
+#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations", "-IC:/ffmpeg/include",
 #define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", \
                               "-lshaderc_shared", "-lshaderc_util", "-lglslang", \
                               "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt", \
-                              "-Wno-deprecated-declarations",
+                              "-Wno-deprecated-declarations", "-LC:/ffmpeg/lib",
 #else
 #define PLATFORM_COMPILER_ARGS
 #define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm"
@@ -35,7 +35,7 @@ const char* vulkanSDKPathINC;
 
 #define OUTPUT_PROGRAM_NAME "main"
 #define COMPILER_ARGS PLATFORM_COMPILER_ARGS "-I./", "-I./src"
-#define LINKER_FLAGS PLATFORM_LINKER_FLAGS
+#define LINKER_FLAGS PLATFORM_LINKER_FLAGS "-lavcodec", "-lavdevice", "-lavfilter", "-lavformat", "-lavutil", "-lswscale"
 #define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
 static char* strltrim(char* s) {
