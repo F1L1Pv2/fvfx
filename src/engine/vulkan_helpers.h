@@ -19,7 +19,6 @@ typedef struct {
 typedef struct{
     VkImageView colorAttachment;
     Color clearColor;
-    bool doNotClearColor;
     VkImageView depthAttachment;
 } BeginRenderingEX;
 

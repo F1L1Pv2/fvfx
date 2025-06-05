@@ -204,8 +204,6 @@ vec2 size = (vec2){200,200};
 
 size_t jimboTextureID = -1;
 
-vec2 pos2 = {0};
-
 size_t jump = 0;
 
 bool update(float deltaTime){
@@ -228,22 +226,6 @@ bool update(float deltaTime){
         }
         jump++;
     }
-
-    if(input.keys[KEY_RIGHT].isDown) pos2.x += deltaTime * 200;
-    if(input.keys[KEY_LEFT].isDown) pos2.x -= deltaTime * 200;
-    if(input.keys[KEY_DOWN].isDown) pos2.y += deltaTime * 200;
-    if(input.keys[KEY_UP].isDown) pos2.y -= deltaTime * 200;
-
-    drawSprite((SpriteDrawCommand){
-        .transform = (mat4){
-            200,0,0,0,
-            0,200,0,0,
-            0,0,1,0,
-            pos2.x,pos2.y,0,1,
-        },
-        .textureID = -1,
-        .albedo = (vec3){0.0,1.0,0.0},
-    });
 
     drawSprite((SpriteDrawCommand){
         .transform = (mat4){
@@ -289,33 +271,10 @@ bool update(float deltaTime){
 }
 
 bool draw(){
-    //sprite pass
-    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = getSwapchainImageView(),
-        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f}
-    });
-    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-        .width = swapchainExtent.width,
-        .height = swapchainExtent.height
-    });
-        
-    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = swapchainExtent,
-    });
-        
-    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
-
-    vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
-
-    renderSprites();
-
-    vkCmdEndRendering(cmd);
-
     //preview pass
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
         .colorAttachment = getSwapchainImageView(),
-        .doNotClearColor = true,
+        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f},
     });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
@@ -332,6 +291,28 @@ bool draw(){
     vkCmdPushConstants(cmd,pipelineLayoutPreview,VK_SHADER_STAGE_ALL,0,sizeof(PushConstantsPreview), &pcsPreview);
 
     vkCmdDraw(cmd, 6, 1, 0, 0);
+
+    vkCmdEndRendering(cmd);
+
+    //sprite pass
+    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+        .colorAttachment = getSwapchainImageView(),
+    });
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+        .extent = swapchainExtent,
+    });
+        
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
+
+    vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
+
+    renderSprites();
 
     vkCmdEndRendering(cmd);
 
