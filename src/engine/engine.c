@@ -62,7 +62,7 @@ bool engineInit(char* title, size_t width, size_t height){
 
     uint64_t oldTime = platform_get_time();
 
-    targetFPS = 120;
+    targetFPS = 60;
     frameDuration = 1.0f / targetFPS;
 
     return true;

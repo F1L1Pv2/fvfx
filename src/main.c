@@ -171,7 +171,7 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!loadFrame(argv[1],&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
+        if(!ffmpegInit(argv[1],&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
             printf("Couldn't load video preview frame\n");
             return 1;
         }
@@ -283,6 +283,7 @@ bool update(float deltaTime){
         };
     }
 
+    if(!ffmpegProcessFrame()) return 1;
 
     return true;
 }

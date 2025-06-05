@@ -17,11 +17,21 @@
 
 #include <stdint.h>
 
-bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
-    
+static AVFormatContext* formatContext;
+static int videoStreamIndex = -1;
+static AVCodecParameters* codecParameters;
+static const AVCodec* codec;
+static AVCodecContext* codecContext;
+static AVFrame* frame;
+static AVPacket* packet;
+static struct SwsContext* swsContext;
+static char* data;
+static void* mapped;
+
+bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
     // av_log_set_level(AV_LOG_DEBUG);
 
-    AVFormatContext* formatContext = avformat_alloc_context();
+    formatContext = avformat_alloc_context();
     if(!formatContext){
         printf("Couldn't allocate formatContext\n");
         return false;
@@ -31,12 +41,6 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
         printf("Couldn't open filename %s\n", filename);
         return false;
     }
-
-    printf("0x%p\n",formatContext);
-
-    int videoStreamIndex = -1;
-    AVCodecParameters* codecParameters;
-    const AVCodec* codec;
 
     for (int i = 0; i < formatContext->nb_streams; i++){
         AVStream* stream = formatContext->streams[i];
@@ -57,7 +61,7 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
         return false;
     }
 
-    AVCodecContext* codecContext = avcodec_alloc_context3(codec);
+    codecContext = avcodec_alloc_context3(codec);
     if(!codecContext){
         printf("Couldn't allocate codecContext\n");
         return false;
@@ -73,12 +77,12 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
         return false;
     }
 
-    AVFrame* frame = av_frame_alloc();
+    frame = av_frame_alloc();
     if(!frame){
         printf("Couldn't allocate frame\n");
         return false;
     }
-    AVPacket* packet = av_packet_alloc();
+    packet = av_packet_alloc();
     if(!packet){
         printf("Couldn't allocate packet\n");
         return false;
@@ -110,7 +114,7 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
         break;
     }
 
-    struct SwsContext* swsContext = sws_getContext(frame->width,frame->height,codecContext->pix_fmt,
+    swsContext = sws_getContext(frame->width,frame->height,codecContext->pix_fmt,
                                             frame->width,frame->height,AV_PIX_FMT_RGB0,
                                             SWS_FAST_BILINEAR, NULL, NULL, NULL);
     
@@ -122,7 +126,8 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
     *widthOut = frame->width;
     *heightOut = frame->height;
 
-    char* data = malloc(frame->width * frame->height * sizeof(uint32_t));
+    data = malloc(frame->width * frame->height * sizeof(uint32_t));
+
     uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
     int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
     sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
@@ -139,11 +144,58 @@ bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMem
         return false;
     }
 
+    VkResult result = vkMapMemory(device,*imageDeviceMemoryOut,0,frame->width*frame->height*sizeof(uint32_t),0, &mapped);
+    if(result != VK_SUCCESS){
+        printf("Couldn't map image");
+        return false;
+    }
+
+    return true;
+}
+
+bool ffmpegProcessFrame(){
+    int response;
+    while (av_read_frame(formatContext, packet) >= 0){
+        if(packet->stream_index != videoStreamIndex) {
+            av_packet_unref(packet);
+            continue;
+        }
+
+        response = avcodec_send_packet(codecContext, packet);
+        if(response < 0){
+            printf("(1) Failed to decode packet: %s\n", av_err2str(response));
+            return false;
+        }
+
+        response = avcodec_receive_frame(codecContext,frame);
+        if(response == AVERROR(EAGAIN) || response == AVERROR_EOF){
+            av_packet_unref(packet);
+            continue;
+        } else if (response < 0){
+            printf("(2) Failed to decode packet: %s\n", av_err2str(response));
+            return false;
+        }
+
+        av_packet_unref(packet);
+        break;
+    }
+
+    uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
+    int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
+    sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+
+    memcpy(mapped,data,frame->width*frame->height*sizeof(uint32_t));
+    
+    return true;
+}
+
+void ffmpegUninit(){
+    free(data);
+    vkUnmapMemory(device, mapped);
+
     avformat_close_input(&formatContext);
     avcodec_free_context(&codecContext);
     av_frame_free(&frame);
     av_packet_free(&packet);
     avformat_free_context(formatContext);
-
-    return true;
 }
