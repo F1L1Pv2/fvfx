@@ -171,7 +171,10 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!loadFrame(argv[1],&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) return 1;
+        if(!loadFrame(argv[1],&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
+            printf("Couldn't load video preview frame\n");
+            return 1;
+        }
 
         VkDescriptorImageInfo descriptorImageInfo = {0};
         descriptorImageInfo.sampler = samplerLinear;
@@ -196,12 +199,14 @@ int main(int argc, char** argv){
 float time;
 
 vec2 pos = (vec2){300, 50};
-vec2 acc = (vec2){5.0f,-2.0};
+vec2 acc = (vec2){5.0f,0.0};
 vec2 size = (vec2){200,200};
 
 size_t jimboTextureID = -1;
 
 vec2 pos2 = {0};
+
+size_t jump = 0;
 
 bool update(float deltaTime){
     time += deltaTime;
@@ -218,6 +223,10 @@ bool update(float deltaTime){
         pos.y += acc.y;
     }else{
         acc.y = acc.y * -0.96f;
+        if(jump%10 == 0 && acc.y < 0){
+            acc.y -= 2.0f;
+        }
+        jump++;
     }
 
     if(input.keys[KEY_RIGHT].isDown) pos2.x += deltaTime * 200;
