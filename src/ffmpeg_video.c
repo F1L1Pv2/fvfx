@@ -27,6 +27,7 @@ static AVPacket* packet;
 static struct SwsContext* swsContext;
 static char* data;
 static void* mapped;
+static int vulkanImageRowPitch;
 
 bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
     // av_log_set_level(AV_LOG_DEBUG);
@@ -150,6 +151,11 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
         return false;
     }
 
+    VkImageSubresource subResource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+    VkSubresourceLayout subResourceLayout;
+    vkGetImageSubresourceLayout(device, *imageOut, &subResource, &subResourceLayout);
+    vulkanImageRowPitch = subResourceLayout.rowPitch;
+
     return true;
 }
 
@@ -184,7 +190,15 @@ bool ffmpegProcessFrame(){
     int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
     sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
 
-    memcpy(mapped,data,frame->width*frame->height*sizeof(uint32_t));
+    int cpuPitch = frame->width*sizeof(uint32_t);
+
+    for(int i = 0; i < frame->height; i++){
+        memcpy(
+            mapped + i *vulkanImageRowPitch,
+            data + i * cpuPitch,
+            cpuPitch
+        );
+    }
     
     return true;
 }
