@@ -21,6 +21,7 @@
 #include "modules/bindlessTexturesManager.h"
 #include "modules/spriteManager.h"
 #include "ffmpeg_video.h"
+#include "gui_helpers.h"
 
 typedef struct{
     mat4 proj;
@@ -35,7 +36,6 @@ typedef struct{
 } PushConstantsPreview;
 
 static PushConstants pcs;
-
 static PushConstantsPreview pcsPreview;
 
 bool afterResize(){
@@ -66,8 +66,6 @@ static VkPipelineLayout pipelineLayoutPreview;
 static VkDescriptorSet descriptorSet;
 static VkDescriptorSetLayout descriptorSetLayout;
 
-size_t lenaTextureID;
-
 size_t imageWidth, imageHeight;
 
 int main(int argc, char** argv){
@@ -84,9 +82,7 @@ int main(int argc, char** argv){
         // ------------------ sprite manager initialization ------------------
 
         File_Paths initialTextures = {0};
-        da_append(&initialTextures,"assets/test.png");
         if(!initBindlessTextures(initialTextures)) return 1;
-        lenaTextureID = getTextureID("assets/test.png");
 
         String_Builder sb = {0};
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
@@ -198,105 +194,62 @@ int main(int argc, char** argv){
 
 float time;
 
-vec2 pos = (vec2){300, 50};
-vec2 acc = (vec2){5.0f,0.0};
-vec2 size = (vec2){200,200};
-
-size_t jimboTextureID = -1;
-
-size_t jump = 0;
-
 bool update(float deltaTime){
-    time += deltaTime;
+    Rect previewPos = (Rect){
+        .width = swapchainExtent.width,
+        .height = (float)swapchainExtent.height*2.5/4,
+        .y = (float)swapchainExtent.height/16
+    };
 
-    acc.y += deltaTime * 9.8f;
-    
-    if(pos.x + size.x + acc.x < swapchainExtent.width && pos.x + acc.x > 0){
-        pos.x += acc.x;
-    }else{
-        acc.x = acc.x * -1.0f;
-    }
+    Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
 
-    if(pos.y + size.y + acc.y < swapchainExtent.height){
-        pos.y += acc.y;
-    }else{
-        acc.y = acc.y * -0.96f;
-        if(jump%10 == 0 && acc.y < 0){
-            acc.y -= 2.0f;
-        }
-        jump++;
-    }
-
+    //Draw Black stuff behind 
     drawSprite((SpriteDrawCommand){
         .transform = (mat4){
-            size.x,0,0,0,
-            0,size.y,0,0,
+            previewPos.width,0,0,0,
+            0,previewPos.height,0,0,
             0,0,1,0,
-            pos.x,pos.y,0,1,
+            previewPos.x,previewPos.y,0,1,
         },
-        .textureID = lenaTextureID,
+        .albedo = (vec3){0.0,0.0,0.0},
+    });
+
+    Rect timelineRect = (Rect){
+        .width = swapchainExtent.width,
+        .height = (float)swapchainExtent.height - previewPos.y+previewPos.height,
+        .y = previewPos.y+previewPos.height,
+    };
+
+    float cursorWidth = timelineRect.width / 500;
+    
+    drawSprite((SpriteDrawCommand){
+        .transform = (mat4){
+            cursorWidth,0,0,0,
+            0,timelineRect.height,0,0,
+            0,0,1,0,
+            timelineRect.x+time+cursorWidth/2,timelineRect.y,0,1,
+        },
         .albedo = (vec3){1.0,0.0,0.0},
     });
 
-    float winW = (float)swapchainExtent.width;
-    float winH = (float)swapchainExtent.height;
-    float imgAspect = (float)imageWidth / (float)imageHeight;
-    float winAspect = winW / winH;
-
-    if (winAspect < imgAspect) {
-        float scaledH = winW / imgAspect;
-        float yOffset = (winH - scaledH) * 0.5f;
-        
-        pcsPreview.model = (mat4){
-            winW,   0,       0, 0,
-            0,      scaledH, 0, 0,
-            0,      0,       1, 0,
-            0,      yOffset, 0, 1
-        };
-    } else {
-        float scaledW = winH * imgAspect;
-        float xOffset = (winW - scaledW) * 0.5f;
-        
-        pcsPreview.model = (mat4){
-            scaledW, 0,      0, 0,
-            0,       winH,   0, 0,
-            0,       0,      1, 0,
-            xOffset, 0,      0, 1
-        };
-    }
+    pcsPreview.model = (mat4){
+        previewRect.width,0,0,0,
+        0,previewRect.height,0,0,
+        0,0,1,0,
+        previewRect.x,previewRect.y,0,1,
+    };
 
     if(!ffmpegProcessFrame()) return 1;
 
+    time += deltaTime;
     return true;
 }
 
 bool draw(){
-    //preview pass
-    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = getSwapchainImageView(),
-        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f},
-    });
-
-    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-        .width = swapchainExtent.width,
-        .height = swapchainExtent.height
-    });
-        
-    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = swapchainExtent,
-    });
-
-    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipelinePreview);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayoutPreview,0,1,&descriptorSet,0,NULL);
-    vkCmdPushConstants(cmd,pipelineLayoutPreview,VK_SHADER_STAGE_ALL,0,sizeof(PushConstantsPreview), &pcsPreview);
-
-    vkCmdDraw(cmd, 6, 1, 0, 0);
-
-    vkCmdEndRendering(cmd);
-
     //sprite pass
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
         .colorAttachment = getSwapchainImageView(),
+        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f},
     });
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
         .width = swapchainExtent.width,
@@ -316,5 +269,26 @@ bool draw(){
 
     vkCmdEndRendering(cmd);
 
+    //preview pass
+    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+        .colorAttachment = getSwapchainImageView(),
+    });
+
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+        .extent = swapchainExtent,
+    });
+
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipelinePreview);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayoutPreview,0,1,&descriptorSet,0,NULL);
+    vkCmdPushConstants(cmd,pipelineLayoutPreview,VK_SHADER_STAGE_ALL,0,sizeof(PushConstantsPreview), &pcsPreview);
+
+    vkCmdDraw(cmd, 6, 1, 0, 0);
+
+    vkCmdEndRendering(cmd);
     return true;
 }

@@ -201,9 +201,9 @@ int addBindlessTextureFromDisk(char* name){
 int getTextureID(char* name){
     for(int i = 0; i < bindlessTextures.count; i++){
         if(strcmp(bindlessTextures.items[i].name, name) == 0){
-            return i;
+            return i + 1;
         }
     }
 
-    return -1;
+    return 0;
 }

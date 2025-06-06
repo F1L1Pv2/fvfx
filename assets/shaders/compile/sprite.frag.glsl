@@ -9,7 +9,7 @@ layout(location = 0) in vec2 uv;
 layout(location = 1) in flat uint InstanceIndex;
 
 void main() {
-    uint textureID = pcs.spriteDrawBuffer.commands[InstanceIndex].textureID;
+    uint textureID = pcs.spriteDrawBuffer.commands[InstanceIndex].textureID - 1;
     if(textureID == -1){
         outColor = vec4(pcs.spriteDrawBuffer.commands[InstanceIndex].albedo,1.0f);
     }else{
