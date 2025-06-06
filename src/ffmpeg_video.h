@@ -12,4 +12,7 @@ bool ffmpegProcessFrame();
 
 void ffmpegUninit();
 
+double getDuration();
+double getFrameTime();
+
 #endif

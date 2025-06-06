@@ -203,6 +203,14 @@ bool ffmpegProcessFrame(){
     return true;
 }
 
+double getFrameTime(){
+    return (double)frame->pts * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+}
+
+double getDuration(){
+    return (double)formatContext->streams[videoStreamIndex]->duration * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+}
+
 void ffmpegUninit(){
     free(data);
     vkUnmapMemory(device, mapped);

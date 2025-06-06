@@ -197,8 +197,8 @@ float time;
 bool update(float deltaTime){
     Rect previewPos = (Rect){
         .width = swapchainExtent.width,
-        .height = (float)swapchainExtent.height*2.5/4,
-        .y = (float)swapchainExtent.height/16
+        .height = (float)swapchainExtent.height*3/4,
+        .y = 30,
     };
 
     Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
@@ -220,6 +220,10 @@ bool update(float deltaTime){
         .y = previewPos.y+previewPos.height,
     };
 
+    if(!ffmpegProcessFrame()) return 1;
+
+    float percent = getFrameTime()/getDuration();
+
     float cursorWidth = timelineRect.width / 500;
     
     drawSprite((SpriteDrawCommand){
@@ -227,7 +231,7 @@ bool update(float deltaTime){
             cursorWidth,0,0,0,
             0,timelineRect.height,0,0,
             0,0,1,0,
-            timelineRect.x+time+cursorWidth/2,timelineRect.y,0,1,
+            timelineRect.x+percent*timelineRect.width+cursorWidth/2,timelineRect.y,0,1,
         },
         .albedo = (vec3){1.0,0.0,0.0},
     });
@@ -239,7 +243,6 @@ bool update(float deltaTime){
         previewRect.x,previewRect.y,0,1,
     };
 
-    if(!ffmpegProcessFrame()) return 1;
 
     time += deltaTime;
     return true;
