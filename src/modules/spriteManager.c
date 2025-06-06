@@ -29,6 +29,10 @@ bool initSpriteManager(){
 
 void drawSprite(SpriteDrawCommand cmd){
     if(spriteDrawQueue.count < MAX_SPRITE_COUNT){
+        if(cmd.size.x == 0 && cmd.size.y == 0){
+            cmd.size.x = 1;
+            cmd.size.y = 1;
+        }
         da_append(&spriteDrawQueue, cmd);
     }
 }

@@ -82,6 +82,7 @@ int main(int argc, char** argv){
         // ------------------ sprite manager initialization ------------------
 
         File_Paths initialTextures = {0};
+        da_append(&initialTextures,"assets/Jimbo100x.png");
         if(!initBindlessTextures(initialTextures)) return 1;
 
         String_Builder sb = {0};
@@ -203,6 +204,8 @@ bool update(float deltaTime){
 
     Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
 
+    float backgroundSpeed = cosf(sinf(time/20))*time;
+
     //Draw Black stuff behind 
     drawSprite((SpriteDrawCommand){
         .transform = (mat4){
@@ -211,7 +214,9 @@ bool update(float deltaTime){
             0,0,1,0,
             previewPos.x,previewPos.y,0,1,
         },
-        .albedo = (vec3){0.0,0.0,0.0},
+        .textureID = getTextureID("assets/Jimbo100x.png"),
+        .offset = (vec2){time,time/2},
+        .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
     });
 
     Rect timelineRect = (Rect){

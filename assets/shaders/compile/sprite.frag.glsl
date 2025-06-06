@@ -10,10 +10,13 @@ layout(location = 1) in flat uint InstanceIndex;
 
 void main() {
     uint textureID = pcs.spriteDrawBuffer.commands[InstanceIndex].textureID - 1;
+
+    vec2 new_uv = (uv * pcs.spriteDrawBuffer.commands[InstanceIndex].size) + pcs.spriteDrawBuffer.commands[InstanceIndex].offset;
+
     if(textureID == -1){
         outColor = vec4(pcs.spriteDrawBuffer.commands[InstanceIndex].albedo,1.0f);
     }else{
-        outColor = texture(textures[textureID], uv);
+        outColor = texture(textures[textureID], new_uv);
     }
 
 }

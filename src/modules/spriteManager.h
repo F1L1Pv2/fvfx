@@ -13,6 +13,8 @@ typedef struct {
     mat4 transform;
     uint32_t textureID;
     vec3 albedo;
+    vec2 offset;
+    vec2 size;
 } SpriteDrawCommand;
 
 bool initSpriteManager();
