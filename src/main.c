@@ -239,7 +239,7 @@ bool update(float deltaTime){
     float cursorWidth = timelineRect.width / 500;
     
     drawSprite((SpriteDrawCommand){
-        .position = (vec2){timelineRect.x+percent*timelineRect.width+cursorWidth/2,timelineRect.y},
+        .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
         .scale = (vec2){cursorWidth, timelineRect.height},
         .albedo = (vec3){1.0,0.0,0.0},
     });
@@ -256,9 +256,14 @@ bool update(float deltaTime){
         .y = 3,
     });
 
-    drawText("Jimbo yamens\nBallzy Ballers", 0xFFFFFF, 16, (Rect){
-        .x = timelineRect.x + timelineRect.width / 2,
-        .y = timelineRect.y,
+    char text[256];
+    float textFont = 16;
+
+    sprintf(text, "%.2fs/%.2fs", getFrameTime(), getDuration());
+
+    drawText(text, 0xFFFFFF, textFont, (Rect){
+        .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
+        .y = 3,
     });
 
 

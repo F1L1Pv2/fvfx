@@ -78,3 +78,25 @@ void drawText(char* text, uint32_t color, float fontSize, Rect bounding){
         });
     }
 }
+
+float measureText(char* text, float fontSize){
+    float width = 0;
+    float newWidth = 0;
+
+    size_t len = strlen(text);
+    for(int i = 0; i < len; i++){
+        char ch = text[i];
+        if(ch == '\n'){
+            if (newWidth > width) width = newWidth;
+            newWidth = 0;
+            continue;        
+        }
+
+        GlyphMetric metric = atlas.glyphMetrics[ch];
+        newWidth += metric.ax * fontSize / FREE_GLYPH_FONT_SIZE;
+    }
+
+    if (newWidth > width) width = newWidth;
+
+    return width;
+}
