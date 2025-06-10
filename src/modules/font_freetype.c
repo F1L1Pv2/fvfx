@@ -19,6 +19,9 @@
 
 FT_Library library = NULL;
 
+#include "3rdparty/stb_image.h"
+#include "3rdparty/stb_image_write.h"
+
 bool GetFontSDFAtlas(const char* filename, VkImage* image, VkDeviceMemory* imageMemory, VkImageView* imageView, GlyphAtlas* glyphAtlas){
     if(library == NULL){
         if(FT_Init_FreeType(&library) != 0) return false;
@@ -55,39 +58,93 @@ bool GetFontSDFAtlas(const char* filename, VkImage* image, VkDeviceMemory* image
     int vulkanImageRowPitch = subResourceLayout.rowPitch;
 
     void *mapped;
-    
     vkMapMemory(device, *imageMemory, 0, vulkanImageRowPitch*glyphAtlas->height, 0, &mapped);
     
-    int x = 0;
-    for (int i = 32; i < 128; ++i) {
-        if (FT_Load_Char(face, i, load_flags) != 0) {
-            fprintf(stderr, "ERROR: could not load glyph of a character with code %d\n", i);
-            return false;
+    const char* fontCacheFilename = "assets/font/cache.png";
+    const char* fontCacheFilenameInfo = "assets/font/cache.bin";
+
+    int imageCacheExists = file_exists(fontCacheFilename);
+    int imageCacheInfoExists = file_exists(fontCacheFilenameInfo);
+
+    bool needsRebuild = !(imageCacheExists && imageCacheInfoExists);
+
+    if(imageCacheExists && imageCacheExists){
+        String_Builder sb = {0};
+        char* data = NULL;
+
+        if(!read_entire_file(fontCacheFilenameInfo,&sb)) return false;
+        
+        if(sb.count == sizeof(glyphAtlas->glyphMetrics)){
+            memcpy(glyphAtlas->glyphMetrics, sb.items, sizeof(glyphAtlas->glyphMetrics));
+
+            int width, height, comp;
+            data = (char*)stbi_load(fontCacheFilename,&width, &height, &comp, 0);
+
+            if(data && width == glyphAtlas->width && height == glyphAtlas->height && comp == 1){
+                for(int j = 0; j < height; j++){
+                    memcpy(
+                        mapped + vulkanImageRowPitch * j,
+                        data + width * j,
+                        width
+                    );
+                }
+            }else{
+                needsRebuild = true;
+            }
+        }else{
+            needsRebuild = true;
         }
-
-        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) != 0) {
-            fprintf(stderr, "ERROR: could not render glyph of a character with code %d\n", i);
-            return false;
-        }
-
-        glyphAtlas->glyphMetrics[i].ax = face->glyph->advance.x >> 6;
-        glyphAtlas->glyphMetrics[i].ay = face->glyph->advance.y >> 6;
-        glyphAtlas->glyphMetrics[i].bw = face->glyph->bitmap.width;
-        glyphAtlas->glyphMetrics[i].bh = face->glyph->bitmap.rows;
-        glyphAtlas->glyphMetrics[i].bl = face->glyph->bitmap_left;
-        glyphAtlas->glyphMetrics[i].bt = face->glyph->bitmap_top;
-        glyphAtlas->glyphMetrics[i].tx = (float) x / (float) glyphAtlas->width;
-
-        for(int j = 0; j < face->glyph->bitmap.rows; j++){
-            memcpy(
-                mapped + vulkanImageRowPitch * j + x,
-                face->glyph->bitmap.buffer + face->glyph->bitmap.width * j,
-                face->glyph->bitmap.width 
-            );
-        }
-
-        x += face->glyph->bitmap.width;
+        
+        free(data);
+        sb_free(sb);
     }
+
+    if(needsRebuild){
+        char* data = calloc(glyphAtlas->width * glyphAtlas->height, 1);
+
+        int x = 0;
+        for (int i = 32; i < 128; ++i) {
+            if (FT_Load_Char(face, i, load_flags) != 0) {
+                fprintf(stderr, "ERROR: could not load glyph of a character with code %d\n", i);
+                return false;
+            }
+    
+            if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) != 0) {
+                fprintf(stderr, "ERROR: could not render glyph of a character with code %d\n", i);
+                return false;
+            }
+    
+            glyphAtlas->glyphMetrics[i].ax = face->glyph->advance.x >> 6;
+            glyphAtlas->glyphMetrics[i].ay = face->glyph->advance.y >> 6;
+            glyphAtlas->glyphMetrics[i].bw = face->glyph->bitmap.width;
+            glyphAtlas->glyphMetrics[i].bh = face->glyph->bitmap.rows;
+            glyphAtlas->glyphMetrics[i].bl = face->glyph->bitmap_left;
+            glyphAtlas->glyphMetrics[i].bt = face->glyph->bitmap_top;
+            glyphAtlas->glyphMetrics[i].tx = (float) x / (float) glyphAtlas->width;
+    
+            for(int j = 0; j < face->glyph->bitmap.rows; j++){
+                memcpy(
+                    mapped + vulkanImageRowPitch * j + x,
+                    face->glyph->bitmap.buffer + face->glyph->bitmap.width * j,
+                    face->glyph->bitmap.width 
+                );
+
+                memcpy(
+                    data + glyphAtlas->width * j + x,
+                    face->glyph->bitmap.buffer + face->glyph->bitmap.width * j,
+                    face->glyph->bitmap.width 
+                );
+            }
+    
+            x += face->glyph->bitmap.width;
+        }
+    
+        stbi_write_png(fontCacheFilename,glyphAtlas->width,glyphAtlas->height,1,data,glyphAtlas->width*1);
+        write_entire_file(fontCacheFilenameInfo,glyphAtlas->glyphMetrics, sizeof(glyphAtlas->glyphMetrics));
+    
+        free(data);
+    }
+
         
     vkUnmapMemory(device, *imageMemory);
     

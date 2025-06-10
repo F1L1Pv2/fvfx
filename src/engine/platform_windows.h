@@ -276,6 +276,8 @@ void platform_set_mouse_position(size_t x, size_t y) {
 
 #ifndef DEBUG
 
+int main();
+
 int WinMain(
   HINSTANCE hInstance,
   HINSTANCE hPrevInstance,

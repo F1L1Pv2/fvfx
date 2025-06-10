@@ -5,3 +5,5 @@ nob.exe.old
 nob.old
 .vscode
 *.spv
+cache.bin
+cache.png

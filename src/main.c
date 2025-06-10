@@ -64,13 +64,22 @@ size_t imageWidth, imageHeight;
 
 GlyphAtlas atlas = {0};
 
-int main(int argc, char** argv){
-    if(!engineInit("FVFX", 640,480)) return 1;
+#include "engine/platform.h"
 
+uint64_t TIMER;
+uint64_t TIMER_TOTAL;
+#define CHECK_TIMER(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER) / 1000.0f);TIMER = newTimer;} while(0)
+#define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
+
+int main(int argc, char** argv){
     if(argc < 2){
         printf("you need to provide filename\n");
         return 1;
     }
+    TIMER = platform_get_time();
+    TIMER_TOTAL = TIMER;
+    if(!engineInit("FVFX", 640,480)) return 1;
+    CHECK_TIMER("init engine");
 
     {
         afterResize();
@@ -84,17 +93,6 @@ int main(int argc, char** argv){
         VkImage fontImage;
         VkDeviceMemory fontMemory;
         VkImageView fontImageView;
-
-        if(!GetFontSDFAtlas("assets/font/VictorMono-Regular.ttf",&fontImage, &fontMemory, &fontImageView, &atlas)) return false;
-
-        addBindlessTextureRaw((Texture){
-            .name = "font",
-            .width = atlas.width,
-            .height = atlas.height,
-            .image = fontImage,
-            .memory = fontMemory,
-            .imageView = fontImageView,
-        });
 
         String_Builder sb = {0};
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
@@ -123,6 +121,23 @@ int main(int argc, char** argv){
         
         if(!initSpriteManager()) return 1;
         pcs.SpriteDrawBufferPtr = vkGetBufferDeviceAddressEX(spriteDrawBuffer);
+
+        CHECK_TIMER("init sprite");
+
+        // ------------------          INIT SDF            ------------------
+
+        if(!GetFontSDFAtlas("assets/font/VictorMono-Regular.ttf",&fontImage, &fontMemory, &fontImageView, &atlas)) return false;
+
+        addBindlessTextureRaw((Texture){
+            .name = "font",
+            .width = atlas.width,
+            .height = atlas.height,
+            .image = fontImage,
+            .memory = fontMemory,
+            .imageView = fontImageView,
+        });
+
+        CHECK_TIMER("init sdf");
 
         // ------------------ video preview initialization ------------------
 
@@ -199,8 +214,11 @@ int main(int argc, char** argv){
         writeDescriptorSet.pImageInfo = &descriptorImageInfo;
 
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+        CHECK_TIMER("init video");
     }
 
+    CHECK_TIMER_TOTAL("init");
     return engineStart();
 }
 
