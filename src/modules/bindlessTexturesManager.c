@@ -66,15 +66,6 @@ bool initBindlessDescriptorSet(){
     return true;
 }
 
-typedef struct{
-    char* name;
-    VkImage image;
-    VkDeviceMemory memory;
-    VkImageView imageView;
-    size_t width;
-    size_t height;
-} Texture;
-
 typedef struct {
     Texture* items;
     size_t count;
@@ -144,8 +135,8 @@ bool initBindlessTextures(File_Paths paths){
     return true;
 }
 
-int addBindlessTexture(char* name, char* data, size_t width, size_t height){
-    if(data == NULL) return -1;
+bool addBindlessTexture(char* name, char* data, size_t width, size_t height){
+    if(data == NULL) return false;
     
     Texture texture = (Texture){
         .width = width,
@@ -154,15 +145,15 @@ int addBindlessTexture(char* name, char* data, size_t width, size_t height){
     };
 
     if(!createImage(texture.width,texture.height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &texture.image, &texture.memory)){
-        return -1;
+        return false;
     }
     
     if(!sendDataToImage(texture.image,data,texture.width,texture.width*sizeof(uint32_t),texture.height)){
-        return -1;
+        return false;
     }
     
     if(!createImageView(texture.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, &texture.imageView)){
-        return -1;
+        return false;
     }
 
     da_append(&bindlessTextures, texture);
@@ -184,15 +175,36 @@ int addBindlessTexture(char* name, char* data, size_t width, size_t height){
 
     vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
     
-    return bindlessTextures.count - 1;
+    return true;
 }
 
-int addBindlessTextureFromDisk(char* name){
+void addBindlessTextureRaw(Texture texture){
+    da_append(&bindlessTextures, texture);
+    
+    VkDescriptorImageInfo descriptorImageInfo = {0};
+    descriptorImageInfo.sampler = samplerLinear;
+    descriptorImageInfo.imageView = texture.imageView;
+    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet writeDescriptorSet = {0};
+    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet.pNext = NULL;
+    writeDescriptorSet.dstSet = bindlessDescriptorSet;
+    writeDescriptorSet.dstBinding = 0;
+    writeDescriptorSet.dstArrayElement = bindlessTextures.count - 1;
+    writeDescriptorSet.descriptorCount = 1;
+    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+    vkUpdateDescriptorSets(device,1,&writeDescriptorSet,0,NULL);
+}
+
+bool addBindlessTextureFromDisk(char* name){
     int width, height;
     char* data = (char*)stbi_load(name,&width,&height, NULL, 4);
     if(data == NULL){
         printf("ERROR: Couldn't load %s image\n", name);
-        return -1;
+        return false;
     }
 
     return addBindlessTexture(name,data,width,height);

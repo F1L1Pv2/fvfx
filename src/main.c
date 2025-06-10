@@ -20,18 +20,17 @@
 #include "modules/gmath.h"
 #include "modules/bindlessTexturesManager.h"
 #include "modules/spriteManager.h"
+#include "modules/font_freetype.h"
 #include "ffmpeg_video.h"
 #include "gui_helpers.h"
 
 typedef struct{
-    mat4 proj;
-    mat4 view;
+    mat4 projView;
     VkDeviceAddress SpriteDrawBufferPtr;
 } PushConstants;
 
 typedef struct{
-    mat4 proj;
-    mat4 view;
+    mat4 projView;
     mat4 model;
 } PushConstantsPreview;
 
@@ -39,21 +38,16 @@ static PushConstants pcs;
 static PushConstantsPreview pcsPreview;
 
 bool afterResize(){
-    pcs.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
-    pcs.view = (mat4){
+    mat4 ortho = ortho2D(swapchainExtent.width, swapchainExtent.height);
+    mat4 projView = mat4mul(&ortho, &(mat4){
         1,0,0,0,
         0,1,0,0,
         0,0,1,0,
         -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
-    };
+    });
 
-    pcsPreview.proj = ortho2D(swapchainExtent.width, swapchainExtent.height);
-    pcsPreview.view = (mat4){
-        1,0,0,0,
-        0,1,0,0,
-        0,0,1,0,
-        -((float)swapchainExtent.width)/2,-((float)swapchainExtent.height)/2,0,1,
-    };
+    pcs.projView = projView;
+    pcsPreview.projView = projView;
 
     return true;
 }
@@ -67,6 +61,8 @@ static VkDescriptorSet descriptorSet;
 static VkDescriptorSetLayout descriptorSetLayout;
 
 size_t imageWidth, imageHeight;
+
+GlyphAtlas atlas = {0};
 
 int main(int argc, char** argv){
     if(!engineInit("FVFX", 640,480)) return 1;
@@ -84,6 +80,21 @@ int main(int argc, char** argv){
         File_Paths initialTextures = {0};
         da_append(&initialTextures,"assets/Jimbo100x.png");
         if(!initBindlessTextures(initialTextures)) return 1;
+
+        VkImage fontImage;
+        VkDeviceMemory fontMemory;
+        VkImageView fontImageView;
+
+        if(!GetFontSDFAtlas("assets/font/VictorMono-Regular.ttf",&fontImage, &fontMemory, &fontImageView, &atlas)) return false;
+
+        addBindlessTextureRaw((Texture){
+            .name = "font",
+            .width = atlas.width,
+            .height = atlas.height,
+            .image = fontImage,
+            .memory = fontMemory,
+            .imageView = fontImageView,
+        });
 
         String_Builder sb = {0};
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
@@ -208,20 +219,16 @@ bool update(float deltaTime){
 
     //Draw Black stuff behind 
     drawSprite((SpriteDrawCommand){
-        .transform = (mat4){
-            previewPos.width,0,0,0,
-            0,previewPos.height,0,0,
-            0,0,1,0,
-            previewPos.x,previewPos.y,0,1,
-        },
-        .textureID = getTextureID("assets/Jimbo100x.png"),
+        .position = (vec2){previewPos.x,previewPos.y},
+        .scale = (vec2){previewPos.width, previewPos.height},
+        .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
         .offset = (vec2){time,time/2},
         .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
     });
 
     Rect timelineRect = (Rect){
         .width = swapchainExtent.width,
-        .height = (float)swapchainExtent.height - previewPos.y+previewPos.height,
+        .height = (float)swapchainExtent.height - (previewPos.y+previewPos.height),
         .y = previewPos.y+previewPos.height,
     };
 
@@ -232,12 +239,8 @@ bool update(float deltaTime){
     float cursorWidth = timelineRect.width / 500;
     
     drawSprite((SpriteDrawCommand){
-        .transform = (mat4){
-            cursorWidth,0,0,0,
-            0,timelineRect.height,0,0,
-            0,0,1,0,
-            timelineRect.x+percent*timelineRect.width+cursorWidth/2,timelineRect.y,0,1,
-        },
+        .position = (vec2){timelineRect.x+percent*timelineRect.width+cursorWidth/2,timelineRect.y},
+        .scale = (vec2){cursorWidth, timelineRect.height},
         .albedo = (vec3){1.0,0.0,0.0},
     });
 
@@ -248,6 +251,21 @@ bool update(float deltaTime){
         previewRect.x,previewRect.y,0,1,
     };
 
+    char ch = 'A';
+
+    GlyphMetric metric = atlas.glyphMetrics[ch];
+
+    float w = metric.bw;
+    float h = metric.bh;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){timelineRect.x + timelineRect.width / 2 - w / 2,timelineRect.y + timelineRect.height / 2 - h/2},
+        .scale = (vec2){w,h},
+        .textureIDEffects = getTextureID("font") | TEXTURE_EFFECT_SDF,
+        .offset = (vec2){.x = metric.tx, .y = 0},
+        .size = (vec2){.x = metric.bw / (float)atlas.width, .y = metric.bh / (float) atlas.height},
+        .albedo = (vec3){1.0,1.0,1.0},
+    });
 
     time += deltaTime;
     return true;

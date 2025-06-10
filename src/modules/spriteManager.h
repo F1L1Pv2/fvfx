@@ -10,8 +10,9 @@
 #include "modules/gmath.h"
 
 typedef struct {
-    mat4 transform;
-    uint32_t textureID;
+    vec2 position;
+    vec2 scale;
+    uint32_t textureIDEffects;
     vec3 albedo;
     vec2 offset;
     vec2 size;

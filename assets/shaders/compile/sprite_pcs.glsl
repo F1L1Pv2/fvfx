@@ -3,8 +3,9 @@
 #extension GL_EXT_nonuniform_qualifier: require
 
 struct SpriteDrawCommand {
-    mat4 transform;
-    uint textureID;
+    vec2 position;
+    vec2 scale;
+    uint textureIDEffects;  // 0xAAAABBBB lowest bits are textures and higher are effects
     vec3 albedo;
     vec2 offset;
     vec2 size;
@@ -16,7 +17,6 @@ layout (buffer_reference, scalar) readonly buffer SpriteDrawBuffer {
 
 layout (push_constant) uniform constants
 {
-    mat4 proj;
-    mat4 view;
+    mat4 projView;
     SpriteDrawBuffer spriteDrawBuffer;
 } pcs;

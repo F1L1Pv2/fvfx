@@ -10,6 +10,16 @@ void main() {
     vec2 baseCoord = vec2((0x1C & b) != 0, (0xE & b) != 0);
     uv = baseCoord;
 
-    gl_Position = pcs.proj * pcs.view * pcs.spriteDrawBuffer.commands[gl_InstanceIndex].transform * vec4(baseCoord, 0.0f, 1.0f);
+    vec2 pos = pcs.spriteDrawBuffer.commands[gl_InstanceIndex].position;
+    vec2 scale = pcs.spriteDrawBuffer.commands[gl_InstanceIndex].scale;
+
+    mat4 model = mat4(
+        vec4(scale.x,0,0,0),
+        vec4(0,scale.y,0,0),
+        vec4(0,0,1,0),
+        vec4(pos.x,pos.y,0,1)
+    );
+
+    gl_Position = pcs.projView * model * vec4(baseCoord, 0.0f, 1.0f);
     InstanceIndex = gl_InstanceIndex;
 }

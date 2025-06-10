@@ -145,16 +145,16 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
         return false;
     }
 
-    VkResult result = vkMapMemory(device,*imageDeviceMemoryOut,0,frame->width*frame->height*sizeof(uint32_t),0, &mapped);
-    if(result != VK_SUCCESS){
-        printf("Couldn't map image");
-        return false;
-    }
-
     VkImageSubresource subResource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
     VkSubresourceLayout subResourceLayout;
     vkGetImageSubresourceLayout(device, *imageOut, &subResource, &subResourceLayout);
     vulkanImageRowPitch = subResourceLayout.rowPitch;
+
+    VkResult result = vkMapMemory(device,*imageDeviceMemoryOut,0,vulkanImageRowPitch*frame->height,0, &mapped);
+    if(result != VK_SUCCESS){
+        printf("Couldn't map image");
+        return false;
+    }
 
     return true;
 }
