@@ -251,21 +251,16 @@ bool update(float deltaTime){
         previewRect.x,previewRect.y,0,1,
     };
 
-    char ch = 'A';
-
-    GlyphMetric metric = atlas.glyphMetrics[ch];
-
-    float w = metric.bw;
-    float h = metric.bh;
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){timelineRect.x + timelineRect.width / 2 - w / 2,timelineRect.y + timelineRect.height / 2 - h/2},
-        .scale = (vec2){w,h},
-        .textureIDEffects = getTextureID("font") | TEXTURE_EFFECT_SDF,
-        .offset = (vec2){.x = metric.tx, .y = 0},
-        .size = (vec2){.x = metric.bw / (float)atlas.width, .y = metric.bh / (float) atlas.height},
-        .albedo = (vec3){1.0,1.0,1.0},
+    drawText("FVFX", 0xFFFFFF, 16, (Rect){
+        .x = 10,
+        .y = 3,
     });
+
+    drawText("Jimbo yamens\nBallzy Ballers", 0xFFFFFF, 16, (Rect){
+        .x = timelineRect.x + timelineRect.width / 2,
+        .y = timelineRect.y,
+    });
+
 
     time += deltaTime;
     return true;
