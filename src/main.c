@@ -227,11 +227,18 @@ float time;
 bool playing = true;
 
 bool update(float deltaTime){
+    Rect timelineRect = (Rect){
+        .width = swapchainExtent.width,
+        .height = min(((float)swapchainExtent.height / 4), 200.0f)
+    };
+
     Rect previewPos = (Rect){
         .width = swapchainExtent.width,
-        .height = (float)swapchainExtent.height*3/4,
+        .height = swapchainExtent.height - timelineRect.height,
         .y = 30,
     };
+
+    timelineRect.y = previewPos.y + previewPos.height;
 
     Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
 
@@ -247,12 +254,6 @@ bool update(float deltaTime){
         .offset = (vec2){time,time/2},
         .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
     });
-
-    Rect timelineRect = (Rect){
-        .width = swapchainExtent.width,
-        .height = (float)swapchainExtent.height - (previewPos.y+previewPos.height),
-        .y = previewPos.y+previewPos.height,
-    };
 
     if(playing){
         if(!ffmpegProcessFrame(time)) return 1;
