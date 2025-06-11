@@ -17,5 +17,6 @@ Rect fitRectangle(Rect outer, float innerWidth, float innerHeight);
 
 void drawText(char* text, uint32_t color, float fontSize, Rect bounding);
 float measureText(char* text, float fontSize);
+bool pointInsideRect(float x, float y, Rect rect);
 
 #endif

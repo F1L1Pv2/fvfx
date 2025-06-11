@@ -15,6 +15,9 @@
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 
+#include "circular_buffer.h"
+#include "stdint.h"
+
 #include <stdint.h>
 
 static AVFormatContext* formatContext;
@@ -26,8 +29,52 @@ static AVFrame* frame;
 static AVPacket* packet;
 static struct SwsContext* swsContext;
 static char* data;
+static char* readData;
 static void* mapped;
 static int vulkanImageRowPitch;
+
+typedef struct{
+    double frameTime;
+} CachedFrameMetadata;
+
+static CircularBuffer cachedFrames;
+static CircularBuffer cachedFrameInfos;
+
+bool getFFmpegVideo(){
+    int response;
+    while (av_read_frame(formatContext, packet) >= 0){
+        if(packet->stream_index != videoStreamIndex) {
+            av_packet_unref(packet);
+            continue;
+        }
+
+        response = avcodec_send_packet(codecContext, packet);
+        if(response < 0){
+            printf("(1) Failed to decode packet: %s\n", av_err2str(response));
+            return false;
+        }
+
+        response = avcodec_receive_frame(codecContext,frame);
+        if(response == AVERROR(EAGAIN) || response == AVERROR_EOF){
+            av_packet_unref(packet);
+            continue;
+        } else if (response < 0){
+            printf("(2) Failed to decode packet: %s\n", av_err2str(response));
+            return false;
+        }
+
+        av_packet_unref(packet);
+        break;
+    }
+
+    uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
+    int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
+    sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+
+    return true;
+}
+
+double getFrameTimeRaw();
 
 bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
     // av_log_set_level(AV_LOG_DEBUG);
@@ -127,11 +174,23 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
     *widthOut = frame->width;
     *heightOut = frame->height;
 
+    double frame_rate = av_q2d(formatContext->streams[videoStreamIndex]->avg_frame_rate);
+    if (frame_rate <= 0.0) {
+        frame_rate = av_q2d(formatContext->streams[videoStreamIndex]->r_frame_rate);
+    }
+
+    cachedFrames = initCircularBuffer(frame->width*frame->height*sizeof(uint32_t),floor(frame_rate*1.5));
+    cachedFrameInfos = initCircularBuffer(sizeof(CachedFrameMetadata),floor(frame_rate*1.5));
+
     data = malloc(frame->width * frame->height * sizeof(uint32_t));
 
     uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
     int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
     sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+
+    if(!writeCircularBuffer(&cachedFrames,data)) return false;
+    if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
+    readData = (cachedFrames.items + cachedFrames.item_size * cachedFrames.read_cur);
 
     if(!createImage(frame->width,frame->height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, imageOut, imageDeviceMemoryOut)){
         return false;
@@ -156,46 +215,43 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
         return false;
     }
 
+    //precache 20 frames
+    for(int i = 0; i < 40 && canWriteCircularBuffer(&cachedFrames); i++){
+        if(!getFFmpegVideo()) break;
+        if(!writeCircularBuffer(&cachedFrames,data)) break;
+        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) break;
+    }
+
     return true;
 }
 
-bool ffmpegProcessFrame(){
-    int response;
-    while (av_read_frame(formatContext, packet) >= 0){
-        if(packet->stream_index != videoStreamIndex) {
-            av_packet_unref(packet);
-            continue;
-        }
-
-        response = avcodec_send_packet(codecContext, packet);
-        if(response < 0){
-            printf("(1) Failed to decode packet: %s\n", av_err2str(response));
-            return false;
-        }
-
-        response = avcodec_receive_frame(codecContext,frame);
-        if(response == AVERROR(EAGAIN) || response == AVERROR_EOF){
-            av_packet_unref(packet);
-            continue;
-        } else if (response < 0){
-            printf("(2) Failed to decode packet: %s\n", av_err2str(response));
-            return false;
-        }
-
-        av_packet_unref(packet);
-        break;
+bool ffmpegProcessFrame(double time){
+    CachedFrameMetadata cachedFrameMetadata = *(CachedFrameMetadata*)(cachedFrameInfos.items + cachedFrameInfos.item_size * cachedFrameInfos.read_cur);
+    
+    if(canWriteCircularBuffer(&cachedFrames)){
+        if(!getFFmpegVideo()) return false;
+        if(!writeCircularBuffer(&cachedFrames,data)) return false;
+        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
     }
 
-    uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
-    int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
-    sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+    if(time > cachedFrameMetadata.frameTime){
+        readData = readCircularBuffer(&cachedFrames);
+        
+        if(!readData) {
+            cachedFrames.read_cur = 0;
+            cachedFrameInfos.read_cur = 0;
+            return true;
+        }
+
+        readCircularBuffer(&cachedFrameInfos);
+    }
 
     int cpuPitch = frame->width*sizeof(uint32_t);
 
     for(int i = 0; i < frame->height; i++){
         memcpy(
             mapped + i *vulkanImageRowPitch,
-            data + i * cpuPitch,
+            readData + i * cpuPitch,
             cpuPitch
         );
     }
@@ -203,8 +259,11 @@ bool ffmpegProcessFrame(){
     return true;
 }
 
-double getFrameTime(){
+double getFrameTimeRaw(){
     return (double)frame->pts * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+}
+double getFrameTime(){
+    return ((CachedFrameMetadata*)(cachedFrameInfos.items + cachedFrameInfos.item_size*cachedFrameInfos.read_cur))->frameTime;
 }
 
 double getDuration(){

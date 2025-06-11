@@ -56,10 +56,16 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             KeyCodeID keyCode = KeyCodeLookupTable[wParam];
             Key* key = &input.keys[keyCode];
-            key->justPressed = !key->justPressed && !key->isDown && isDown;
-            key->justReleased = !key->justReleased && key->isDown && !isDown;
+
             key->isDown = isDown;
-            key->halfTransitionCount++;
+            if(key->oldIsDown == !isDown){
+                if(isDown){
+                    key->justPressed = 1;
+                }else{
+                    key->justReleased = 1;
+                }
+            }
+            key->oldIsDown = isDown;
 
             break;
         }
@@ -78,10 +84,16 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             KeyCodeID keyCode = KeyCodeLookupTable[mouseCode];
             Key* key = &input.keys[keyCode];
-            key->justPressed = !key->justPressed && !key->isDown && isDown;
-            key->justReleased = !key->justReleased && key->isDown && !isDown;
+
             key->isDown = isDown;
-            key->halfTransitionCount++;
+            if(key->oldIsDown == !isDown){
+                if(isDown){
+                    key->justPressed = 1;
+                }else{
+                    key->justReleased = 1;
+                }
+            }
+            key->oldIsDown = isDown;
 
             break;
         }
@@ -135,6 +147,11 @@ void platform_create_window(const char* title, size_t width, size_t height){
 MSG msg;
 
 bool platform_window_handle_events(){
+    for(int i = 0; i < sizeof(input.keys) / sizeof(input.keys[0]); i++){
+        input.keys[i].justPressed = 0;
+        input.keys[i].justReleased = 0;
+    }
+
     while(PeekMessageA(&msg,NULL,0,0,PM_REMOVE)){
         TranslateMessage(&msg);
         DispatchMessageA(&msg);

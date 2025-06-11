@@ -77,9 +77,9 @@ typedef enum {
 
 typedef struct {
   bool isDown;
+  bool oldIsDown;
   bool justPressed;
   bool justReleased;
-  unsigned char halfTransitionCount;
 } Key;
 
 typedef struct {

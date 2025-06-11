@@ -64,14 +64,6 @@ void platform_create_window(const char* title, size_t width, size_t height){
 static int BUTTONS_KEYCODE_OFFSET = 250;
 
 bool platform_window_handle_events() {
-    //static struct {
-    //    int scroll_delta = 0;
-    //    struct {
-    //        Time last_click_time[3] = {0};  // For left, middle, right buttons
-    //        int click_count[3] = {0};      // For left, middle, right buttons
-    //    } double_click;
-    //} mouse_state = {0};
-
     Window root;
     Window child;
     int root_x;
@@ -85,6 +77,11 @@ bool platform_window_handle_events() {
 
     input.mouse_x = win_x;
     input.mouse_y = win_y;
+
+    for(int i = 0; i < NOB_ARRAY_LEN(input.keys); i++){
+        input.keys[i].justPressed = 0;
+        input.keys[i].justReleased = 0;
+    }
 
     while (XPending(display)) {
         XEvent event;
@@ -105,10 +102,15 @@ bool platform_window_handle_events() {
                 KeyCodeID keyCode = KeyCodeLookupTable[event.xkey.keycode];
                 Key* key = &input.keys[keyCode];
 
-                key->justPressed = !key->justPressed && !key->isDown && isDown;
-                key->justReleased = !key->justReleased && key->isDown && !isDown;
                 key->isDown = isDown;
-                key->halfTransitionCount++;
+                if(key->oldIsDown == !isDown){
+                    if(isDown){
+                        key->justPressed = 1;
+                    }else{
+                        key->justReleased = 1;
+                    }
+                }
+                key->oldIsDown = isDown;
 
                 break;
             }
@@ -128,10 +130,15 @@ bool platform_window_handle_events() {
                 KeyCodeID keyCode = KeyCodeLookupTable[BUTTONS_KEYCODE_OFFSET + event.xbutton.button];
                 Key* key = &input.keys[keyCode];
 
-                key->justPressed = !key->justPressed && !key->isDown && isDown;
-                key->justReleased = !key->justReleased && key->isDown && !isDown;
                 key->isDown = isDown;
-                key->halfTransitionCount++;
+                if(key->oldIsDown == !isDown){
+                    if(isDown){
+                        key->justPressed = 1;
+                    }else{
+                        key->justReleased = 1;
+                    }
+                }
+                key->oldIsDown = isDown;
 
                 break;
             }

@@ -224,6 +224,8 @@ int main(int argc, char** argv){
 
 float time;
 
+bool playing = true;
+
 bool update(float deltaTime){
     Rect previewPos = (Rect){
         .width = swapchainExtent.width,
@@ -234,6 +236,8 @@ bool update(float deltaTime){
     Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
 
     float backgroundSpeed = cosf(sinf(time/20))*time;
+
+    if(input.keys[KEY_SPACE].justPressed) playing = !playing;
 
     //Draw Black stuff behind 
     drawSprite((SpriteDrawCommand){
@@ -250,7 +254,9 @@ bool update(float deltaTime){
         .y = previewPos.y+previewPos.height,
     };
 
-    if(!ffmpegProcessFrame()) return 1;
+    if(playing){
+        if(!ffmpegProcessFrame(time)) return 1;
+    }
 
     float percent = getFrameTime()/getDuration();
 

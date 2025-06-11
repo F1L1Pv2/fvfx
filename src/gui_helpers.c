@@ -100,3 +100,12 @@ float measureText(char* text, float fontSize){
 
     return width;
 }
+
+bool pointInsideRect(float x, float y, Rect rect){
+    return !(
+        (x < rect.x) ||
+        (x > rect.x + rect.width) ||
+        (y < rect.y) ||
+        (y > rect.y + rect.height)
+    );
+}

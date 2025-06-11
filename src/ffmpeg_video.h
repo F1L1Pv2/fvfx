@@ -5,10 +5,7 @@
 #include <stdbool.h>
 
 bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut);
-
-// bool loadFrame(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut);
-
-bool ffmpegProcessFrame();
+bool ffmpegProcessFrame(double time);
 
 void ffmpegUninit();
 
