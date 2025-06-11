@@ -90,10 +90,6 @@ int main(int argc, char** argv){
         da_append(&initialTextures,"assets/Jimbo100x.png");
         if(!initBindlessTextures(initialTextures)) return 1;
 
-        VkImage fontImage;
-        VkDeviceMemory fontMemory;
-        VkImageView fontImageView;
-
         String_Builder sb = {0};
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
         sb_append_null(&sb);
@@ -125,6 +121,10 @@ int main(int argc, char** argv){
         CHECK_TIMER("init sprite");
 
         // ------------------          INIT SDF            ------------------
+
+        VkImage fontImage = NULL;
+        VkDeviceMemory fontMemory = NULL;
+        VkImageView fontImageView = NULL;
 
         if(!GetFontSDFAtlas("assets/font/VictorMono-Regular.ttf",&fontImage, &fontMemory, &fontImageView, &atlas)) return false;
 
