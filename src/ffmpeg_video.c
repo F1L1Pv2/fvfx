@@ -225,6 +225,18 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
     return true;
 }
 
+void ffmpegRender(){
+    int cpuPitch = frame->width*sizeof(uint32_t);
+
+    for(int i = 0; i < frame->height; i++){
+        memcpy(
+            mapped + i *vulkanImageRowPitch,
+            readData + i * cpuPitch,
+            cpuPitch
+        );
+    }
+}
+
 bool ffmpegProcessFrame(double time){
     CachedFrameMetadata cachedFrameMetadata = *(CachedFrameMetadata*)(cachedFrameInfos.items + cachedFrameInfos.item_size * cachedFrameInfos.read_cur);
     
@@ -246,15 +258,7 @@ bool ffmpegProcessFrame(double time){
         readCircularBuffer(&cachedFrameInfos);
     }
 
-    int cpuPitch = frame->width*sizeof(uint32_t);
-
-    for(int i = 0; i < frame->height; i++){
-        memcpy(
-            mapped + i *vulkanImageRowPitch,
-            readData + i * cpuPitch,
-            cpuPitch
-        );
-    }
+    ffmpegRender();
     
     return true;
 }
