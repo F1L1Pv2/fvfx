@@ -293,6 +293,17 @@ bool update(float deltaTime){
 
 
     time += deltaTime;
+
+    if(time > getDuration()){
+        time = 0;
+        if(!ffmpegSeek(time)) return false;
+    }
+
+    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
+        time = ((float)input.mouse_x - timelineRect.x) * getDuration() / timelineRect.width;
+        if(!ffmpegSeek(time)) return false;
+    }
+
     return true;
 }
 

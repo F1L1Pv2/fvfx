@@ -6,6 +6,7 @@
 
 bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut);
 bool ffmpegProcessFrame(double time);
+bool ffmpegSeek(double time_seconds);
 
 void ffmpegUninit();
 

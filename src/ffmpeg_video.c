@@ -270,6 +270,56 @@ double getDuration(){
     return (double)formatContext->streams[videoStreamIndex]->duration * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
 }
 
+bool ffmpegSeekRaw(double frameTime){
+    int64_t target_pts = frameTime / av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+
+    int ret = av_seek_frame(formatContext, videoStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
+    if (ret < 0) {
+        printf("Seek failed: %s\n", av_err2str(ret));
+        return false;
+    }
+
+    avcodec_flush_buffers(codecContext);
+
+    cachedFrames.read_cur = 0;
+    cachedFrames.write_cur = 0;
+    cachedFrameInfos.read_cur = 0;
+    cachedFrameInfos.write_cur = 0;
+
+    for(int i = 0; i < 40 && canWriteCircularBuffer(&cachedFrames); i++){
+        if(!getFFmpegVideo()) break;
+        if(!writeCircularBuffer(&cachedFrames,data)) break;
+        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) break;
+    }
+
+    return true;
+}
+
+// Helper function to get frame by exact time (for precise seeking)
+bool ffmpegSeek(double time_seconds) {
+    if (!ffmpegSeekRaw(time_seconds)) {
+        return false;
+    }
+
+    // Now find the exact frame
+    do {
+        if (!getFFmpegVideo()) break;
+    } while (getFrameTimeRaw() < time_seconds);
+
+    // If we found the frame, add it to cache
+    if (getFrameTimeRaw() >= time_seconds) {
+        cachedFrames.read_cur = 0;
+        cachedFrames.write_cur = 0;
+        cachedFrameInfos.read_cur = 0;
+        cachedFrameInfos.write_cur = 0;
+        if (!writeCircularBuffer(&cachedFrames, data)) return false;
+        if (!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
+        return true;
+    }
+
+    return false;
+}
+
 void ffmpegUninit(){
     free(data);
     vkUnmapMemory(device, mapped);
