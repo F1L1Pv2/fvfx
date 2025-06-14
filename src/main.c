@@ -296,7 +296,7 @@ bool update(float deltaTime){
 
     if(playing) time += deltaTime;
 
-    if(time > getDuration(&video)){
+    if(time >= getDuration(&video)){
         time = 0;
         if(!ffmpegSeek(&video,time)) return false;
     }
