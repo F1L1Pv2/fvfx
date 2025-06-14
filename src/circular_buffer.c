@@ -35,3 +35,8 @@ bool writeCircularBuffer(CircularBuffer* circularBuffer, void* item){
 void freeCircularBuffer(CircularBuffer circularBuffer){
     free(circularBuffer.items);
 }
+
+void resetCircularBuffer(CircularBuffer* circularBuffer){
+    circularBuffer->write_cur = 0;
+    circularBuffer->read_cur = 0;
+}
