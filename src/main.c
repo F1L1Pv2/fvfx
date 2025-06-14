@@ -71,6 +71,8 @@ uint64_t TIMER_TOTAL;
 #define CHECK_TIMER(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER) / 1000.0f);TIMER = newTimer;} while(0)
 #define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
 
+Video video = {0};
+
 int main(int argc, char** argv){
     if(argc < 2){
         printf("you need to provide filename\n");
@@ -194,7 +196,7 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!ffmpegInit(argv[1],&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
+        if(!ffmpegInit(argv[1], &video,&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
             printf("Couldn't load video preview frame\n");
             return 1;
         }
@@ -256,10 +258,10 @@ bool update(float deltaTime){
     });
 
     if(playing){
-        if(!ffmpegProcessFrame(time)) return 1;
+        if(!ffmpegProcessFrame(&video,time)) return 1;
     }
 
-    float percent = getFrameTime()/getDuration();
+    float percent = getFrameTime(&video)/getDuration(&video);
 
     float cursorWidth = timelineRect.width / 500;
     
@@ -284,7 +286,7 @@ bool update(float deltaTime){
     char text[256];
     float textFont = 16;
 
-    sprintf(text, "%.2fs/%.2fs", getFrameTime(), getDuration());
+    sprintf(text, "%.2fs/%.2fs", getFrameTime(&video), getDuration(&video));
 
     drawText(text, 0xFFFFFF, textFont, (Rect){
         .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
@@ -294,15 +296,15 @@ bool update(float deltaTime){
 
     if(playing) time += deltaTime;
 
-    if(time > getDuration()){
+    if(time > getDuration(&video)){
         time = 0;
-        if(!ffmpegSeek(time)) return false;
+        if(!ffmpegSeek(&video,time)) return false;
     }
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        time = ((float)input.mouse_x - timelineRect.x) * getDuration() / timelineRect.width;
-        if(!ffmpegSeek(time)) return false;
-        if(!playing) ffmpegRender();
+        time = ((float)input.mouse_x - timelineRect.x) * getDuration(&video) / timelineRect.width;
+        if(!ffmpegSeek(&video,time)) return false;
+        if(!playing) ffmpegRender(&video);
     }
 
     return true;

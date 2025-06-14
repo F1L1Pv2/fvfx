@@ -10,193 +10,173 @@
 #include "engine/vulkan_images.h"
 
 #include <malloc.h>
-
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 
 #include "circular_buffer.h"
-#include "stdint.h"
 
 #include <stdint.h>
 
-static AVFormatContext* formatContext;
-static int videoStreamIndex = -1;
-static AVCodecParameters* codecParameters;
-static const AVCodec* codec;
-static AVCodecContext* codecContext;
-static AVFrame* frame;
-static AVPacket* packet;
-static struct SwsContext* swsContext;
-static char* data;
-static char* readData;
-static void* mapped;
-static int vulkanImageRowPitch;
-
-typedef struct{
-    double frameTime;
-} CachedFrameMetadata;
-
-static CircularBuffer cachedFrames;
-static CircularBuffer cachedFrameInfos;
-
-bool getFFmpegVideo(){
+bool getFFmpegVideo(Video* video){
     int response;
-    while (av_read_frame(formatContext, packet) >= 0){
-        if(packet->stream_index != videoStreamIndex) {
-            av_packet_unref(packet);
+    while (av_read_frame(video->formatContext, video->packet) >= 0){
+        if(video->packet->stream_index != video->videoStreamIndex) {
+            av_packet_unref(video->packet);
             continue;
         }
 
-        response = avcodec_send_packet(codecContext, packet);
+        response = avcodec_send_packet(video->codecContext, video->packet);
         if(response < 0){
-            printf("(1) Failed to decode packet: %s\n", av_err2str(response));
+            printf("(1) Failed to decode video->packet: %s\n", av_err2str(response));
             return false;
         }
 
-        response = avcodec_receive_frame(codecContext,frame);
+        response = avcodec_receive_frame(video->codecContext,video->frame);
         if(response == AVERROR(EAGAIN) || response == AVERROR_EOF){
-            av_packet_unref(packet);
+            av_packet_unref(video->packet);
             continue;
         } else if (response < 0){
-            printf("(2) Failed to decode packet: %s\n", av_err2str(response));
+            printf("(2) Failed to decode video->packet: %s\n", av_err2str(response));
             return false;
         }
 
-        av_packet_unref(packet);
+        av_packet_unref(video->packet);
         break;
     }
 
-    uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
-    int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
-    sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+    uint8_t* dest[4] = {(uint8_t*)video->data, NULL, NULL, NULL};
+    int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0,0,0};
+    sws_scale(video->swsContext,(const uint8_t* const*)&video->frame->data,video->frame->linesize,0,video->frame->height, dest, dest_linesize);
 
     return true;
 }
 
-double getFrameTimeRaw();
+double getFrameTimeRaw(Video* video);
 
-bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
+bool ffmpegInit(char* filename, Video* video, VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut){
     // av_log_set_level(AV_LOG_DEBUG);
 
-    formatContext = avformat_alloc_context();
-    if(!formatContext){
-        printf("Couldn't allocate formatContext\n");
+    video->videoStreamIndex = -1;
+
+    video->formatContext = avformat_alloc_context();
+    if(!video->formatContext){
+        printf("Couldn't allocate video->formatContext\n");
         return false;
     }
 
-    if(avformat_open_input(&formatContext,filename, NULL, NULL) < 0){
+    if(avformat_open_input(&video->formatContext,filename, NULL, NULL) < 0){
         printf("Couldn't open filename %s\n", filename);
         return false;
     }
 
-    for (int i = 0; i < formatContext->nb_streams; i++){
-        AVStream* stream = formatContext->streams[i];
-        codecParameters = stream->codecpar;
-        codec = avcodec_find_decoder(codecParameters->codec_id);
-        if(!codec){
+    for (int i = 0; i < video->formatContext->nb_streams; i++){
+        AVStream* stream = video->formatContext->streams[i];
+        video->codecParameters = stream->codecpar;
+        video->codec = avcodec_find_decoder(video->codecParameters->codec_id);
+        if(!video->codec){
             continue;
         }
 
-        if(codecParameters->codec_type == AVMEDIA_TYPE_VIDEO){
-            videoStreamIndex = i;
+        if(video->codecParameters->codec_type == AVMEDIA_TYPE_VIDEO){
+            video->videoStreamIndex = i;
             break;
         }
     }
 
-    if(videoStreamIndex == -1){
+    if(video->videoStreamIndex == -1){
         printf("Couldn't find video stream\n");
         return false;
     }
 
-    codecContext = avcodec_alloc_context3(codec);
-    if(!codecContext){
-        printf("Couldn't allocate codecContext\n");
+    video->codecContext = avcodec_alloc_context3(video->codec);
+    if(!video->codecContext){
+        printf("Couldn't allocate video->codecContext\n");
         return false;
     }
 
-    if(avcodec_parameters_to_context(codecContext,codecParameters) < 0){
-        printf("Couldn't transfer parameters to codec context\n");
+    if(avcodec_parameters_to_context(video->codecContext,video->codecParameters) < 0){
+        printf("Couldn't transfer parameters to video->codec context\n");
         return false;
     }
 
-    if(avcodec_open2(codecContext,codec, NULL) < 0){
-        printf("Couldn't open codec\n");
+    if(avcodec_open2(video->codecContext,video->codec, NULL) < 0){
+        printf("Couldn't open video->codec\n");
         return false;
     }
 
-    frame = av_frame_alloc();
-    if(!frame){
-        printf("Couldn't allocate frame\n");
+    video->frame = av_frame_alloc();
+    if(!video->frame){
+        printf("Couldn't allocate video->frame\n");
         return false;
     }
-    packet = av_packet_alloc();
-    if(!packet){
-        printf("Couldn't allocate packet\n");
+    video->packet = av_packet_alloc();
+    if(!video->packet){
+        printf("Couldn't allocate video->packet\n");
         return false;
     }
 
     int response;
-    while (av_read_frame(formatContext, packet) >= 0){
-        if(packet->stream_index != videoStreamIndex) {
-            av_packet_unref(packet);
+    while (av_read_frame(video->formatContext, video->packet) >= 0){
+        if(video->packet->stream_index != video->videoStreamIndex) {
+            av_packet_unref(video->packet);
             continue;
         }
 
-        response = avcodec_send_packet(codecContext, packet);
+        response = avcodec_send_packet(video->codecContext, video->packet);
         if(response < 0){
-            printf("(1) Failed to decode packet: %s\n", av_err2str(response));
+            printf("(1) Failed to decode video->packet: %s\n", av_err2str(response));
             return false;
         }
 
-        response = avcodec_receive_frame(codecContext,frame);
+        response = avcodec_receive_frame(video->codecContext,video->frame);
         if(response == AVERROR(EAGAIN) || response == AVERROR_EOF){
-            av_packet_unref(packet);
+            av_packet_unref(video->packet);
             continue;
         } else if (response < 0){
-            printf("(2) Failed to decode packet: %s\n", av_err2str(response));
+            printf("(2) Failed to decode video->packet: %s\n", av_err2str(response));
             return false;
         }
 
-        av_packet_unref(packet);
+        av_packet_unref(video->packet);
         break;
     }
 
-    swsContext = sws_getContext(frame->width,frame->height,codecContext->pix_fmt,
-                                            frame->width,frame->height,AV_PIX_FMT_RGB0,
+    video->swsContext = sws_getContext(video->frame->width,video->frame->height,video->codecContext->pix_fmt,
+                                            video->frame->width,video->frame->height,AV_PIX_FMT_RGB0,
                                             SWS_FAST_BILINEAR, NULL, NULL, NULL);
     
-    if(!swsContext){
-        printf("Couldn't get swsContext\n");
+    if(!video->swsContext){
+        printf("Couldn't get video->swsContext\n");
         return false;
     }
 
-    *widthOut = frame->width;
-    *heightOut = frame->height;
+    *widthOut = video->frame->width;
+    *heightOut = video->frame->height;
 
-    double frame_rate = av_q2d(formatContext->streams[videoStreamIndex]->avg_frame_rate);
+    double frame_rate = av_q2d(video->formatContext->streams[video->videoStreamIndex]->avg_frame_rate);
     if (frame_rate <= 0.0) {
-        frame_rate = av_q2d(formatContext->streams[videoStreamIndex]->r_frame_rate);
+        frame_rate = av_q2d(video->formatContext->streams[video->videoStreamIndex]->r_frame_rate);
     }
 
-    cachedFrames = initCircularBuffer(frame->width*frame->height*sizeof(uint32_t),floor(frame_rate*1.5));
-    cachedFrameInfos = initCircularBuffer(sizeof(CachedFrameMetadata),floor(frame_rate*1.5));
+    video->cachedFrames = initCircularBuffer(video->frame->width*video->frame->height*sizeof(uint32_t),floor(frame_rate*1.5));
+    video->cachedFrameInfos = initCircularBuffer(sizeof(CachedFrameMetadata),floor(frame_rate*1.5));
 
-    data = malloc(frame->width * frame->height * sizeof(uint32_t));
+    video->data = malloc(video->frame->width * video->frame->height * sizeof(uint32_t));
 
-    uint8_t* dest[4] = {(uint8_t*)data, NULL, NULL, NULL};
-    int dest_linesize[4] = {frame->width * sizeof(uint32_t), 0,0,0};
-    sws_scale(swsContext,(const uint8_t* const*)&frame->data,frame->linesize,0,frame->height, dest, dest_linesize);
+    uint8_t* dest[4] = {(uint8_t*)video->data, NULL, NULL, NULL};
+    int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0,0,0};
+    sws_scale(video->swsContext,(const uint8_t* const*)&video->frame->data,video->frame->linesize,0,video->frame->height, dest, dest_linesize);
 
-    if(!writeCircularBuffer(&cachedFrames,data)) return false;
-    if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
-    readData = (cachedFrames.items + cachedFrames.item_size * cachedFrames.read_cur);
+    if(!writeCircularBuffer(&video->cachedFrames,video->data)) return false;
+    if(!writeCircularBuffer(&video->cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw(video)})) return false;
+    video->readData = (video->cachedFrames.items + video->cachedFrames.item_size * video->cachedFrames.read_cur);
 
-    if(!createImage(frame->width,frame->height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, imageOut, imageDeviceMemoryOut)){
+    if(!createImage(video->frame->width,video->frame->height,VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, imageOut, imageDeviceMemoryOut)){
         return false;
     }
     
-    if(!sendDataToImage(*imageOut,data,frame->width,frame->width*sizeof(uint32_t),frame->height)){
+    if(!sendDataToImage(*imageOut,video->data,video->frame->width,video->frame->width*sizeof(uint32_t),video->frame->height)){
         return false;
     }
     
@@ -207,130 +187,130 @@ bool ffmpegInit(char* filename, VkImage* imageOut, VkDeviceMemory* imageDeviceMe
     VkImageSubresource subResource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
     VkSubresourceLayout subResourceLayout;
     vkGetImageSubresourceLayout(device, *imageOut, &subResource, &subResourceLayout);
-    vulkanImageRowPitch = subResourceLayout.rowPitch;
+    video->vulkanImageRowPitch = subResourceLayout.rowPitch;
 
-    VkResult result = vkMapMemory(device,*imageDeviceMemoryOut,0,vulkanImageRowPitch*frame->height,0, &mapped);
+    VkResult result = vkMapMemory(device,*imageDeviceMemoryOut,0,video->vulkanImageRowPitch*video->frame->height,0, &video->mapped);
     if(result != VK_SUCCESS){
         printf("Couldn't map image");
         return false;
     }
 
     //precache 20 frames
-    for(int i = 0; i < 40 && canWriteCircularBuffer(&cachedFrames); i++){
-        if(!getFFmpegVideo()) break;
-        if(!writeCircularBuffer(&cachedFrames,data)) break;
-        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) break;
+    for(int i = 0; i < 40 && canWriteCircularBuffer(&video->cachedFrames); i++){
+        if(!getFFmpegVideo(video)) break;
+        if(!writeCircularBuffer(&video->cachedFrames,video->data)) break;
+        if(!writeCircularBuffer(&video->cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw(video)})) break;
     }
 
     return true;
 }
 
-void ffmpegRender(){
-    int cpuPitch = frame->width*sizeof(uint32_t);
+void ffmpegRender(Video* video){
+    int cpuPitch = video->frame->width*sizeof(uint32_t);
 
-    for(int i = 0; i < frame->height; i++){
+    for(int i = 0; i < video->frame->height; i++){
         memcpy(
-            mapped + i *vulkanImageRowPitch,
-            readData + i * cpuPitch,
+            video->mapped + i *video->vulkanImageRowPitch,
+            video->readData + i * cpuPitch,
             cpuPitch
         );
     }
 }
 
-bool ffmpegProcessFrame(double time){
-    CachedFrameMetadata cachedFrameMetadata = *(CachedFrameMetadata*)(cachedFrameInfos.items + cachedFrameInfos.item_size * cachedFrameInfos.read_cur);
+bool ffmpegProcessFrame(Video* video, double time){
+    CachedFrameMetadata cachedFrameMetadata = *(CachedFrameMetadata*)(video->cachedFrameInfos.items + video->cachedFrameInfos.item_size * video->cachedFrameInfos.read_cur);
     
-    if(canWriteCircularBuffer(&cachedFrames)){
-        if(!getFFmpegVideo()) return false;
-        if(!writeCircularBuffer(&cachedFrames,data)) return false;
-        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
+    if(canWriteCircularBuffer(&video->cachedFrames)){
+        if(!getFFmpegVideo(video)) return false;
+        if(!writeCircularBuffer(&video->cachedFrames,video->data)) return false;
+        if(!writeCircularBuffer(&video->cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw(video)})) return false;
     }
 
     if(time > cachedFrameMetadata.frameTime){
-        readData = readCircularBuffer(&cachedFrames);
+        video->readData = readCircularBuffer(&video->cachedFrames);
         
-        if(!readData) {
-            cachedFrames.read_cur = 0;
-            cachedFrameInfos.read_cur = 0;
+        if(!video->readData) {
+            video->cachedFrames.read_cur = 0;
+            video->cachedFrameInfos.read_cur = 0;
             return true;
         }
 
-        readCircularBuffer(&cachedFrameInfos);
+        readCircularBuffer(&video->cachedFrameInfos);
     }
 
-    ffmpegRender();
+    ffmpegRender(video);
     
     return true;
 }
 
-double getFrameTimeRaw(){
-    return (double)frame->pts * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+double getFrameTimeRaw(Video* video){
+    return (double)video->frame->pts * av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
 }
-double getFrameTime(){
-    return ((CachedFrameMetadata*)(cachedFrameInfos.items + cachedFrameInfos.item_size*cachedFrameInfos.read_cur))->frameTime;
-}
-
-double getDuration(){
-    return (double)formatContext->streams[videoStreamIndex]->duration * av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+double getFrameTime(Video* video){
+    return ((CachedFrameMetadata*)(video->cachedFrameInfos.items + video->cachedFrameInfos.item_size*video->cachedFrameInfos.read_cur))->frameTime;
 }
 
-bool ffmpegSeekRaw(double frameTime){
-    int64_t target_pts = frameTime / av_q2d(formatContext->streams[videoStreamIndex]->time_base);
+double getDuration(Video* video){
+    return (double)video->formatContext->streams[video->videoStreamIndex]->duration * av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
+}
 
-    int ret = av_seek_frame(formatContext, videoStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
+bool ffmpegSeekRaw(Video* video, double frameTime){
+    int64_t target_pts = frameTime / av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
+
+    int ret = av_seek_frame(video->formatContext, video->videoStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
         printf("Seek failed: %s\n", av_err2str(ret));
         return false;
     }
 
-    avcodec_flush_buffers(codecContext);
+    avcodec_flush_buffers(video->codecContext);
 
-    cachedFrames.read_cur = 0;
-    cachedFrames.write_cur = 0;
-    cachedFrameInfos.read_cur = 0;
-    cachedFrameInfos.write_cur = 0;
+    video->cachedFrames.read_cur = 0;
+    video->cachedFrames.write_cur = 0;
+    video->cachedFrameInfos.read_cur = 0;
+    video->cachedFrameInfos.write_cur = 0;
 
-    for(int i = 0; i < 40 && canWriteCircularBuffer(&cachedFrames); i++){
-        if(!getFFmpegVideo()) break;
-        if(!writeCircularBuffer(&cachedFrames,data)) break;
-        if(!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) break;
+    for(int i = 0; i < 40 && canWriteCircularBuffer(&video->cachedFrames); i++){
+        if(!getFFmpegVideo(video)) break;
+        if(!writeCircularBuffer(&video->cachedFrames,video->data)) break;
+        if(!writeCircularBuffer(&video->cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw(video)})) break;
     }
 
     return true;
 }
 
-// Helper function to get frame by exact time (for precise seeking)
-bool ffmpegSeek(double time_seconds) {
-    if (!ffmpegSeekRaw(time_seconds)) {
+// Helper function to get video->frame by exact time (for precise seeking)
+bool ffmpegSeek(Video* video, double time_seconds) {
+    if (!ffmpegSeekRaw(video, time_seconds)) {
         return false;
     }
 
-    // Now find the exact frame
+    // Now find the exact video->frame
     do {
-        if (!getFFmpegVideo()) break;
-    } while (getFrameTimeRaw() < time_seconds);
+        if (!getFFmpegVideo(video)) break;
+    } while (getFrameTimeRaw(video) < time_seconds);
 
-    // If we found the frame, add it to cache
-    if (getFrameTimeRaw() >= time_seconds) {
-        cachedFrames.read_cur = 0;
-        cachedFrames.write_cur = 0;
-        cachedFrameInfos.read_cur = 0;
-        cachedFrameInfos.write_cur = 0;
-        if (!writeCircularBuffer(&cachedFrames, data)) return false;
-        if (!writeCircularBuffer(&cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw()})) return false;
+    // If we found the video->frame, add it to cache
+    if (getFrameTimeRaw(video) >= time_seconds) {
+        video->cachedFrames.read_cur = 0;
+        video->cachedFrames.write_cur = 0;
+        video->cachedFrameInfos.read_cur = 0;
+        video->cachedFrameInfos.write_cur = 0;
+        if (!writeCircularBuffer(&video->cachedFrames, video->data)) return false;
+        if (!writeCircularBuffer(&video->cachedFrameInfos, &(CachedFrameMetadata){.frameTime = getFrameTimeRaw(video)})) return false;
         return true;
     }
 
     return false;
 }
 
-void ffmpegUninit(){
-    free(data);
-    vkUnmapMemory(device, mapped);
+void ffmpegUninit(Video* video){
+    free(video->data);
+    vkUnmapMemory(device, video->mapped);
 
-    avformat_close_input(&formatContext);
-    avcodec_free_context(&codecContext);
-    av_frame_free(&frame);
-    av_packet_free(&packet);
-    avformat_free_context(formatContext);
+    avformat_close_input(&video->formatContext);
+    avcodec_free_context(&video->codecContext);
+    av_frame_free(&video->frame);
+    av_packet_free(&video->packet);
+    avformat_free_context(video->formatContext);
 }
