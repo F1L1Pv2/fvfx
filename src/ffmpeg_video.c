@@ -8,19 +8,8 @@
 #include "engine/vulkan_helpers.h"
 #include "engine/vulkan_images.h"
 
-// Internal helper functions
-static bool readFrame(Video* video);
-static bool readAndCacheFrame(Video* video);
 static bool initializeVideoContext(Video* video, const char* filename);
 static bool initializeDecoder(Video* video);
-static bool getFirstFrame(Video* video);
-static bool createConversionContext(Video* video);
-static bool setupVulkanResources(Video* video, VkImage* imageOut, 
-                                VkDeviceMemory* imageDeviceMemoryOut, 
-                                VkImageView* imageViewOut);
-static void precacheFrames(Video* video, int count);
-static double getFrameTimeRaw(const Video* video);
-static bool seekToTimeRaw(Video* video, double frameTime);
 
 bool ffmpegInit(const char* filename, Video* video) 
 {
@@ -32,7 +21,6 @@ bool ffmpegInit(const char* filename, Video* video)
     video->duration = (double)video->formatContext->streams[video->videoStreamIndex]->duration * 
            av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
     
-    // Initialize frame caching
     video->frameRate = av_q2d(video->formatContext->streams[video->videoStreamIndex]->avg_frame_rate);
     if (video->frameRate <= 0.0) {
         video->frameRate = av_q2d(video->formatContext->streams[video->videoStreamIndex]->r_frame_rate);
@@ -142,15 +130,12 @@ static bool initializeVideoContext(Video* video, const char* filename) {
         return false;
     }
     
-    if (avformat_find_stream_info(video->formatContext, NULL) < 0) {
-        return false;
-    }
+    if (avformat_find_stream_info(video->formatContext, NULL) < 0) return false;
     
     return true;
 }
 
 static bool initializeDecoder(Video* video) {
-    // Find video stream
     video->videoStreamIndex = -1;
     for (int i = 0; i < video->formatContext->nb_streams; i++) {
         AVStream* stream = video->formatContext->streams[i];
@@ -163,23 +148,16 @@ static bool initializeDecoder(Video* video) {
     
     if (video->videoStreamIndex == -1) return false;
     
-    // Find decoder
-    video->codec = avcodec_find_decoder(video->codecParameters->codec_id);
-    if (!video->codec) return false;
+    const AVCodec* codec = avcodec_find_decoder(video->codecParameters->codec_id);
+    if (!codec) return false;
     
-    // Allocate codec context
-    video->codecContext = avcodec_alloc_context3(video->codec);
+    video->codecContext = avcodec_alloc_context3(codec);
     if (!video->codecContext) return false;
     
-    if (avcodec_parameters_to_context(video->codecContext, video->codecParameters) < 0) {
-        return false;
-    }
+    if (avcodec_parameters_to_context(video->codecContext, video->codecParameters) < 0) return false;
     
-    if (avcodec_open2(video->codecContext, video->codec, NULL) < 0) {
-        return false;
-    }
+    if (avcodec_open2(video->codecContext, codec, NULL) < 0) return false;
     
-    // Allocate frame and packet
     video->frame = av_frame_alloc();
     video->packet = av_packet_alloc();
     return video->frame && video->packet;

@@ -19,7 +19,6 @@ typedef struct {
     AVFormatContext* formatContext;
     int videoStreamIndex;
     AVCodecParameters* codecParameters;
-    const AVCodec* codec;
     AVCodecContext* codecContext;
     AVFrame* frame;
     AVPacket* packet;
