@@ -45,10 +45,8 @@ error:
     return false;
 }
 
-bool ffmpegProcessFrame(Video* video){
+bool ffmpegGetFrame(Video* video, Frame* frame) {
     int response;
-    bool frameDecoded = false;
-    
     while (av_read_frame(video->formatContext, video->packet) >= 0) {
         if (video->packet->stream_index != video->videoStreamIndex) {
             av_packet_unref(video->packet);
@@ -72,50 +70,37 @@ bool ffmpegProcessFrame(Video* video){
         }
 
         av_packet_unref(video->packet);
-        frameDecoded = true;
-        break;
-    }
-    
-    return frameDecoded;
-}
+        
+        if(frame->width == 0 && frame->height == 0 && frame->data == NULL){
+            video->swsContext = sws_getContext(
+                video->frame->width, video->frame->height, video->codecContext->pix_fmt,
+                video->frame->width, video->frame->height, AV_PIX_FMT_RGBA,
+                SWS_FAST_BILINEAR, NULL, NULL, NULL
+            );
+            frame->width = video->frame->width;
+            frame->height = video->frame->height;
+            frame->data = malloc(frame->width*frame->height*sizeof(uint32_t));
+        }
 
-void ffmpegRenderFrame(Video* video, Frame* frame){
-    // Convert frame to RGB
-    uint8_t* dest[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
-    int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0, 0, 0};
-    sws_scale(video->swsContext, 
-             (const uint8_t* const*)video->frame->data, 
-             video->frame->linesize, 
-             0, 
-             video->frame->height, 
-             dest, 
-             dest_linesize);
+        // Convert frame to RGB
+        uint8_t* dest[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
+        int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0, 0, 0};
+        sws_scale(video->swsContext, 
+                (const uint8_t* const*)video->frame->data, 
+                video->frame->linesize, 
+                0, 
+                video->frame->height, 
+                dest, 
+                dest_linesize);
 
-    frame->frameTime = (double)video->frame->pts * 
-           av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
-}
+        frame->frameTime = (double)video->frame->pts * 
+            av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
 
-bool ffmpegGetFrame(Video* video, Frame* frame) {
-    if(!ffmpegProcessFrame(video)) {
         av_frame_unref(video->frame);
-        return false;
+        return true;
     }
 
-    if(frame->width == 0 && frame->height == 0 && frame->data == NULL){
-        video->swsContext = sws_getContext(
-            video->frame->width, video->frame->height, video->codecContext->pix_fmt,
-            video->frame->width, video->frame->height, AV_PIX_FMT_RGBA,
-            SWS_FAST_BILINEAR, NULL, NULL, NULL
-        );
-        frame->width = video->frame->width;
-        frame->height = video->frame->height;
-        frame->data = malloc(frame->width*frame->height*sizeof(uint32_t));
-    }
-
-    ffmpegRenderFrame(video,frame);
-
-    av_frame_unref(video->frame);
-    return true;
+    return false;
 }
 
 bool ffmpegSeek(Video* video, Frame* frame, double time_seconds) {
