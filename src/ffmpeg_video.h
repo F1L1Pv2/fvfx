@@ -28,7 +28,7 @@ typedef struct {
     double frameRate;
 } Video;
 
-bool ffmpegInit(const char* filename, Video* videoOut);
+bool ffmpegInit(const char* filename, Video* video);
 void ffmpegUninit(Video* video);
 bool ffmpegGetFrame(Video* video, Frame* frame);
 bool ffmpegSeek(Video* video, Frame* frame, double time_seconds);
