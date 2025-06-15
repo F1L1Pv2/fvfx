@@ -313,3 +313,17 @@ void platform_set_mouse_position(size_t x, size_t y) {
     XWarpPointer(display, None, window, 0, 0, 0, 0, (int)x, (int)y);
     XFlush(display);
 }
+
+void platform_enable_fullscreen() {
+    Atom atoms[2] = { XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False), None };
+    XChangeProperty(display, window, XInternAtom(display, "_NET_WM_STATE", False),
+                   XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 1);
+    XFlush(display);
+}
+
+void platform_disable_fullscreen() {
+    Atom atoms[2] = { XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False), None };
+    XChangeProperty(display, window, XInternAtom(display, "_NET_WM_STATE", False),
+                   XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 0);
+    XFlush(display);
+}

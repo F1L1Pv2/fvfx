@@ -263,9 +263,19 @@ int main(int argc, char** argv){
 float time;
 
 bool playing = true;
+bool fullscreen = false;
 
 bool update(float deltaTime){
     if(playing) time += deltaTime;
+    if(input.keys[KEY_SPACE].justPressed) playing = !playing;
+    if(input.keys[KEY_F11].justPressed) {
+        fullscreen = !fullscreen;
+        if(fullscreen){
+            platform_enable_fullscreen();
+        }else{
+            platform_disable_fullscreen();
+        }
+    }
 
     Rect timelineRect = (Rect){
         .width = swapchainExtent.width,
@@ -274,26 +284,20 @@ bool update(float deltaTime){
 
     Rect previewPos = (Rect){
         .width = swapchainExtent.width,
-        .height = swapchainExtent.height - timelineRect.height,
-        .y = 30,
+        .height = fullscreen ? swapchainExtent.height : swapchainExtent.height - timelineRect.height,
+        .y = fullscreen ? 0 : 30,
     };
 
     timelineRect.y = previewPos.y + previewPos.height;
 
     Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
-
-    float backgroundSpeed = cosf(sinf(time/20))*time;
-
-    if(input.keys[KEY_SPACE].justPressed) playing = !playing;
-
-    //Draw Black stuff behind 
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){previewPos.x,previewPos.y},
-        .scale = (vec2){previewPos.width, previewPos.height},
-        .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
-        .offset = (vec2){time,time/2},
-        .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
-    });
+    
+    pcsPreview.model = (mat4){
+        previewRect.width,0,0,0,
+        0,previewRect.height,0,0,
+        0,0,1,0,
+        previewRect.x,previewRect.y,0,1,
+    };
 
     if(playing){
         bool didSmth = false;
@@ -337,37 +341,43 @@ bool update(float deltaTime){
         }
     }
 
-    float percent = videoFrame.frameTime / video.duration;
-
-    float cursorWidth = timelineRect.width / 500;
+    if(!fullscreen){
+        float backgroundSpeed = cosf(sinf(time/20))*time;
     
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
-        .scale = (vec2){cursorWidth, timelineRect.height},
-        .albedo = (vec3){1.0,0.0,0.0},
-    });
-
-    pcsPreview.model = (mat4){
-        previewRect.width,0,0,0,
-        0,previewRect.height,0,0,
-        0,0,1,0,
-        previewRect.x,previewRect.y,0,1,
-    };
-
-    drawText("FVFX", 0xFFFFFF, 16, (Rect){
-        .x = 10,
-        .y = 3,
-    });
-
-    char text[256];
-    float textFont = 16;
-
-    sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
-
-    drawText(text, 0xFFFFFF, textFont, (Rect){
-        .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
-        .y = 3,
-    });
+        //Draw Black stuff behind 
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){previewPos.x,previewPos.y},
+            .scale = (vec2){previewPos.width, previewPos.height},
+            .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
+            .offset = (vec2){time,time/2},
+            .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
+        });
+    
+        float percent = videoFrame.frameTime / video.duration;
+    
+        float cursorWidth = timelineRect.width / 500;
+        
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
+            .scale = (vec2){cursorWidth, timelineRect.height},
+            .albedo = (vec3){1.0,0.0,0.0},
+        });
+    
+        drawText("FVFX", 0xFFFFFF, 16, (Rect){
+            .x = 10,
+            .y = 3,
+        });
+    
+        char text[256];
+        float textFont = 16;
+    
+        sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
+    
+        drawText(text, 0xFFFFFF, textFont, (Rect){
+            .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
+            .y = 3,
+        });
+    }
 
     return true;
 }

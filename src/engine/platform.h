@@ -11,5 +11,7 @@ void platform_sleep(size_t milis);
 bool platform_resize_window_callback();
 uint64_t platform_get_time();
 void platform_set_mouse_position(size_t x, size_t y);
+void platform_enable_fullscreen();
+void platform_disable_fullscreen();
 
 #endif

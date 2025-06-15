@@ -291,6 +291,57 @@ void platform_set_mouse_position(size_t x, size_t y) {
     SetCursorPos(pt.x, pt.y);
 }
 
+uint64_t pre_fullScreenSizeX;
+uint64_t pre_fullScreenSizeY;
+uint64_t pre_fullScreenPosX;
+uint64_t pre_fullScreenPosY;
+
+void platform_enable_fullscreen(){
+    RECT rect;
+    if(GetWindowRect(hwnd, &rect)){
+        pre_fullScreenSizeX = rect.right - rect.left;
+        pre_fullScreenSizeY = rect.bottom - rect.top;
+        pre_fullScreenPosX = rect.left;
+        pre_fullScreenPosY = rect.top;
+    }
+    
+    //disable window decoration
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    style &= ~(WS_OVERLAPPEDWINDOW);
+    SetWindowLong(hwnd, GWL_STYLE, style);
+
+    uint64_t posX;
+    uint64_t posY;
+    uint64_t sizeX;
+    uint64_t sizeY;
+    
+    HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (hMonitor == NULL) {
+        return;
+    }
+    MONITORINFO monitorInfo;
+    monitorInfo.cbSize = sizeof(MONITORINFO);
+    if (GetMonitorInfo(hMonitor, &monitorInfo)) {
+        posX = monitorInfo.rcMonitor.left;
+        posY = monitorInfo.rcMonitor.top;
+        sizeX = monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left;
+        sizeY = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
+    } else {
+       return;
+    }
+
+    SetWindowPos(hwnd, NULL, posX, posY, sizeX, sizeY, SWP_FRAMECHANGED);
+}
+
+void platform_disable_fullscreen(){
+    //enable window decoration
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    style |= (WS_OVERLAPPEDWINDOW);
+    SetWindowLong(hwnd, GWL_STYLE, style);
+
+    SetWindowPos(hwnd, NULL, pre_fullScreenPosX, pre_fullScreenPosY, pre_fullScreenSizeX, pre_fullScreenSizeY, SWP_FRAMECHANGED);
+}
+
 #ifndef DEBUG
 
 int main();
