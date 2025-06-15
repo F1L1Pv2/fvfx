@@ -46,6 +46,7 @@ error:
 }
 
 bool ffmpegGetFrame(Video* video, Frame* frame) {
+    av_frame_unref(video->frame);
     int response;
     while (av_read_frame(video->formatContext, video->packet) >= 0) {
         if (video->packet->stream_index != video->videoStreamIndex) {
@@ -95,8 +96,6 @@ bool ffmpegGetFrame(Video* video, Frame* frame) {
 
         frame->frameTime = (double)video->frame->pts * 
             av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
-
-        av_frame_unref(video->frame);
         return true;
     }
 
