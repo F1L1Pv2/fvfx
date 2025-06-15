@@ -7,11 +7,13 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
-#include "circular_buffer.h"
 
-typedef struct {
+typedef struct{
+    void *data;
     double frameTime;
-} CachedFrameMetadata;
+    size_t width;
+    size_t height;
+} Frame;
 
 typedef struct {
     AVFormatContext* formatContext;
@@ -22,24 +24,13 @@ typedef struct {
     AVFrame* frame;
     AVPacket* packet;
     struct SwsContext* swsContext;
-    char* data;
-    char* readData;
-    void* mapped;
-    int vulkanImageRowPitch;
-    
-    CircularBuffer cachedFrames;
-    CircularBuffer cachedFrameInfos;
+    double duration;
+    double frameRate;
 } Video;
 
-bool ffmpegInit(const char* filename, Video* videoOut, 
-                VkImage* imageOut, VkDeviceMemory* imageDeviceMemoryOut, 
-                VkImageView* imageViewOut, size_t* widthOut, size_t* heightOut);
-bool ffmpegProcessFrame(Video* video, double time);
-bool ffmpegSeek(Video* video, double time_seconds);
-void ffmpegRender(Video* video);
+bool ffmpegInit(const char* filename, Video* videoOut);
 void ffmpegUninit(Video* video);
-
-double getDuration(Video* video);
-double getFrameTime(Video* video);
+bool ffmpegGetFrame(Video* video, Frame* frame);
+bool ffmpegSeek(Video* video, Frame* frame, double time_seconds);
 
 #endif

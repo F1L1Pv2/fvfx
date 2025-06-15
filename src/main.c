@@ -60,8 +60,6 @@ static VkPipelineLayout pipelineLayoutPreview;
 static VkDescriptorSet descriptorSet;
 static VkDescriptorSetLayout descriptorSetLayout;
 
-size_t imageWidth, imageHeight;
-
 GlyphAtlas atlas = {0};
 
 #include "engine/platform.h"
@@ -72,6 +70,9 @@ uint64_t TIMER_TOTAL;
 #define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
 
 Video video = {0};
+Frame videoFrame = {0};
+void* videoMapped = NULL;
+size_t videoVulkanStride = 0;
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -196,10 +197,45 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!ffmpegInit(argv[1], &video,&image,&imageMemory, &imageView, &imageWidth, &imageHeight)) {
-            printf("Couldn't load video preview frame\n");
+        if(!ffmpegInit(argv[1], &video)) {
+            printf("Couldn't load video\n");
             return 1;
         }
+
+        if(!ffmpegGetFrame(&video,&videoFrame)){
+            printf("Couldn't get video frame\n");
+            return 1;
+        }
+
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &image,&imageMemory)){
+            printf("Couldn't create video image\n");
+            return 1;
+        }
+
+        if(!sendDataToImage(image,videoFrame.data,videoFrame.width, videoFrame.width*sizeof(uint32_t), videoFrame.height)){
+            printf("Couldn't send frame data to video image\n");
+            return 1;
+        }
+
+        if(!createImageView(image,VK_FORMAT_R8G8B8A8_UNORM, 
+                        VK_IMAGE_ASPECT_COLOR_BIT, &imageView)){
+            printf("Couldn't create video image view\n");
+            return 1;
+        }
+
+        VkImageSubresource subresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .arrayLayer = 0
+        };
+
+        VkSubresourceLayout layout;
+        vkGetImageSubresourceLayout(device, image, &subresource, &layout);
+        videoVulkanStride = layout.rowPitch;
+
+        vkMapMemory(device,imageMemory, 0, videoVulkanStride*videoFrame.height, 0, &videoMapped);
 
         VkDescriptorImageInfo descriptorImageInfo = {0};
         descriptorImageInfo.sampler = samplerLinear;
@@ -229,6 +265,8 @@ float time;
 bool playing = true;
 
 bool update(float deltaTime){
+    if(playing) time += deltaTime;
+
     Rect timelineRect = (Rect){
         .width = swapchainExtent.width,
         .height = min(((float)swapchainExtent.height / 4), 200.0f)
@@ -242,7 +280,7 @@ bool update(float deltaTime){
 
     timelineRect.y = previewPos.y + previewPos.height;
 
-    Rect previewRect = fitRectangle(previewPos, imageWidth, imageHeight);
+    Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
 
     float backgroundSpeed = cosf(sinf(time/20))*time;
 
@@ -258,10 +296,48 @@ bool update(float deltaTime){
     });
 
     if(playing){
-        if(!ffmpegProcessFrame(&video,time)) return 1;
+        bool didSmth = false;
+        while(time > videoFrame.frameTime){
+            if(ffmpegGetFrame(&video,&videoFrame)){
+                didSmth = true;
+            }else{
+                break;
+            }
+        }
+
+        if(didSmth){
+            for(int i = 0; i < videoFrame.height; i++){
+                memcpy(
+                    videoMapped + videoVulkanStride*i,
+                    videoFrame.data + videoFrame.width*sizeof(uint32_t)*i,
+                    videoFrame.width *sizeof(uint32_t)
+                );
+            }
+        }
     }
 
-    float percent = getFrameTime(&video)/getDuration(&video);
+    if(time >= video.duration){
+        time = 0;
+        if(!ffmpegSeek(&video, &videoFrame,time)) return false;
+    }
+
+    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
+        time = ((float)input.mouse_x - timelineRect.x) * video.duration / timelineRect.width;
+        if(!ffmpegSeek(&video, &videoFrame,time)) return false;
+        if(!playing){ //redraw
+            if(ffmpegGetFrame(&video,&videoFrame)){
+                for(int i = 0; i < videoFrame.height; i++){
+                    memcpy(
+                        videoMapped + videoVulkanStride*i,
+                        videoFrame.data + videoFrame.width*sizeof(uint32_t)*i,
+                        videoFrame.width *sizeof(uint32_t)
+                    );
+                }
+            }
+        }
+    }
+
+    float percent = videoFrame.frameTime / video.duration;
 
     float cursorWidth = timelineRect.width / 500;
     
@@ -286,26 +362,12 @@ bool update(float deltaTime){
     char text[256];
     float textFont = 16;
 
-    sprintf(text, "%.2fs/%.2fs", getFrameTime(&video), getDuration(&video));
+    sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
 
     drawText(text, 0xFFFFFF, textFont, (Rect){
         .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
         .y = 3,
     });
-
-
-    if(playing) time += deltaTime;
-
-    if(time >= getDuration(&video)){
-        time = 0;
-        if(!ffmpegSeek(&video,time)) return false;
-    }
-
-    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        time = ((float)input.mouse_x - timelineRect.x) * getDuration(&video) / timelineRect.width;
-        if(!ffmpegSeek(&video,time)) return false;
-        if(!playing) ffmpegRender(&video);
-    }
 
     return true;
 }
