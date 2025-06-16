@@ -141,22 +141,22 @@ static bool initializeDecoder(Video* video) {
         AVStream* stream = video->formatContext->streams[i];
         if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             video->videoStreamIndex = i;
-            video->codecParameters = stream->codecpar;
+            AVCodecParameters* codecParameters = stream->codecpar;
+
+            const AVCodec* codec = avcodec_find_decoder(codecParameters->codec_id);
+            if (!codec) return false;
+            
+            video->codecContext = avcodec_alloc_context3(codec);
+            if (!video->codecContext) return false;
+            
+            if (avcodec_parameters_to_context(video->codecContext, codecParameters) < 0) return false;
+            
+            if (avcodec_open2(video->codecContext, codec, NULL) < 0) return false;
             break;
         }
     }
     
     if (video->videoStreamIndex == -1) return false;
-    
-    const AVCodec* codec = avcodec_find_decoder(video->codecParameters->codec_id);
-    if (!codec) return false;
-    
-    video->codecContext = avcodec_alloc_context3(codec);
-    if (!video->codecContext) return false;
-    
-    if (avcodec_parameters_to_context(video->codecContext, video->codecParameters) < 0) return false;
-    
-    if (avcodec_open2(video->codecContext, codec, NULL) < 0) return false;
     
     video->frame = av_frame_alloc();
     video->packet = av_packet_alloc();
