@@ -7,6 +7,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 
 typedef struct{
     void *data;
@@ -18,17 +19,20 @@ typedef struct{
 typedef struct {
     AVFormatContext* formatContext;
     int videoStreamIndex;
-    AVCodecContext* codecContext;
+    int audioStreamIndex;
+    AVCodecContext* codecContextVideo;
+    AVCodecContext* codecContextAudio;
     AVFrame* frame;
     AVPacket* packet;
     struct SwsContext* swsContext;
+    struct SwrContext* swrContext;
     double duration;
     double frameRate;
 } Video;
 
 bool ffmpegInit(const char* filename, Video* video);
 void ffmpegUninit(Video* video);
-bool ffmpegGetFrame(Video* video, Frame* frame);
+bool ffmpegGetFrame(Video* video, Frame* frame, bool skip_audio);
 bool ffmpegSeek(Video* video, Frame* frame, double time_seconds);
 
 #endif

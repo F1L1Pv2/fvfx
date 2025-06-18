@@ -202,7 +202,7 @@ int main(int argc, char** argv){
             return 1;
         }
 
-        if(!ffmpegGetFrame(&video,&videoFrame)){
+        if(!ffmpegGetFrame(&video,&videoFrame, true)){
             printf("Couldn't get video frame\n");
             return 1;
         }
@@ -302,7 +302,7 @@ bool update(float deltaTime){
     if(playing){
         bool didSmth = false;
         while(time > videoFrame.frameTime){
-            if(ffmpegGetFrame(&video,&videoFrame)){
+            if(ffmpegGetFrame(&video,&videoFrame, false)){
                 didSmth = true;
             }else{
                 break;
@@ -329,7 +329,7 @@ bool update(float deltaTime){
         time = ((float)input.mouse_x - timelineRect.x) * video.duration / timelineRect.width;
         if(!ffmpegSeek(&video, &videoFrame,time)) return false;
         if(!playing){ //redraw
-            if(ffmpegGetFrame(&video,&videoFrame)){
+            if(ffmpegGetFrame(&video,&videoFrame, true)){
                 for(int i = 0; i < videoFrame.height; i++){
                     memcpy(
                         videoMapped + videoVulkanStride*i,
