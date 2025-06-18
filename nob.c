@@ -35,7 +35,7 @@ const char* vulkanSDKPathINC;
 
 #define OUTPUT_PROGRAM_NAME "main"
 #define COMPILER_ARGS PLATFORM_COMPILER_ARGS "-I./", "-I./src"
-#define LINKER_FLAGS PLATFORM_LINKER_FLAGS "-lavcodec", "-lavdevice", "-lavfilter", "-lavformat", "-lavutil", "-lswscale", "-lfreetype"
+#define LINKER_FLAGS PLATFORM_LINKER_FLAGS "-lavcodec", "-lavdevice", "-lavfilter", "-lavformat", "-lavutil", "-lswscale", "-lswresample", "-lfreetype"
 #define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
 static char* strltrim(char* s) {
