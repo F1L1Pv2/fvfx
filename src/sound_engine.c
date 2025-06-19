@@ -53,7 +53,12 @@ bool soundEngineEnqueueFrame(AudioFrame* audioFrame){
     return writeAudioFrameFIFO(&audioFrameFifo, audioFrame);
 }
 
+static AudioFrame* currentFrame = NULL;
+static size_t currentPos = 0;
+
 void soundEngineResetQueue() {
+    currentFrame = NULL;
+    currentPos = 0;
     audioFrameFifo.read_cur = 0;
     audioFrameFifo.write_cur = 0;
 }
@@ -61,14 +66,15 @@ void soundEngineResetQueue() {
 extern atomic_bool playing;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-    static AudioFrame* currentFrame = NULL;
-    static size_t currentPos = 0;
-
     float* output = (float*)pOutput;
     const ma_uint32 channels = pDevice->playback.channels;
     const size_t totalSamplesNeeded = frameCount * channels;
     size_t samplesCopied = 0;
 
+    if(!playing) {
+        memset(output, 0, totalSamplesNeeded);
+        return;
+    }
     if(playing) soundTime += (double)frameCount / (double)pDevice->sampleRate;
 
     while (samplesCopied < totalSamplesNeeded) {
@@ -78,21 +84,22 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             if (!currentFrame) break;
         }
 
-        const size_t samplesAvailable = currentFrame->numberSamples * channels - currentPos;
-        const size_t samplesNeeded = totalSamplesNeeded - samplesCopied;
-        const size_t samplesToCopy = (samplesAvailable < samplesNeeded)
-            ? samplesAvailable
-            : samplesNeeded;
+        if(currentFrame && currentFrame->data){
+            const size_t samplesAvailable = currentFrame->numberSamples * channels - currentPos;
+            const size_t samplesNeeded = totalSamplesNeeded - samplesCopied;
+            const size_t samplesToCopy = (samplesAvailable < samplesNeeded)
+                ? samplesAvailable
+                : samplesNeeded;
 
-        float* frameData = (float*)currentFrame->data;
-        memcpy(output + samplesCopied,
-            frameData + currentPos,
-            samplesToCopy * sizeof(float));
-
-        samplesCopied += samplesToCopy;
-        currentPos += samplesToCopy;
-
-        if (currentPos >= currentFrame->numberSamples * channels) currentFrame = NULL;
+            float* frameData = (float*)currentFrame->data;
+            memcpy(output + samplesCopied,
+                frameData + currentPos,
+                samplesToCopy * sizeof(float));
+    
+            samplesCopied += samplesToCopy;
+            currentPos += samplesToCopy;
+            if (currentPos >= currentFrame->numberSamples * channels) currentFrame = NULL;
+        }
     }
 
     if (samplesCopied < totalSamplesNeeded) {

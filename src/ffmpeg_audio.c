@@ -25,10 +25,8 @@ int audioWorker(void* data){
     Audio* audio = (Audio*)data;
     while(true){
         if(endWorker) break;
-        while (seeking) platform_sleep(1);
-        if(playing){
-            ffmpegAudioGetFrame(audio, true);
-        }
+        while (seeking || !playing) platform_sleep(1);
+        ffmpegAudioGetFrame(audio, true);
     }
 
     return 0;
@@ -125,11 +123,12 @@ bool ffmpegAudioSeek(Audio* audio, double time_seconds) {
     }
 
     avcodec_flush_buffers(audio->codecContext);
-    soundEngineResetQueue();
  
     do {
         if (!ffmpegAudioGetFrame(audio, false)) break;
     } while((double)audio->frame->pts *av_q2d(audio->formatContext->streams[audio->audioStreamIndex]->time_base) < time_seconds);
+
+    soundEngineResetQueue();
 
     seeking = false;
 
