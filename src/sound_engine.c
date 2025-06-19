@@ -34,6 +34,10 @@ bool canWriteAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO) {
 
 bool writeAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO, AudioFrame* item) {
     if (!canWriteAudioFrameFIFO(audioFrameFIFO)) return false;
+    if(audioFrameFIFO->items[audioFrameFIFO->write_cur].data){
+        free(audioFrameFIFO->items[audioFrameFIFO->write_cur].data);
+        audioFrameFIFO->items[audioFrameFIFO->write_cur].data = NULL;
+    }
     memcpy(&audioFrameFIFO->items[audioFrameFIFO->write_cur], item, sizeof(AudioFrame));
     audioFrameFIFO->write_cur = (audioFrameFIFO->write_cur + 1) % audioFrameFIFO->count;
     return true;
@@ -97,10 +101,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         samplesCopied += samplesToCopy;
         currentPos += samplesToCopy;
 
-        if (currentPos >= currentFrame->numberSamples * channels) {
-            free(currentFrame->data);
-            currentFrame = NULL;
-        }
+        if (currentPos >= currentFrame->numberSamples * channels) currentFrame = NULL;
     }
 
     if (samplesCopied < totalSamplesNeeded) {
