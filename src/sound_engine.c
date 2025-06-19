@@ -54,15 +54,6 @@ bool soundEngineEnqueueFrame(AudioFrame* audioFrame){
 }
 
 void soundEngineResetQueue() {
-    while (audioFrameFifo.read_cur != audioFrameFifo.write_cur) {
-        AudioFrame* frame = &audioFrameFifo.items[audioFrameFifo.read_cur];
-        if (frame->data != NULL) {
-            free(frame->data);
-            frame->data = NULL;
-        }
-        audioFrameFifo.read_cur = (audioFrameFifo.read_cur + 1) % audioFrameFifo.count;
-    }
-    
     audioFrameFifo.read_cur = 0;
     audioFrameFifo.write_cur = 0;
 }

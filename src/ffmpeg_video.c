@@ -83,9 +83,9 @@ bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
 
         frame->frameTime = (double)video->frame->pts * 
             av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
-        return true;
-
+            
         av_packet_unref(video->packet);
+        return true;
     }
 
     return false;
