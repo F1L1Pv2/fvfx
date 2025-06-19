@@ -19,12 +19,14 @@ bool ffmpegAudioGetFrame(Audio* audio, bool enqueue);
 atomic_bool endWorker = false;
 atomic_bool seeking = false;
 
+extern atomic_bool playing;
+
 int audioWorker(void* data){
     Audio* audio = (Audio*)data;
     while(true){
         if(endWorker) break;
         while (seeking) platform_sleep(1);
-        if(audio->playing){
+        if(playing){
             ffmpegAudioGetFrame(audio, true);
         }
     }

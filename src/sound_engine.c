@@ -5,6 +5,8 @@
 #include <stdatomic.h>
 #include <stdio.h>
 
+double soundTime = 0.0f;
+
 typedef struct {
     AudioFrame* items;
     size_t count;
@@ -61,6 +63,8 @@ void soundEngineResetQueue() {
     audioFrameFifo.write_cur = 0;
 }
 
+extern atomic_bool playing;
+
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     static AudioFrame* currentFrame = NULL;
     static size_t currentPos = 0;
@@ -69,6 +73,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     const ma_uint32 channels = pDevice->playback.channels;
     const size_t totalSamplesNeeded = frameCount * channels;
     size_t samplesCopied = 0;
+
+    if(playing) soundTime += (double)frameCount / (double)pDevice->sampleRate;
 
     while (samplesCopied < totalSamplesNeeded) {
         if (!currentFrame) {
@@ -140,4 +146,12 @@ uint32_t soundEngineGetSampleRate(){
 
 uint32_t soundEngineGetChannels(){
     return soundDevice.playback.channels;
+}
+
+double soundEngineGetTime(){
+    return soundTime;
+}
+
+void soundEngineSetTime(double newTime){
+    soundTime = newTime;
 }

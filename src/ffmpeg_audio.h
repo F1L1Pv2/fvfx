@@ -16,7 +16,6 @@ typedef struct {
     AVPacket* packet;
     struct SwrContext* swrContext;
     double duration;
-    bool playing;
 } Audio;
 
 bool ffmpegAudioInit(const char* filename, Audio* audio);

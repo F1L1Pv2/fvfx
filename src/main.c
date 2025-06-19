@@ -24,6 +24,8 @@
 #include "ffmpeg_video.h"
 #include "ffmpeg_audio.h"
 #include "gui_helpers.h"
+#include "sound_engine.h"
+#include <stdatomic.h>
 
 typedef struct{
     mat4 projView;
@@ -270,12 +272,16 @@ int main(int argc, char** argv){
 
 float time;
 
-bool playing = true;
+atomic_bool playing = true;
 bool fullscreen = false;
 
 bool update(float deltaTime){
-    if(playing) time += deltaTime;
-    if(audioInMedia) audio.playing = playing;
+    if(audioInMedia){
+        time = soundEngineGetTime();
+    }else{
+        if(playing) time += deltaTime;
+    }
+
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
     if(input.keys[KEY_F11].justPressed) {
         fullscreen = !fullscreen;
@@ -332,13 +338,19 @@ bool update(float deltaTime){
     if(time >= video.duration){
         time = 0;
         if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
-        if(audioInMedia) ffmpegAudioSeek(&audio, time);
+        if(audioInMedia) {
+            ffmpegAudioSeek(&audio, time);
+            soundEngineSetTime(time);
+        }
     }
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
         time = ((float)input.mouse_x - timelineRect.x) * video.duration / timelineRect.width;
         if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
-        if(audioInMedia) ffmpegAudioSeek(&audio, time);
+        if(audioInMedia) {
+            ffmpegAudioSeek(&audio, time);
+            soundEngineSetTime(time);
+        }
         if(!playing){ //redraw
             if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 for(int i = 0; i < videoFrame.height; i++){
