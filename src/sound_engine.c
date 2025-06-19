@@ -15,7 +15,7 @@ typedef struct {
 } AudioFrameFIFO;
 
 void createAudioFrameFIFO(size_t count, AudioFrameFIFO* audioFrameFIFO) {
-    audioFrameFIFO->items = malloc(sizeof(AudioFrame) * count);
+    audioFrameFIFO->items = calloc(sizeof(AudioFrame) * count,1);
     audioFrameFIFO->count = count;
     audioFrameFIFO->read_cur = 0;
     audioFrameFIFO->write_cur = 0;
