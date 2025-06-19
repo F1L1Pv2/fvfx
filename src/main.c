@@ -22,6 +22,7 @@
 #include "modules/spriteManager.h"
 #include "modules/font_freetype.h"
 #include "ffmpeg_video.h"
+#include "ffmpeg_audio.h"
 #include "gui_helpers.h"
 
 typedef struct{
@@ -73,6 +74,9 @@ Video video = {0};
 Frame videoFrame = {0};
 void* videoMapped = NULL;
 size_t videoVulkanStride = 0;
+Audio audio = {0};
+bool audioInMedia = false;
+
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -197,12 +201,12 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!ffmpegInit(argv[1], &video)) {
+        if(!ffmpegVideoInit(argv[1], &video)) {
             printf("Couldn't load video\n");
             return 1;
         }
 
-        if(!ffmpegGetFrame(&video,&videoFrame, true)){
+        if(!ffmpegVideoGetFrame(&video,&videoFrame)){
             printf("Couldn't get video frame\n");
             return 1;
         }
@@ -254,6 +258,10 @@ int main(int argc, char** argv){
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
         CHECK_TIMER("init video");
+
+        if(ffmpegAudioInit(argv[1], &audio)){
+            audioInMedia = true;
+        }
     }
 
     CHECK_TIMER_TOTAL("init");
@@ -267,6 +275,7 @@ bool fullscreen = false;
 
 bool update(float deltaTime){
     if(playing) time += deltaTime;
+    if(audioInMedia) audio.playing = playing;
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
     if(input.keys[KEY_F11].justPressed) {
         fullscreen = !fullscreen;
@@ -302,7 +311,7 @@ bool update(float deltaTime){
     if(playing){
         bool didSmth = false;
         while(time > videoFrame.frameTime){
-            if(ffmpegGetFrame(&video,&videoFrame, false)){
+            if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 didSmth = true;
             }else{
                 break;
@@ -322,14 +331,16 @@ bool update(float deltaTime){
 
     if(time >= video.duration){
         time = 0;
-        if(!ffmpegSeek(&video, &videoFrame,time)) return false;
+        if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
+        if(audioInMedia) ffmpegAudioSeek(&audio, time);
     }
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
         time = ((float)input.mouse_x - timelineRect.x) * video.duration / timelineRect.width;
-        if(!ffmpegSeek(&video, &videoFrame,time)) return false;
+        if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
+        if(audioInMedia) ffmpegAudioSeek(&audio, time);
         if(!playing){ //redraw
-            if(ffmpegGetFrame(&video,&videoFrame, true)){
+            if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 for(int i = 0; i < videoFrame.height; i++){
                     memcpy(
                         videoMapped + videoVulkanStride*i,
