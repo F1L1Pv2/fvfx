@@ -371,9 +371,9 @@ bool update(float deltaTime){
         drawSprite((SpriteDrawCommand){
             .position = (vec2){previewPos.x,previewPos.y},
             .scale = (vec2){previewPos.width, previewPos.height},
-            .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
-            .offset = (vec2){time,time/2},
-            .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
+            // .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
+            // .offset = (vec2){time,time/2},
+            // .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
         });
     
         float percent = videoFrame.frameTime / video.duration;
