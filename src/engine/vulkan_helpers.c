@@ -173,10 +173,12 @@ void vkCmdBeginRenderingEX(VkCommandBuffer commandBuffer, BeginRenderingEX args)
         depthAttachment.clearValue.depthStencil = (VkClearDepthStencilValue){1.0f,0.0};
     }
     
+    if(args.renderArea.width == 0 && args.renderArea.height == 0) args.renderArea = swapchainExtent;
+
     VkRenderingInfo renderingInfo = {0};
     renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
     renderingInfo.renderArea.offset = (VkOffset2D){0};
-    renderingInfo.renderArea.extent = swapchainExtent;
+    renderingInfo.renderArea.extent = args.renderArea;
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = args.colorAttachment != NULL ? 1 : 0;
     renderingInfo.pColorAttachments = args.colorAttachment != NULL ? &colorAttachment : NULL;

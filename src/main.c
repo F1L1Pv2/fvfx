@@ -58,6 +58,11 @@ bool afterResize(){
 static VkPipeline pipeline;
 static VkPipelineLayout pipelineLayout;
 
+static VkPipeline pipelineImagePreview;
+static VkPipelineLayout pipelineImageLayoutPreview;
+static VkDescriptorSet previewDescriptorSet;
+static VkDescriptorSetLayout previewDescriptorSetLayout;
+
 static VkPipeline pipelinePreview;
 static VkPipelineLayout pipelineLayoutPreview;
 static VkDescriptorSet descriptorSet;
@@ -79,6 +84,10 @@ size_t videoVulkanStride = 0;
 Audio audio = {0};
 bool audioInMedia = false;
 
+VkImage previewImage;
+VkDeviceMemory previewMemory;
+VkImageView previewView;
+
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -90,6 +99,7 @@ int main(int argc, char** argv){
     if(!engineInit("FVFX", 640,480)) return 1;
     CHECK_TIMER("init engine");
 
+    String_Builder sb = {0};
     {
         afterResize();
 
@@ -99,7 +109,6 @@ int main(int argc, char** argv){
         da_append(&initialTextures,"assets/Jimbo100x.png");
         if(!initBindlessTextures(initialTextures)) return 1;
 
-        String_Builder sb = {0};
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
         sb_append_null(&sb);
         
@@ -197,8 +206,6 @@ int main(int argc, char** argv){
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         })) return false;
 
-        da_free(sb);
-
         VkImage image;
         VkImageView imageView;
         VkDeviceMemory imageMemory;
@@ -243,12 +250,92 @@ int main(int argc, char** argv){
 
         vkMapMemory(device,imageMemory, 0, videoVulkanStride*videoFrame.height, 0, &videoMapped);
 
+        CHECK_TIMER("init video");
+
+        //initializing preview image (vfx pipeline stuff)
+        sb.count = 0;
+        nob_read_entire_file("assets/shaders/compiled/vfx_texture.vert.spv",&sb);
+        sb_append_null(&sb);
+        
+        if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&vertexShader)) return false;
+        
+        sb.count = 0;
+        nob_read_entire_file("assets/shaders/compiled/vfx_texture.frag.spv",&sb);
+        sb_append_null(&sb);
+        
+        if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&fragmentShader)) return false;
+
+        // VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
+        descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorSetLayoutBinding.descriptorCount = 1;
+        descriptorSetLayoutBinding.binding = 0;
+        descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_ALL;
+
+        // VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {0};
+        descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorSetLayoutCreateInfo.bindingCount  = 1;
+        descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+
+        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &previewDescriptorSetLayout) != VK_SUCCESS){
+            printf("ERROR\n");
+            return 1;
+        }
+
+        // VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
+        descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+        descriptorSetAllocateInfo.descriptorSetCount = 1;
+        descriptorSetAllocateInfo.pSetLayouts = &previewDescriptorSetLayout;
+
+        vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &previewDescriptorSet);
+        
+        if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
+            .vertexShader = vertexShader,
+            .fragmentShader = fragmentShader,
+            .pushConstantsSize = sizeof(PushConstantsPreview),
+            .pipelineOUT = &pipelineImagePreview, 
+            .pipelineLayoutOUT = &pipelineImageLayoutPreview,
+            .descriptorSetLayoutCount = 1,
+            .descriptorSetLayouts = &previewDescriptorSetLayout,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        })) return false;
+
+        // ----- binding ffmpeg video into preview image
+
         VkDescriptorImageInfo descriptorImageInfo = {0};
+        VkWriteDescriptorSet writeDescriptorSet = {0};
+
         descriptorImageInfo.sampler = samplerLinear;
         descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptorImageInfo.imageView = imageView;
 
-        VkWriteDescriptorSet writeDescriptorSet = {0};
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.dstSet = previewDescriptorSet;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &previewImage,&previewMemory)){
+            printf("Couldn't create preview image\n");
+            return 1;
+        }
+
+        if(!createImageView(previewImage,VK_FORMAT_B8G8R8A8_UNORM, 
+                        VK_IMAGE_ASPECT_COLOR_BIT, &previewView)){
+            printf("Couldn't create preview image view\n");
+            return 1;
+        }
+
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptorImageInfo.imageView = previewView;
+
         writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writeDescriptorSet.descriptorCount = 1;
         writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -259,12 +346,16 @@ int main(int argc, char** argv){
 
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
-        CHECK_TIMER("init video");
+        CHECK_TIMER("init vfx pipeline");
 
         if(ffmpegAudioInit(argv[1], &audio)){
             audioInMedia = true;
         }
+
+        CHECK_TIMER("init audio");
     }
+
+    sb_free(sb);
 
     CHECK_TIMER_TOTAL("init");
     return engineStart();
@@ -406,9 +497,74 @@ bool update(float deltaTime){
 }
 
 bool draw(){
+    static VkImageMemoryBarrier barrier;
+    
+    //previewImage pass / vfx pass
+    barrier = (VkImageMemoryBarrier){0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = previewImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
+
+    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+        .colorAttachment = previewView,
+        .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+    });
+
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = videoFrame.width,
+        .height = videoFrame.height
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+        .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+    });
+
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineImagePreview);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineImageLayoutPreview,0,1,&previewDescriptorSet,0,NULL);
+
+    vkCmdDraw(cmd, 6, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
+
+    VkImageView swapchainImage = getSwapchainImageView();
+
     //sprite pass
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = getSwapchainImageView(),
+        .colorAttachment = swapchainImage,
         .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f},
     });
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
@@ -431,7 +587,7 @@ bool draw(){
 
     //preview pass
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = getSwapchainImageView(),
+        .colorAttachment = swapchainImage,
     });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
