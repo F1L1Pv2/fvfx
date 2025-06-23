@@ -88,6 +88,90 @@ VkImage previewImage;
 VkDeviceMemory previewMemory;
 VkImageView previewView;
 
+typedef struct {
+    const char* name;
+    VkPipeline pipeline;
+    VkPipelineLayout pipelineLayout;
+} VfxModule;
+
+typedef struct{
+    VfxModule** items;
+    size_t count;
+    size_t capacity;
+} VfxModules;
+
+typedef struct HashItem HashItem;
+
+struct HashItem {
+    HashItem* next;
+    String_View key;
+    VfxModule value;
+};
+
+typedef struct {
+    HashItem** buckets;
+    size_t bucket_count;
+} Hashmap;
+
+void initHashMap(Hashmap* hashmap, size_t size) {
+    hashmap->buckets = calloc(size, sizeof(HashItem*));
+    hashmap->bucket_count = size;
+}
+
+uint32_t hashFunction(const char *key, uint32_t map_size) {
+    uint32_t hash = 5381;
+    int c;
+    
+    while ((c = *key++)) {
+        hash = ((hash << 5) + hash) + c;
+    }
+    
+    return hash % map_size;
+}
+
+HashItem* getFromHashMap(Hashmap* hashmap, const char* key) {
+    uint32_t hash = hashFunction(key, hashmap->bucket_count);
+    String_View sv = sv_from_cstr(key);
+    HashItem** item_ptr = &hashmap->buckets[hash];
+
+    while (*item_ptr) {
+        if (sv_eq((*item_ptr)->key, sv)) {
+            return *item_ptr;
+        }
+        item_ptr = &(*item_ptr)->next;
+    }
+
+    HashItem* new_item = calloc(1, sizeof(HashItem));
+    new_item->key = sv_from_cstr(nob_temp_strdup(key));
+    new_item->next = NULL;
+
+    *item_ptr = new_item;
+    return new_item;
+}
+
+bool preprocessVFXModule(String_Builder* sb){
+    String_Builder newSB = {0};
+
+    const char* prepend = 
+                        "#version 450\n"
+                        "layout(location = 0) out vec4 outColor;\n"
+                        "layout(location = 0) in vec2 uv;\n"
+                        "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n";
+
+    sb_append_cstr(&newSB, prepend);
+    sb_append_buf(&newSB,sb->items,sb->count);
+
+    da_free((*sb));
+
+    *sb = newSB;
+
+    return true;
+}
+
+Hashmap vfxModulesHashMap = {0};
+VfxModules currentModules = {0};
+
+VkShaderModule vfxVertexShader;
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -98,6 +182,8 @@ int main(int argc, char** argv){
     TIMER_TOTAL = TIMER;
     if(!engineInit("FVFX", 640,480)) return 1;
     CHECK_TIMER("init engine");
+
+    initHashMap(&vfxModulesHashMap, 100);
 
     String_Builder sb = {0};
     {
@@ -258,6 +344,8 @@ int main(int argc, char** argv){
         sb_append_null(&sb);
         
         if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&vertexShader)) return false;
+
+        vfxVertexShader = vertexShader;
         
         sb.count = 0;
         nob_read_entire_file("assets/shaders/compiled/vfx_texture.frag.spv",&sb);
@@ -292,7 +380,6 @@ int main(int argc, char** argv){
         if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
             .vertexShader = vertexShader,
             .fragmentShader = fragmentShader,
-            .pushConstantsSize = sizeof(PushConstantsPreview),
             .pipelineOUT = &pipelineImagePreview, 
             .pipelineLayoutOUT = &pipelineImageLayoutPreview,
             .descriptorSetLayoutCount = 1,
@@ -364,7 +451,9 @@ int main(int argc, char** argv){
 float time;
 
 atomic_bool playing = true;
-bool fullscreen = false;
+
+String_Builder sb = {0};
+VkShaderModule fragmentShader;
 
 bool update(float deltaTime){
     if(audioInMedia){
@@ -374,26 +463,65 @@ bool update(float deltaTime){
     }
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
-    if(input.keys[KEY_F11].justPressed) {
-        fullscreen = !fullscreen;
-        if(fullscreen){
-            platform_enable_fullscreen();
-        }else{
-            platform_disable_fullscreen();
+
+    Rect effectsTab = (Rect){
+        .width = 150,
+        .height = swapchainExtent.height - 30,
+        .y = 30,
+        .x = swapchainExtent.width - 150,
+    };
+
+    if(platform_drag_and_drop_available() && pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
+        int count = -1;
+        const char** dragndrop = platform_get_drag_and_drop_files(&count);
+
+        printf("Got drag and drop mousex: %zu mousey: %zu\n", input.mouse_x, input.mouse_y);
+
+        for(int i = 0; i < count; i++){
+
+            HashItem* item = getFromHashMap(&vfxModulesHashMap, dragndrop[i]);
+            if(item == NULL){
+                printf("UNREACHABLE!\n");
+                return false;
+            }
+
+            item->value.name = item->key.data;
+
+            sb.count = 0;
+            nob_read_entire_file(item->value.name,&sb);
+            if(!preprocessVFXModule(&sb)) return false;
+            sb_append_null(&sb);
+            
+            if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+            
+            if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
+                .vertexShader = vfxVertexShader,
+                .fragmentShader = fragmentShader,
+                .pipelineOUT = &item->value.pipeline,
+                .pipelineLayoutOUT = &item->value.pipelineLayout,
+                .descriptorSetLayoutCount = 1,
+                .descriptorSetLayouts = &previewDescriptorSetLayout,
+                .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            })) return false;
+            
+            da_append(&currentModules, &item->value);
+
+            // printf("%d. %s\n", i, dragndrop[i]);
         }
     }
 
     Rect timelineRect = (Rect){
-        .width = swapchainExtent.width,
         .height = min(((float)swapchainExtent.height / 4), 200.0f)
     };
 
     Rect previewPos = (Rect){
-        .width = swapchainExtent.width,
-        .height = fullscreen ? swapchainExtent.height : swapchainExtent.height - timelineRect.height,
-        .y = fullscreen ? 0 : 30,
+        .width = swapchainExtent.width - effectsTab.width - 1,
+        .height = swapchainExtent.height - timelineRect.height - 30,
+        .y = 30,
+        .x = 1,
     };
 
+    timelineRect.width = previewPos.width;
     timelineRect.y = previewPos.y + previewPos.height;
 
     Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
@@ -455,43 +583,51 @@ bool update(float deltaTime){
         }
     }
 
-    if(!fullscreen){
-        float backgroundSpeed = cosf(sinf(time/20))*time;
-    
-        //Draw Black stuff behind 
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){previewPos.x,previewPos.y},
-            .scale = (vec2){previewPos.width, previewPos.height},
-            // .textureIDEffects = getTextureID("assets/Jimbo100x.png"),
-            // .offset = (vec2){time,time/2},
-            // .size = (vec2){1.0f+(sinf(backgroundSpeed)/2+0.5)*7,1.0f+(sinf(backgroundSpeed)/2+0.5)*7},
-        });
-    
-        float percent = videoFrame.frameTime / video.duration;
-    
-        float cursorWidth = timelineRect.width / 500;
-        
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
-            .scale = (vec2){cursorWidth, timelineRect.height},
-            .albedo = (vec3){1.0,0.0,0.0},
-        });
-    
-        drawText("FVFX", 0xFFFFFF, 16, (Rect){
-            .x = 10,
-            .y = 3,
-        });
-    
-        char text[256];
-        float textFont = 16;
-    
-        sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
-    
-        drawText(text, 0xFFFFFF, textFont, (Rect){
-            .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
-            .y = 3,
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectsTab.x, effectsTab.y},
+        .scale = (vec2){effectsTab.width, effectsTab.height},
+        .albedo = (vec3){(float)0x25/255,(float)0x25/255,(float)0x25/255},
+    });
+
+    for(size_t i = 0; i < currentModules.count; i++){
+        drawText((char*)currentModules.items[i]->name,0xFFFFFFFF, 16, (Rect){
+            .x = effectsTab.x + 3,
+            .y = effectsTab.y + 16 * 1.5 * i,
         });
     }
+
+    float backgroundSpeed = cosf(sinf(time/20))*time;
+
+    //Draw Black stuff behind 
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){previewPos.x,previewPos.y},
+        .scale = (vec2){previewPos.width, previewPos.height},
+    });
+
+    float percent = videoFrame.frameTime / video.duration;
+
+    float cursorWidth = timelineRect.width / 500;
+    
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
+        .scale = (vec2){cursorWidth, timelineRect.height},
+        .albedo = (vec3){1.0,0.0,0.0},
+    });
+
+    drawText("FVFX", 0xFFFFFF, 16, (Rect){
+        .x = 10,
+        .y = 3,
+    });
+
+    char text[256];
+    float textFont = 16;
+
+    sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
+
+    drawText(text, 0xFFFFFF, textFont, (Rect){
+        .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
+        .y = 3,
+    });
 
     return true;
 }
@@ -544,6 +680,30 @@ bool draw(){
 
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
+
+    for(size_t i = 0; i < currentModules.count; i++){
+        VfxModule* module = currentModules.items[i];
+
+        vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+            .colorAttachment = previewView,
+            .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        });
+
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = videoFrame.width,
+            .height = videoFrame.height
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        });
+
+        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, module->pipeline);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,module->pipelineLayout,0,1,&previewDescriptorSet,0,NULL);
+
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
 
     barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

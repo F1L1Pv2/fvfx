@@ -13,5 +13,7 @@ uint64_t platform_get_time();
 void platform_set_mouse_position(size_t x, size_t y);
 void platform_enable_fullscreen();
 void platform_disable_fullscreen();
+bool platform_drag_and_drop_available();
+const char** platform_get_drag_and_drop_files(int* count);
 
 #endif

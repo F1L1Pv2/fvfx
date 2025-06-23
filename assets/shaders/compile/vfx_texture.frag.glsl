@@ -6,5 +6,5 @@ layout(location = 0) in vec2 uv;
 layout (set = 0, binding = 0) uniform sampler2D imageIN;
 
 void main() {
-    outColor = texture(imageIN, uv)*vec4(uv,1,1);
+    outColor = texture(imageIN, uv);
 }

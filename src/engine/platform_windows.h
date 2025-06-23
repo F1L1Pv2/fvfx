@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <malloc.h>
 #include <stdint.h>
+#include <shellapi.h>
 
 #include "platform.h"
 #include "platform_globals.h"
@@ -16,8 +17,45 @@ bool platform_still_running(){
     return window_open;
 }
 
+static bool s_drag_and_drop_available = false;
+static char** s_dropped_files = NULL;
+static int s_dropped_files_count = 0;
+
 LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg){
+        case WM_DROPFILES: {
+            HDROP hDrop = (HDROP)wParam;
+            
+            // Free previous drop data if exists
+            if (s_dropped_files) {
+                for (int i = 0; i < s_dropped_files_count; i++) {
+                    free(s_dropped_files[i]);
+                }
+                free(s_dropped_files);
+            }
+
+            // Get number of dropped files
+            s_dropped_files_count = DragQueryFileA(hDrop, 0xFFFFFFFF, NULL, 0);
+            
+            if (s_dropped_files_count > 0) {
+                s_dropped_files = (char**)malloc(s_dropped_files_count * sizeof(char*));
+                
+                for (int i = 0; i < s_dropped_files_count; i++) {
+                    // Get filename length
+                    UINT len = DragQueryFileA(hDrop, i, NULL, 0);
+                    s_dropped_files[i] = (char*)malloc(len + 1);
+                    // Get actual filename
+                    DragQueryFileA(hDrop, i, s_dropped_files[i], len + 1);
+                }
+                
+                s_drag_and_drop_available = true;
+            }
+            
+            DragFinish(hDrop);
+            break;
+        }
+
+
         case WM_CLOSE: window_open = false; break;
         case WM_SIZE: {
             if(!platform_resize_window_callback()) error = true;
@@ -139,6 +177,7 @@ void platform_create_window(const char* title, size_t width, size_t height){
     );
 
     ShowWindow(hwnd, SW_SHOW);
+    DragAcceptFiles(hwnd, TRUE);
     window_open = true;
 
     platform_fill_keycode_lookup_table();
@@ -341,6 +380,22 @@ void platform_disable_fullscreen(){
 
     SetWindowPos(hwnd, NULL, pre_fullScreenPosX, pre_fullScreenPosY, pre_fullScreenSizeX, pre_fullScreenSizeY, SWP_FRAMECHANGED);
 }
+
+bool platform_drag_and_drop_available() {
+    return s_drag_and_drop_available;
+}
+
+const char** platform_get_drag_and_drop_files(int* count) {
+    *count = s_dropped_files_count;
+    const char** result = (const char**)s_dropped_files;
+    
+    s_dropped_files = NULL;
+    s_dropped_files_count = 0;
+    s_drag_and_drop_available = false;
+    
+    return result;
+}
+
 
 #ifndef DEBUG
 

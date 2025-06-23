@@ -1,0 +1,10 @@
+/*
+Name: Shift
+Description: just shifts
+Author: F1L1P
+*/
+
+void main() {
+    vec4 color = texture(imageIN, uv + vec2(.5,0));
+    outColor = color;
+}
