@@ -15,5 +15,6 @@ void platform_enable_fullscreen();
 void platform_disable_fullscreen();
 bool platform_drag_and_drop_available();
 const char** platform_get_drag_and_drop_files(int* count);
+void platform_release_drag_and_drop(const char** files, int count);
 
 #endif

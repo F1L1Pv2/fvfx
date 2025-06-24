@@ -396,6 +396,16 @@ const char** platform_get_drag_and_drop_files(int* count) {
     return result;
 }
 
+void platform_release_drag_and_drop(const char** files, int count){
+    if(files == NULL) return;
+
+    for(int i = 0; i < count; i++){
+        if(files[i] != NULL) free(files[i]);
+    }
+
+    free(files);
+}
+
 
 #ifndef DEBUG
 

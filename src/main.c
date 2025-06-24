@@ -505,9 +505,9 @@ bool update(float deltaTime){
             })) return false;
             
             da_append(&currentModules, &item->value);
-
-            // printf("%d. %s\n", i, dragndrop[i]);
         }
+        
+        platform_release_drag_and_drop(dragndrop, count);
     }
 
     Rect timelineRect = (Rect){
