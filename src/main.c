@@ -61,12 +61,20 @@ static VkPipelineLayout pipelineLayout;
 static VkPipeline pipelineImagePreview;
 static VkPipelineLayout pipelineImageLayoutPreview;
 static VkDescriptorSet previewDescriptorSet;
-static VkDescriptorSetLayout previewDescriptorSetLayout;
 
 static VkPipeline pipelinePreview;
 static VkPipelineLayout pipelineLayoutPreview;
-static VkDescriptorSet descriptorSet;
-static VkDescriptorSetLayout descriptorSetLayout;
+static VkDescriptorSet outDescriptorSet1;
+static VkDescriptorSet outDescriptorSet2;
+static VkDescriptorSetLayout vfxDescriptorSetLayout;
+
+VkImage previewImage1;
+VkDeviceMemory previewMemory1;
+VkImageView previewView1;
+
+VkImage previewImage2;
+VkDeviceMemory previewMemory2;
+VkImageView previewView2;
 
 GlyphAtlas atlas = {0};
 
@@ -83,10 +91,6 @@ void* videoMapped = NULL;
 size_t videoVulkanStride = 0;
 Audio audio = {0};
 bool audioInMedia = false;
-
-VkImage previewImage;
-VkDeviceMemory previewMemory;
-VkImageView previewView;
 
 typedef struct {
     const char* name;
@@ -268,7 +272,7 @@ int main(int argc, char** argv){
         descriptorSetLayoutCreateInfo.bindingCount  = 1;
         descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
 
-        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &descriptorSetLayout) != VK_SUCCESS){
+        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &vfxDescriptorSetLayout) != VK_SUCCESS){
             printf("ERROR\n");
             return 1;
         }
@@ -277,9 +281,10 @@ int main(int argc, char** argv){
         descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         descriptorSetAllocateInfo.descriptorPool = descriptorPool;
         descriptorSetAllocateInfo.descriptorSetCount = 1;
-        descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayout;
+        descriptorSetAllocateInfo.pSetLayouts = &vfxDescriptorSetLayout;
 
-        vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &descriptorSet);
+        vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &outDescriptorSet1);
+        vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &outDescriptorSet2);
         
         if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
             .vertexShader = vertexShader,
@@ -288,7 +293,7 @@ int main(int argc, char** argv){
             .pipelineOUT = &pipelinePreview, 
             .pipelineLayoutOUT = &pipelineLayoutPreview,
             .descriptorSetLayoutCount = 1,
-            .descriptorSetLayouts = &descriptorSetLayout,
+            .descriptorSetLayouts = &vfxDescriptorSetLayout,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         })) return false;
 
@@ -353,27 +358,11 @@ int main(int argc, char** argv){
         
         if(!compileShaderFromBinary((uint32_t*)sb.items,sb.count-1,&fragmentShader)) return false;
 
-        // VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
-        descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorSetLayoutBinding.descriptorCount = 1;
-        descriptorSetLayoutBinding.binding = 0;
-        descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_ALL;
-
-        // VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {0};
-        descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        descriptorSetLayoutCreateInfo.bindingCount  = 1;
-        descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
-
-        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &previewDescriptorSetLayout) != VK_SUCCESS){
-            printf("ERROR\n");
-            return 1;
-        }
-
         // VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
         descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         descriptorSetAllocateInfo.descriptorPool = descriptorPool;
         descriptorSetAllocateInfo.descriptorSetCount = 1;
-        descriptorSetAllocateInfo.pSetLayouts = &previewDescriptorSetLayout;
+        descriptorSetAllocateInfo.pSetLayouts = &vfxDescriptorSetLayout;
 
         vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &previewDescriptorSet);
         
@@ -383,7 +372,7 @@ int main(int argc, char** argv){
             .pipelineOUT = &pipelineImagePreview, 
             .pipelineLayoutOUT = &pipelineImageLayoutPreview,
             .descriptorSetLayoutCount = 1,
-            .descriptorSetLayouts = &previewDescriptorSetLayout,
+            .descriptorSetLayouts = &vfxDescriptorSetLayout,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         })) return false;
 
@@ -406,27 +395,54 @@ int main(int argc, char** argv){
 
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &previewImage,&previewMemory)){
+                   0, &previewImage1,&previewMemory1)){
             printf("Couldn't create preview image\n");
             return 1;
         }
 
-        if(!createImageView(previewImage,VK_FORMAT_B8G8R8A8_UNORM, 
-                        VK_IMAGE_ASPECT_COLOR_BIT, &previewView)){
+        if(!createImageView(previewImage1,VK_FORMAT_B8G8R8A8_UNORM, 
+                        VK_IMAGE_ASPECT_COLOR_BIT, &previewView1)){
+            printf("Couldn't create preview image view\n");
+            return 1;
+        }
+
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                   0, &previewImage2,&previewMemory2)){
+            printf("Couldn't create preview image\n");
+            return 1;
+        }
+
+        if(!createImageView(previewImage2,VK_FORMAT_B8G8R8A8_UNORM, 
+                        VK_IMAGE_ASPECT_COLOR_BIT, &previewView2)){
             printf("Couldn't create preview image view\n");
             return 1;
         }
 
         descriptorImageInfo.sampler = samplerLinear;
         descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        descriptorImageInfo.imageView = previewView;
+        descriptorImageInfo.imageView = previewView1;
 
         writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writeDescriptorSet.descriptorCount = 1;
         writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeDescriptorSet.dstSet = descriptorSet;
+        writeDescriptorSet.dstSet = outDescriptorSet1;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptorImageInfo.imageView = previewView2;
+
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.dstSet = outDescriptorSet2;
         writeDescriptorSet.dstBinding = 0;
         writeDescriptorSet.dstArrayElement = 0;
         writeDescriptorSet.pImageInfo = &descriptorImageInfo;
@@ -501,7 +517,7 @@ bool update(float deltaTime){
                     .pipelineOUT = &item->value.pipeline,
                     .pipelineLayoutOUT = &item->value.pipelineLayout,
                     .descriptorSetLayoutCount = 1,
-                    .descriptorSetLayouts = &previewDescriptorSetLayout,
+                    .descriptorSetLayouts = &vfxDescriptorSetLayout,
                     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                 })) return false;
 
@@ -639,6 +655,7 @@ bool update(float deltaTime){
 
 bool draw(){
     static VkImageMemoryBarrier barrier;
+    size_t currentAttachment = 0;
     
     //previewImage pass / vfx pass
     barrier = (VkImageMemoryBarrier){0};
@@ -647,7 +664,7 @@ bool draw(){
     barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = previewImage;
+    barrier.image = previewImage1;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
@@ -667,7 +684,7 @@ bool draw(){
     );
 
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = previewView,
+        .colorAttachment = previewView1,
         .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
     });
 
@@ -686,30 +703,6 @@ bool draw(){
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
 
-    for(size_t i = 0; i < currentModules.count; i++){
-        VfxModule* module = currentModules.items[i];
-
-        vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-            .colorAttachment = previewView,
-            .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
-        });
-
-        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-            .width = videoFrame.width,
-            .height = videoFrame.height
-        });
-            
-        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-            .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
-        });
-
-        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, module->pipeline);
-        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,module->pipelineLayout,0,1,&previewDescriptorSet,0,NULL);
-
-        vkCmdDraw(cmd, 6, 1, 0, 0);
-        vkCmdEndRendering(cmd);
-    }
-
     barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -724,6 +717,63 @@ bool draw(){
         0, NULL,
         1, &barrier
     );
+
+    for(size_t i = 0; i < currentModules.count; i++){
+        barrier.image = currentAttachment == 0 ? previewImage2 : previewImage1;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        vkCmdPipelineBarrier(
+            cmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0,
+            0, NULL,
+            0, NULL,
+            1, &barrier
+        );
+
+        VfxModule* module = currentModules.items[i];
+
+        vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+            .colorAttachment = currentAttachment == 0 ? previewView2 : previewView1,
+            .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        });
+
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = videoFrame.width,
+            .height = videoFrame.height
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        });
+
+        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, module->pipeline);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,module->pipelineLayout,0,1,currentAttachment == 0 ? &outDescriptorSet1 : &outDescriptorSet2,0,NULL);
+
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+
+        barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        
+        vkCmdPipelineBarrier(
+            cmd,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0,
+            0, NULL,
+            0, NULL,
+            1, &barrier
+        );
+
+        currentAttachment = 1 - currentAttachment;
+    }
 
     VkImageView swapchainImage = getSwapchainImageView();
 
@@ -765,7 +815,7 @@ bool draw(){
     });
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipelinePreview);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayoutPreview,0,1,&descriptorSet,0,NULL);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayoutPreview,0,1,currentAttachment == 0 ? &outDescriptorSet1 : &outDescriptorSet2,0,NULL);
     vkCmdPushConstants(cmd,pipelineLayoutPreview,VK_SHADER_STAGE_ALL,0,sizeof(PushConstantsPreview), &pcsPreview);
 
     vkCmdDraw(cmd, 6, 1, 0, 0);
