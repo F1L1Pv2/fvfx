@@ -485,24 +485,29 @@ bool update(float deltaTime){
                 return false;
             }
 
-            item->value.name = item->key.data;
+            if(item->value.name == NULL){
+                item->value.name = item->key.data;
+    
+                sb.count = 0;
+                nob_read_entire_file(item->value.name,&sb);
+                if(!preprocessVFXModule(&sb)) return false;
+                sb_append_null(&sb);
+                
+                if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+                
+                if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
+                    .vertexShader = vfxVertexShader,
+                    .fragmentShader = fragmentShader,
+                    .pipelineOUT = &item->value.pipeline,
+                    .pipelineLayoutOUT = &item->value.pipelineLayout,
+                    .descriptorSetLayoutCount = 1,
+                    .descriptorSetLayouts = &previewDescriptorSetLayout,
+                    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                })) return false;
 
-            sb.count = 0;
-            nob_read_entire_file(item->value.name,&sb);
-            if(!preprocessVFXModule(&sb)) return false;
-            sb_append_null(&sb);
-            
-            if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
-            
-            if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
-                .vertexShader = vfxVertexShader,
-                .fragmentShader = fragmentShader,
-                .pipelineOUT = &item->value.pipeline,
-                .pipelineLayoutOUT = &item->value.pipelineLayout,
-                .descriptorSetLayoutCount = 1,
-                .descriptorSetLayouts = &previewDescriptorSetLayout,
-                .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            })) return false;
+                printf("COMPILIN!\n");
+            }
+
             
             da_append(&currentModules, &item->value);
         }
