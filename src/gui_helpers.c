@@ -1,4 +1,5 @@
 #include "gui_helpers.h"
+#include "engine/input.h"
 
 Rect fitRectangle(Rect outer, float innerWidth, float innerHeight){
     Rect out = {0};
@@ -108,4 +109,60 @@ bool pointInsideRect(float x, float y, Rect rect){
         (y < rect.y) ||
         (y > rect.y + rect.height)
     );
+}
+
+vec3 hex2rgb(uint32_t hex){
+    return (vec3){
+        (float)((hex >> 8 * 2) & 0xFF) / 255.0f,
+        (float)((hex >> 8 * 1) & 0xFF) / 255.0f,
+        (float)((hex >> 8 * 0) & 0xFF) / 255.0f,
+    };
+}
+
+uint32_t pressingGUID = -1;
+uint32_t hoverGUID = -1;
+
+void updateUI(){
+    if(!input.keys[KEY_MOUSE_LEFT].isDown && hoverGUID == -1) pressingGUID = -1;
+    hoverGUID = -1;
+}
+
+bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID){
+    if(pointInsideRect(input.mouse_x, input.mouse_y,  boundingBox) && hoverGUID == -1) hoverGUID = GUID;
+    if(hoverGUID == GUID && input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID == -1) pressingGUID = GUID;
+
+    bool hover = hoverGUID == GUID;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){boundingBox.x, boundingBox.y},
+        .scale = (vec2){boundingBox.width, boundingBox.height},
+        .albedo = hex2rgb(0xFF352020)
+    });
+
+    size_t border = 1;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){boundingBox.x + border, boundingBox.y + border},
+        .scale = (vec2){boundingBox.width - border*2, boundingBox.height - border*2},
+        .albedo = input.keys[KEY_MOUSE_LEFT].isDown && hover ? hex2rgb(0xFF753030) : (hover ? hex2rgb(0xFF653030) : hex2rgb(0xFF503030)),
+    });
+
+    Rect textRect = (Rect){
+        .x = boundingBox.x + boundingBox.width / 2 - measureText(text, UI_FONT_SIZE)/2,
+        .y = boundingBox.y + boundingBox.height / 2 - UI_FONT_SIZE * 0.75,
+    };
+
+    drawText(text, 0xFFFFFFFF, UI_FONT_SIZE, textRect);
+
+    if(hover && !input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID != GUID){
+        pressingGUID = -1;
+        return false;
+    }
+
+    if(hover && !input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID == GUID){
+        pressingGUID = -1;
+        return true;
+    }
+
+    return false;
 }

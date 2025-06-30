@@ -472,6 +472,9 @@ String_Builder sb = {0};
 VkShaderModule fragmentShader;
 
 bool update(float deltaTime){
+    updateUI();
+    temp_reset();
+
     if(audioInMedia){
         time = soundEngineGetTime();
     }else{
@@ -635,20 +638,39 @@ bool update(float deltaTime){
         .albedo = (vec3){1.0,0.0,0.0},
     });
 
-    drawText("FVFX", 0xFFFFFF, 16, (Rect){
+    drawText("FVFX", 0xFFFFFF, UI_FONT_SIZE, (Rect){
         .x = 10,
         .y = 3,
     });
 
     char text[256];
-    float textFont = 16;
 
     sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
 
-    drawText(text, 0xFFFFFF, textFont, (Rect){
-        .x = swapchainExtent.width / 2 - measureText(text,textFont) / 2,
+    drawText(text, 0xFFFFFF, UI_FONT_SIZE, (Rect){
+        .x = swapchainExtent.width / 2 - measureText(text,UI_FONT_SIZE) / 2,
         .y = 3,
     });
+
+    // if(drawButton(((Rect){
+    //     .width = effectsTab.width,
+    //     .height = effectsTab.height/10,
+    //     .x = effectsTab.x,
+    //     .y = effectsTab.y,
+    // }), "TEST!")){
+    //     printf("Clicked button!\n");
+    // }
+
+    // for(int i = 0; i < 20; i++){
+    //     if(drawButton_internal(((Rect){
+    //         .width = effectsTab.width * 0.75,
+    //         .height = effectsTab.height/10 * 0.9,
+    //         .x = effectsTab.x + effectsTab.width / 2 - effectsTab.width * 0.75/2,
+    //         .y = effectsTab.y + effectsTab.height/10 * 0.1 / 2 + effectsTab.height*i/10,
+    //     }), temp_sprintf("TEST %d", i), 1000 + i)){
+    //         printf("Clicked button %d!\n", i);
+    //     }
+    // }
 
     return true;
 }
