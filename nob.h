@@ -312,6 +312,14 @@ bool nob_delete_file(const char *path);
         (da)->count += (new_items_count);                                                       \
     } while (0)
 
+#define nob_da_remove_at(da, index)                                                                                     \
+    do {                                                                                                                \
+        assert((index) < (da)->count);                                                                   \
+        if(index != (da)->count - 1)                                                                                    \
+            memmove(&(da)->items[(index)],&(da)->items[(index) + 1], ((da)->count - (index)) * sizeof(*(da)->items));   \
+        (da)->count--;                                                                                                  \
+    } while(0)
+
 #define nob_da_resize(da, new_size)     \
     do {                                \
         nob_da_reserve((da), new_size); \
@@ -1967,6 +1975,7 @@ int closedir(DIR *dirp)
         #define delete_file nob_delete_file
         #define return_defer nob_return_defer
         #define da_append nob_da_append
+        #define da_remove_at nob_da_remove_at
         #define da_free nob_da_free
         #define da_append_many nob_da_append_many
         #define da_resize nob_da_resize

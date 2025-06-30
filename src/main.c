@@ -93,7 +93,10 @@ Audio audio = {0};
 bool audioInMedia = false;
 
 typedef struct {
+    const char* filepath;
     const char* name;
+    const char* description;
+    const char* author;
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 } VfxModule;
@@ -151,6 +154,66 @@ HashItem* getFromHashMap(Hashmap* hashmap, const char* key) {
 
     *item_ptr = new_item;
     return new_item;
+}
+
+bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
+    sv = sv_trim_left(sv);
+    if(sv.count < 2) {
+        printf("Empty file!");
+        return false;
+    }
+    if(sv.data[0] != '/' && sv.data[1] != '*') {
+        printf("No metadata descriptor\n");
+        return false;
+    }
+    sv.data += 2;
+    sv = sv_trim_left(sv);
+    if(sv.count == 0) {
+        printf("Empty file!");
+        return false;
+    }
+
+    String_Builder sb = {0};
+
+    while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
+        String_View leftSide = sv_chop_by_delim(&sv, ':');
+        sv = sv_trim_left(sv);
+
+        String_View arg = sv_chop_by_delim(&sv, '\n');
+        if(sv_eq(leftSide, sv_from_cstr("Name"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->name = temp_strdup(sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Description"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->description = temp_strdup(sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Author"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->author = temp_strdup(sb.items);
+        }
+        else{
+            printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
+
+            da_free(sb);
+            return false;
+        }
+        sv = sv_trim_left(sv);
+        if(sv.count == 0) {
+            printf("No metadata ending '*/' reached end of file");
+            da_free(sb);
+            return false;
+        }
+    }
+
+    da_free(sb);
+    return true;
 }
 
 bool preprocessVFXModule(String_Builder* sb){
@@ -473,7 +536,6 @@ VkShaderModule fragmentShader;
 
 bool update(float deltaTime){
     updateUI();
-    temp_reset();
 
     if(audioInMedia){
         time = soundEngineGetTime();
@@ -504,11 +566,12 @@ bool update(float deltaTime){
                 return false;
             }
 
-            if(item->value.name == NULL){
-                item->value.name = item->key.data;
+            if(item->value.filepath == NULL){
+                item->value.filepath = item->key.data;
     
                 sb.count = 0;
-                nob_read_entire_file(item->value.name,&sb);
+                nob_read_entire_file(item->value.filepath,&sb);
+                if(!extractVFXModuleMetaData(sb_to_sv(sb), &item->value)) return false;
                 if(!preprocessVFXModule(&sb)) return false;
                 sb_append_null(&sb);
                 
@@ -613,11 +676,36 @@ bool update(float deltaTime){
         .albedo = (vec3){(float)0x25/255,(float)0x25/255,(float)0x25/255},
     });
 
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectsTab.x, effectsTab.y},
+        .scale = (vec2){effectsTab.width, UI_FONT_SIZE * 1.5},
+        .albedo = hex2rgb(0xFF454545)
+    });
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectsTab.x, effectsTab.y},
+        .scale = (vec2){effectsTab.width, UI_FONT_SIZE * 1.5 - 1},
+        .albedo = hex2rgb(0xFF181818)
+    });
+
+    char* effectsRackStr = "Effects Rack";
+
+    drawText(effectsRackStr, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+        .x = effectsTab.x + effectsTab.width/2 - measureText(effectsRackStr, UI_FONT_SIZE)/2,
+        .y = effectsTab.y + UI_FONT_SIZE*1.5/2 - UI_FONT_SIZE * 0.75,
+    });
+
     for(size_t i = 0; i < currentModules.count; i++){
-        drawText((char*)currentModules.items[i]->name,0xFFFFFFFF, 16, (Rect){
-            .x = effectsTab.x + 3,
-            .y = effectsTab.y + 16 * 1.5 * i,
-        });
+        if(drawButton_internal((Rect){
+            .width = effectsTab.width - 2,
+            .height = UI_FONT_SIZE * 1.5,
+            .x = effectsTab.x + 1,
+            .y = effectsTab.y + UI_FONT_SIZE * 1.5 + UI_FONT_SIZE * 1.5 * i
+        }, currentModules.items[i]->name, 1000 + i)){
+            printf("Removing %s\n", currentModules.items[i]->name);
+
+            da_remove_at(&currentModules, i);
+        }
     }
 
     float backgroundSpeed = cosf(sinf(time/20))*time;
