@@ -16,8 +16,8 @@ typedef struct{
 
 Rect fitRectangle(Rect outer, float innerWidth, float innerHeight);
 
-void drawText(char* text, uint32_t color, float fontSize, Rect bounding);
-float measureText(char* text, float fontSize);
+void drawText(const char* text, uint32_t color, float fontSize, Rect bounding);
+float measureText(const char* text, float fontSize);
 bool pointInsideRect(float x, float y, Rect rect);
 
 #define UI_FONT_SIZE (16.0f)

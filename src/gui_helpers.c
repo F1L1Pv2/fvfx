@@ -37,7 +37,7 @@ void hexToRgb(uint32_t hex, float* r, float *g, float *b){
     *r = (float)((hex >> (2*8)) & 0xFF) / 255.0f;
 }
 
-void drawText(char* text, uint32_t color, float fontSize, Rect bounding){
+void drawText(const char* text, uint32_t color, float fontSize, Rect bounding){
     float r,g,b;
     hexToRgb(color, &r,&g,&b);
 
@@ -80,7 +80,7 @@ void drawText(char* text, uint32_t color, float fontSize, Rect bounding){
     }
 }
 
-float measureText(char* text, float fontSize){
+float measureText(const char* text, float fontSize){
     float width = 0;
     float newWidth = 0;
 

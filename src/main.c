@@ -102,10 +102,15 @@ typedef struct {
 } VfxModule;
 
 typedef struct{
-    VfxModule** items;
+    VfxModule* module;
+    bool opened;
+} VfxInstance;
+
+typedef struct{
+    VfxInstance* items;
     size_t count;
     size_t capacity;
-} VfxModules;
+} VfxInstances;
 
 typedef struct HashItem HashItem;
 
@@ -236,7 +241,7 @@ bool preprocessVFXModule(String_Builder* sb){
 }
 
 Hashmap vfxModulesHashMap = {0};
-VfxModules currentModules = {0};
+VfxInstances currentModuleInstances = {0};
 
 VkShaderModule vfxVertexShader;
 
@@ -259,7 +264,9 @@ int main(int argc, char** argv){
         // ------------------ sprite manager initialization ------------------
 
         File_Paths initialTextures = {0};
-        da_append(&initialTextures,"assets/Jimbo100x.png");
+        da_append(&initialTextures,"assets/DropdownDelete.png");
+        da_append(&initialTextures,"assets/DropdownOpen.png");
+        da_append(&initialTextures,"assets/DropdownClosed.png");
         if(!initBindlessTextures(initialTextures)) return 1;
 
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
@@ -590,8 +597,10 @@ bool update(float deltaTime){
                 printf("COMPILIN!\n");
             }
 
+            VfxInstance instance = {0};
+            instance.module = &item->value;
             
-            da_append(&currentModules, &item->value);
+            da_append(&currentModuleInstances, instance);
         }
         
         platform_release_drag_and_drop(dragndrop, count);
@@ -695,17 +704,97 @@ bool update(float deltaTime){
         .y = effectsTab.y + UI_FONT_SIZE*1.5/2 - UI_FONT_SIZE * 0.75,
     });
 
-    for(size_t i = 0; i < currentModules.count; i++){
-        if(drawButton_internal((Rect){
-            .width = effectsTab.width - 2,
-            .height = UI_FONT_SIZE * 1.5,
-            .x = effectsTab.x + 1,
-            .y = effectsTab.y + UI_FONT_SIZE * 1.5 + UI_FONT_SIZE * 1.5 * i
-        }, currentModules.items[i]->name, 1000 + i)){
-            printf("Removing %s\n", currentModules.items[i]->name);
+    Rect vfxContainer = (Rect){
+        .x = effectsTab.x,
+        .y = effectsTab.y + UI_FONT_SIZE * 1.5 + 2,
+        .width = effectsTab.width,
+        .height = effectsTab.height - UI_FONT_SIZE * 1.5
+    };
 
-            da_remove_at(&currentModules, i);
+    const float ContainerHeight = UI_FONT_SIZE * 1.5;
+    const float ContainerWidth = vfxContainer.width;
+
+    float offset = 0;
+
+    for(size_t i = 0; i < currentModuleInstances.count; i++){
+        VfxInstance* instance = &currentModuleInstances.items[i];
+
+        const float moduleX = vfxContainer.x;
+        const float moduleY = vfxContainer.y + offset;
+
+        Rect moduleRect = (Rect){
+            .x = moduleX,
+            .y = moduleY,
+            .width = ContainerWidth,
+            .height = ContainerHeight
+        };
+
+        bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
+
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){moduleX, moduleY},
+            .scale = (vec2){ContainerWidth, ContainerHeight},
+            .albedo = hovering ? hex2rgb(0xFF808080) : hex2rgb(0xFF404040)
+        });
+
+        drawText(instance->module->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+            .x = moduleX + ContainerWidth/2 - measureText(instance->module->name, UI_FONT_SIZE)/2,
+            .y = moduleY
+        });
+
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){moduleX + UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
+            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
+            .textureIDEffects = instance->opened ? getTextureID("assets/DropdownOpen.png") : getTextureID("assets/DropdownClosed.png")
+        });
+
+        Rect deleteRect = (Rect){
+            .x = moduleRect.x + moduleRect.width - UI_FONT_SIZE - UI_FONT_SIZE/8,
+            .y = moduleRect.y,
+            .width = UI_FONT_SIZE,
+            .height = UI_FONT_SIZE
+        };
+
+        bool hoverDelete = pointInsideRect(input.mouse_x, input.mouse_y, deleteRect);
+
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){moduleX + ContainerWidth - UI_FONT_SIZE - UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
+            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
+            .textureIDEffects = getTextureID("assets/DropdownDelete.png") | (2 << 16),
+            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : (vec3){1,1,1}
+        });
+
+        if(input.keys[KEY_MOUSE_LEFT].justReleased && hovering && !hoverDelete) instance->opened = !instance->opened;
+        if(input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) da_remove_at(&currentModuleInstances, i);
+
+        offset += ContainerHeight;
+
+        if(instance->opened){
+            float openSize = UI_FONT_SIZE * 4;
+
+            Rect openRect = (Rect){
+                .x = moduleRect.x,
+                .y = moduleRect.y + moduleRect.height,
+                .width = moduleRect.width,
+                .height = openSize
+            };
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y},
+                .scale = (vec2){openRect.width, openRect.height},
+                .albedo = hex2rgb(0xFF909090)
+            });
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y + 1},
+                .scale = (vec2){openRect.width, openRect.height - 1},
+                .albedo = hex2rgb(0xFF404040)
+            });
+
+            offset += openSize;
         }
+
+        offset += 2;
     }
 
     float backgroundSpeed = cosf(sinf(time/20))*time;
@@ -739,26 +828,6 @@ bool update(float deltaTime){
         .x = swapchainExtent.width / 2 - measureText(text,UI_FONT_SIZE) / 2,
         .y = 3,
     });
-
-    // if(drawButton(((Rect){
-    //     .width = effectsTab.width,
-    //     .height = effectsTab.height/10,
-    //     .x = effectsTab.x,
-    //     .y = effectsTab.y,
-    // }), "TEST!")){
-    //     printf("Clicked button!\n");
-    // }
-
-    // for(int i = 0; i < 20; i++){
-    //     if(drawButton_internal(((Rect){
-    //         .width = effectsTab.width * 0.75,
-    //         .height = effectsTab.height/10 * 0.9,
-    //         .x = effectsTab.x + effectsTab.width / 2 - effectsTab.width * 0.75/2,
-    //         .y = effectsTab.y + effectsTab.height/10 * 0.1 / 2 + effectsTab.height*i/10,
-    //     }), temp_sprintf("TEST %d", i), 1000 + i)){
-    //         printf("Clicked button %d!\n", i);
-    //     }
-    // }
 
     return true;
 }
@@ -828,7 +897,7 @@ bool draw(){
         1, &barrier
     );
 
-    for(size_t i = 0; i < currentModules.count; i++){
+    for(size_t i = 0; i < currentModuleInstances.count; i++){
         barrier.image = currentAttachment == 0 ? previewImage2 : previewImage1;
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -845,7 +914,7 @@ bool draw(){
             1, &barrier
         );
 
-        VfxModule* module = currentModules.items[i];
+        VfxModule* module = currentModuleInstances.items[i].module;
 
         vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
             .colorAttachment = currentAttachment == 0 ? previewView2 : previewView1,

@@ -25,6 +25,9 @@ void main() {
             outColor = vec4(pcs.spriteDrawBuffer.commands[InstanceIndex].albedo, alpha);
         }else{
             outColor = texture(textures[textureID], new_uv);
+            if(effects == 2){
+                outColor *= vec4(pcs.spriteDrawBuffer.commands[InstanceIndex].albedo, 1.0);
+            }
         }
     }
 
