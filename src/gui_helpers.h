@@ -24,9 +24,10 @@ bool pointInsideRect(float x, float y, Rect rect);
 
 vec3 hex2rgb(uint32_t hex);
 
-void updateUI();
 bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID);
 #define drawButton(boundingBox, text) drawButton_internal((boundingBox), (text), ((size_t)__FILE__)+__LINE__)
+void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID);
+#define drawFloatBox(boundingBox, val) drawFloatBox_internal((boundingBox), (val), ((size_t)__FILE__)+__LINE__)
 
 
 #endif

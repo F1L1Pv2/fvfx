@@ -119,19 +119,8 @@ vec3 hex2rgb(uint32_t hex){
     };
 }
 
-uint32_t pressingGUID = -1;
-uint32_t hoverGUID = -1;
-
-void updateUI(){
-    if(!input.keys[KEY_MOUSE_LEFT].isDown && hoverGUID == -1) pressingGUID = -1;
-    hoverGUID = -1;
-}
-
 bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID){
-    if(pointInsideRect(input.mouse_x, input.mouse_y,  boundingBox) && hoverGUID == -1) hoverGUID = GUID;
-    if(hoverGUID == GUID && input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID == -1) pressingGUID = GUID;
-
-    bool hover = hoverGUID == GUID;
+    bool hover = pointInsideRect(input.mouse_x, input.mouse_y,  boundingBox);
 
     drawSprite((SpriteDrawCommand){
         .position = (vec2){boundingBox.x, boundingBox.y},
@@ -154,15 +143,50 @@ bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID){
 
     drawText(text, 0xFFFFFFFF, UI_FONT_SIZE, textRect);
 
-    if(hover && !input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID != GUID){
-        pressingGUID = -1;
-        return false;
-    }
-
-    if(hover && !input.keys[KEY_MOUSE_LEFT].isDown && pressingGUID == GUID){
-        pressingGUID = -1;
-        return true;
-    }
+    if(hover && input.keys[KEY_MOUSE_LEFT].justReleased) return true;
 
     return false;
+}
+
+size_t editingGUID = -1;
+
+float origFloatEditVal;
+vec2 startEditPos;
+
+void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID){
+    if(editingGUID != -1 && input.keys[KEY_MOUSE_LEFT].justReleased) editingGUID = -1;
+
+    bool hover = pointInsideRect(input.mouse_x, input.mouse_y, boundingBox);
+    if(editingGUID == -1 && hover && input.keys[KEY_MOUSE_LEFT].justPressed){
+        editingGUID = GUID;
+        startEditPos = (vec2){input.mouse_x, input.mouse_y};
+        origFloatEditVal = *val;
+    }
+
+    if(editingGUID == GUID){
+        *val = origFloatEditVal + (float)(input.mouse_x - startEditPos.x) / 100.0f;
+    }
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){boundingBox.x, boundingBox.y},
+        .scale = (vec2){boundingBox.width, boundingBox.height},
+        .albedo = hex2rgb(0xFF203520)
+    });
+
+    size_t border = 1;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){boundingBox.x + border, boundingBox.y + border},
+        .scale = (vec2){boundingBox.width - border*2, boundingBox.height - border*2},
+        .albedo = editingGUID == GUID ? hex2rgb(0xFF309530) : (hover ? hex2rgb(0xFF306530) : hex2rgb(0xFF305030)),
+    });
+
+    const char* text = temp_sprintf("%.02ff", *val);
+
+    Rect textRect = (Rect){
+        .x = boundingBox.x + boundingBox.width / 2 - measureText(text, UI_FONT_SIZE)/2,
+        .y = boundingBox.y + boundingBox.height / 2 - UI_FONT_SIZE * 0.75,
+    };
+
+    drawText(text, 0xFFFFFFFF, UI_FONT_SIZE, textRect);
 }

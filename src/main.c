@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -26,6 +27,9 @@
 #include "gui_helpers.h"
 #include "sound_engine.h"
 #include <stdatomic.h>
+#include "string_alloc.h"
+
+StringAllocator sa = {0};
 
 typedef struct{
     mat4 projView;
@@ -92,17 +96,36 @@ size_t videoVulkanStride = 0;
 Audio audio = {0};
 bool audioInMedia = false;
 
+typedef enum {
+    VFX_NONE = 0,
+    VFX_FLOAT,
+} VfxInputType;
+
+typedef struct{
+    VfxInputType type;
+    const char* name;
+} VfxInput;
+
+typedef struct{
+    VfxInput* items;
+    size_t count;
+    size_t capacity;
+} VfxInputs;
+
 typedef struct {
     const char* filepath;
     const char* name;
     const char* description;
     const char* author;
+    VfxInputs inputs;
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
+    size_t pushContantsSize;
 } VfxModule;
 
 typedef struct{
     VfxModule* module;
+    void *inputPushConstants;
     bool opened;
 } VfxInstance;
 
@@ -154,7 +177,7 @@ HashItem* getFromHashMap(Hashmap* hashmap, const char* key) {
     }
 
     HashItem* new_item = calloc(1, sizeof(HashItem));
-    new_item->key = sv_from_cstr(nob_temp_strdup(key));
+    new_item->key = sv_from_cstr(sa_strdup(&sa, key));
     new_item->next = NULL;
 
     *item_ptr = new_item;
@@ -185,23 +208,54 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
         sv = sv_trim_left(sv);
 
         String_View arg = sv_chop_by_delim(&sv, '\n');
+        if(arg.count == 0) printf("Expected value for "SV_Fmt"\n",SV_Arg(leftSide));
         if(sv_eq(leftSide, sv_from_cstr("Name"))){
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->name = temp_strdup(sb.items);
+            out->name = sa_strdup(&sa, sb.items);
         }
         else if(sv_eq(leftSide, sv_from_cstr("Description"))){
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->description = temp_strdup(sb.items);
+            out->description = sa_strdup(&sa, sb.items);
         }
         else if(sv_eq(leftSide, sv_from_cstr("Author"))){
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->author = temp_strdup(sb.items);
+            out->author = sa_strdup(&sa, sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Input"))){
+            String_View inputName = sv_trim_left(arg);
+            String_View inputType = sv_trim(sv_chop_by_delim(&inputName, ' '));
+
+            if(inputType.count == 0){
+                printf("Please provide type for MetaInput\n");
+                return false;
+            }
+
+            if(inputName.count == 0){
+                printf("Please provide name for MetaInput\n");
+                return false;
+            }
+
+            VfxInput input = {0};
+            
+            if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
+
+            if(input.type == VFX_NONE){
+                printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
+                return false;
+            }
+            
+            sb.count = 0;
+            sb_append_buf(&sb, inputName.data, inputName.count);
+            sb_append_null(&sb);
+            input.name = sa_strdup(&sa, sb.items);
+
+            da_append(&out->inputs, input);
         }
         else{
             printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
@@ -221,7 +275,23 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
     return true;
 }
 
-bool preprocessVFXModule(String_Builder* sb){
+char* get_vfxInputTypeName(VfxInputType type){
+    switch (type)
+    {
+        case VFX_FLOAT: return "float";
+        default: UNREACHABLE("update this!");
+    }
+}
+
+size_t get_vfxInputTypeSize(VfxInputType type){
+    switch (type)
+    {
+        case VFX_FLOAT: return sizeof(float);
+        default: UNREACHABLE("update this!");
+    }
+}
+
+bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
     String_Builder newSB = {0};
 
     const char* prepend = 
@@ -231,6 +301,34 @@ bool preprocessVFXModule(String_Builder* sb){
                         "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n";
 
     sb_append_cstr(&newSB, prepend);
+
+    /*
+    
+    layout (push_constant) uniform constants
+    {
+        mat4 projView;
+        SpriteDrawBuffer spriteDrawBuffer;
+    } Input;
+    
+    */
+
+
+    if(module->inputs.count > 0){
+        
+        sb_append_cstr(&newSB, "layout (push_constant) uniform constants\n{\n");
+
+        for(size_t i = 0; i < module->inputs.count; i++){
+            assert(module->inputs.items[i].type != VFX_NONE);
+            sb_append_cstr(&newSB, get_vfxInputTypeName(module->inputs.items[i].type));
+            sb_append_cstr(&newSB, " ");
+            sb_append_cstr(&newSB, module->inputs.items[i].name);
+            sb_append_cstr(&newSB, ";\n");
+        }
+
+        sb_append_cstr(&newSB, "} Input;\n");
+    }
+
+
     sb_append_buf(&newSB,sb->items,sb->count);
 
     da_free((*sb));
@@ -541,9 +639,133 @@ atomic_bool playing = true;
 String_Builder sb = {0};
 VkShaderModule fragmentShader;
 
-bool update(float deltaTime){
-    updateUI();
+void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
+    const float ContainerHeight = UI_FONT_SIZE * 1.5;
+    const float ContainerWidth = vfxContainer.width;
 
+    float offset = 0;
+
+    for(size_t i = 0; i < currentModuleInstances.count; i++){
+        VfxInstance* instance = &currentModuleInstances.items[i];
+
+        const float moduleX = vfxContainer.x;
+        const float moduleY = vfxContainer.y + offset;
+
+        Rect moduleRect = (Rect){
+            .x = moduleX,
+            .y = moduleY,
+            .width = ContainerWidth,
+            .height = ContainerHeight
+        };
+
+        bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
+
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){moduleX, moduleY},
+            .scale = (vec2){ContainerWidth, ContainerHeight},
+            .albedo = hovering ? hex2rgb(0xFF808080) : hex2rgb(0xFF404040)
+        });
+
+        drawText(instance->module->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+            .x = moduleX + ContainerWidth/2 - measureText(instance->module->name, UI_FONT_SIZE)/2,
+            .y = moduleY
+        });
+
+        if(instance->module->inputs.count > 0){
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){moduleX + UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
+                .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
+                .textureIDEffects = instance->opened ? getTextureID("assets/DropdownOpen.png") : getTextureID("assets/DropdownClosed.png")
+            });
+        }
+
+        Rect deleteRect = (Rect){
+            .x = moduleRect.x + moduleRect.width - UI_FONT_SIZE - UI_FONT_SIZE/8,
+            .y = moduleRect.y,
+            .width = UI_FONT_SIZE,
+            .height = UI_FONT_SIZE
+        };
+
+        bool hoverDelete = pointInsideRect(input.mouse_x, input.mouse_y, deleteRect);
+
+        drawSprite((SpriteDrawCommand){
+            .position = (vec2){moduleX + ContainerWidth - UI_FONT_SIZE - UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
+            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
+            .textureIDEffects = getTextureID("assets/DropdownDelete.png") | (2 << 16),
+            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : (vec3){1,1,1}
+        });
+
+        if(instance->module->inputs.count > 0){
+            if(input.keys[KEY_MOUSE_LEFT].justReleased && hovering && !hoverDelete) instance->opened = !instance->opened;
+        }
+
+        if(input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) da_remove_at(&currentModuleInstances, i);
+
+        offset += ContainerHeight;
+
+        if(instance->opened && instance->module->inputs.count > 0){
+            float openSize = UI_FONT_SIZE*1.5 * instance->module->inputs.count;
+
+            Rect openRect = (Rect){
+                .x = moduleRect.x,
+                .y = moduleRect.y + moduleRect.height,
+                .width = moduleRect.width,
+                .height = openSize
+            };
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y},
+                .scale = (vec2){openRect.width, openRect.height},
+                .albedo = hex2rgb(0xFF909090)
+            });
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y + 1},
+                .scale = (vec2){openRect.width, openRect.height - 1},
+                .albedo = hex2rgb(0xFF404040)
+            });
+
+            size_t byteOffset = 0;
+
+            for(size_t j = 0; j < instance->module->inputs.count; j++){
+                VfxInput* input = &instance->module->inputs.items[j];
+                drawText(input->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+                    .x = openRect.x,
+                    .y = openRect.y + UI_FONT_SIZE*1.5*j,
+                });
+
+                switch (input->type)
+                {
+                case VFX_FLOAT:
+                    {
+                        const float floatInputWidth = openRect.width /3;
+
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - floatInputWidth,
+                            .y = openRect.y + UI_FONT_SIZE*1.5*j,
+                            .width = floatInputWidth,
+                            .height = UI_FONT_SIZE * 1.5,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j);
+                        break;
+                    }
+                
+                default: UNREACHABLE("Implement This!");
+                }
+
+                byteOffset += get_vfxInputTypeSize(input->type);
+            }
+
+            offset += openSize;
+        }
+
+        offset += 2;
+    }
+}
+
+float test = 69.0f;
+
+bool update(float deltaTime){
+    temp_reset();
     if(audioInMedia){
         time = soundEngineGetTime();
     }else{
@@ -578,12 +800,26 @@ bool update(float deltaTime){
     
                 sb.count = 0;
                 nob_read_entire_file(item->value.filepath,&sb);
+                
+                //REMOVING FOCKIN CARRIAGE RETURN!
+                char* current_pos = sb.items;
+                while ((current_pos = strchr(current_pos, '\r'))) {
+                    memmove(current_pos, current_pos + 1, strlen(current_pos + 1) + 1);
+                    sb.count--;
+                }
+
                 if(!extractVFXModuleMetaData(sb_to_sv(sb), &item->value)) return false;
-                if(!preprocessVFXModule(&sb)) return false;
+                if(!preprocessVFXModule(&sb, &item->value)) return false;
                 sb_append_null(&sb);
                 
                 if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
                 
+                size_t pushContantsSize = 0;
+                for(size_t i = 0; i < item->value.inputs.count; i++){
+                    pushContantsSize += get_vfxInputTypeSize(item->value.inputs.items[i].type);
+                }
+                item->value.pushContantsSize = pushContantsSize;
+
                 if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
                     .vertexShader = vfxVertexShader,
                     .fragmentShader = fragmentShader,
@@ -592,6 +828,7 @@ bool update(float deltaTime){
                     .descriptorSetLayoutCount = 1,
                     .descriptorSetLayouts = &vfxDescriptorSetLayout,
                     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                    .pushConstantsSize = pushContantsSize,
                 })) return false;
 
                 printf("COMPILIN!\n");
@@ -599,6 +836,10 @@ bool update(float deltaTime){
 
             VfxInstance instance = {0};
             instance.module = &item->value;
+
+            if(instance.module->pushContantsSize > 0){
+                instance.inputPushConstants = calloc(instance.module->pushContantsSize,1);
+            }
             
             da_append(&currentModuleInstances, instance);
         }
@@ -711,91 +952,7 @@ bool update(float deltaTime){
         .height = effectsTab.height - UI_FONT_SIZE * 1.5
     };
 
-    const float ContainerHeight = UI_FONT_SIZE * 1.5;
-    const float ContainerWidth = vfxContainer.width;
-
-    float offset = 0;
-
-    for(size_t i = 0; i < currentModuleInstances.count; i++){
-        VfxInstance* instance = &currentModuleInstances.items[i];
-
-        const float moduleX = vfxContainer.x;
-        const float moduleY = vfxContainer.y + offset;
-
-        Rect moduleRect = (Rect){
-            .x = moduleX,
-            .y = moduleY,
-            .width = ContainerWidth,
-            .height = ContainerHeight
-        };
-
-        bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
-
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){moduleX, moduleY},
-            .scale = (vec2){ContainerWidth, ContainerHeight},
-            .albedo = hovering ? hex2rgb(0xFF808080) : hex2rgb(0xFF404040)
-        });
-
-        drawText(instance->module->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-            .x = moduleX + ContainerWidth/2 - measureText(instance->module->name, UI_FONT_SIZE)/2,
-            .y = moduleY
-        });
-
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){moduleX + UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
-            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
-            .textureIDEffects = instance->opened ? getTextureID("assets/DropdownOpen.png") : getTextureID("assets/DropdownClosed.png")
-        });
-
-        Rect deleteRect = (Rect){
-            .x = moduleRect.x + moduleRect.width - UI_FONT_SIZE - UI_FONT_SIZE/8,
-            .y = moduleRect.y,
-            .width = UI_FONT_SIZE,
-            .height = UI_FONT_SIZE
-        };
-
-        bool hoverDelete = pointInsideRect(input.mouse_x, input.mouse_y, deleteRect);
-
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){moduleX + ContainerWidth - UI_FONT_SIZE - UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
-            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
-            .textureIDEffects = getTextureID("assets/DropdownDelete.png") | (2 << 16),
-            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : (vec3){1,1,1}
-        });
-
-        if(input.keys[KEY_MOUSE_LEFT].justReleased && hovering && !hoverDelete) instance->opened = !instance->opened;
-        if(input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) da_remove_at(&currentModuleInstances, i);
-
-        offset += ContainerHeight;
-
-        if(instance->opened){
-            float openSize = UI_FONT_SIZE * 4;
-
-            Rect openRect = (Rect){
-                .x = moduleRect.x,
-                .y = moduleRect.y + moduleRect.height,
-                .width = moduleRect.width,
-                .height = openSize
-            };
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y},
-                .scale = (vec2){openRect.width, openRect.height},
-                .albedo = hex2rgb(0xFF909090)
-            });
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y + 1},
-                .scale = (vec2){openRect.width, openRect.height - 1},
-                .albedo = hex2rgb(0xFF404040)
-            });
-
-            offset += openSize;
-        }
-
-        offset += 2;
-    }
+    drawCurrentModuleInstances(vfxContainer, deltaTime);
 
     float backgroundSpeed = cosf(sinf(time/20))*time;
 
@@ -932,6 +1089,10 @@ bool draw(){
 
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, module->pipeline);
         vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,module->pipelineLayout,0,1,currentAttachment == 0 ? &outDescriptorSet1 : &outDescriptorSet2,0,NULL);
+
+        if(module->inputs.count > 0){
+            vkCmdPushConstants(cmd, module->pipelineLayout, VK_SHADER_STAGE_ALL, 0, module->pushContantsSize, currentModuleInstances.items[i].inputPushConstants);
+        }
 
         vkCmdDraw(cmd, 6, 1, 0, 0);
         vkCmdEndRendering(cmd);
