@@ -186,6 +186,8 @@ void platform_create_window(const char* title, size_t width, size_t height){
 MSG msg;
 
 bool platform_window_handle_events(){
+    input.scroll = 0;
+    
     for(int i = 0; i < sizeof(input.keys) / sizeof(input.keys[0]); i++){
         input.keys[i].justPressed = 0;
         input.keys[i].justReleased = 0;

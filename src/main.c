@@ -660,6 +660,18 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
         bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
 
+        if(input.scroll > 0 && i > 0 && hovering){
+            VfxInstance copy = *instance;
+            memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i - 1], sizeof(VfxInstance));
+            memcpy(&currentModuleInstances.items[i - 1], &copy, sizeof(VfxInstance));
+        }
+
+        if(input.scroll < 0 && i < currentModuleInstances.count-1 && hovering){
+            VfxInstance copy = *instance;
+            memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i + 1], sizeof(VfxInstance));
+            memcpy(&currentModuleInstances.items[i + 1], &copy, sizeof(VfxInstance));
+        }
+
         drawSprite((SpriteDrawCommand){
             .position = (vec2){moduleX, moduleY},
             .scale = (vec2){ContainerWidth, ContainerHeight},
