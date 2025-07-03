@@ -777,6 +777,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 float effectTabSplitterOffset = 150;
 float timelineSplitterOffset = 100;
 
+#define SPLITTER_THICKNESS 4
+
 bool update(float deltaTime){
     temp_reset();
     if(audioInMedia){
@@ -921,14 +923,14 @@ bool update(float deltaTime){
 
     // --------------------------- EFFECTS RACK --------------------------------
     Rect effectRack = (Rect){
-        .width = effectsTab.width - 4,
+        .width = effectsTab.width - SPLITTER_THICKNESS,
         .height = effectsTab.height,
-        .x = effectsTab.x + 4,
+        .x = effectsTab.x + SPLITTER_THICKNESS,
         .y = effectsTab.y
     };
 
     Rect effectRackSplitter = (Rect){
-        .width = 4,
+        .width = SPLITTER_THICKNESS,
         .height = effectsTab.height,
         .x = effectsTab.x,
         .y = effectsTab.y
@@ -986,14 +988,14 @@ bool update(float deltaTime){
 
     Rect timelineContainer = (Rect){
         .width = timelineRect.width,
-        .height = timelineRect.height - 4,
+        .height = timelineRect.height - SPLITTER_THICKNESS,
         .x = timelineRect.x,
-        .y = timelineRect.y + 4
+        .y = timelineRect.y + SPLITTER_THICKNESS
     };
 
     Rect timelineSplitter = (Rect){
         .width = timelineRect.width,
-        .height = 4,
+        .height = SPLITTER_THICKNESS,
         .x = timelineRect.x,
         .y = timelineRect.y
     };
