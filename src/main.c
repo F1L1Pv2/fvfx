@@ -774,7 +774,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
     }
 }
 
-float test = 69.0f;
+float effectTabSplitterOffset = 150;
+float timelineSplitterOffset = 100;
 
 bool update(float deltaTime){
     temp_reset();
@@ -786,11 +787,40 @@ bool update(float deltaTime){
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
 
+    Rect topBarRect = (Rect){
+        .x = 0,
+        .y = 0,
+        .width = swapchainExtent.width,
+        .height = 30,
+    };
+
     Rect effectsTab = (Rect){
-        .width = 150,
-        .height = swapchainExtent.height - 30,
-        .y = 30,
-        .x = swapchainExtent.width - 150,
+        .width = effectTabSplitterOffset,
+        .height = swapchainExtent.height - topBarRect.height,
+        .y = topBarRect.y+topBarRect.height,
+        .x = swapchainExtent.width - effectTabSplitterOffset,
+    };
+
+    Rect timelineRect = (Rect){
+        .height = timelineSplitterOffset,
+    };
+
+    Rect previewPos = (Rect){
+        .width = swapchainExtent.width - effectsTab.width,
+        .height = swapchainExtent.height - timelineRect.height - topBarRect.height,
+        .y = topBarRect.y+topBarRect.height,
+    };
+
+    timelineRect.width = swapchainExtent.width - effectsTab.width;
+    timelineRect.y = previewPos.y + previewPos.height;
+
+    Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
+    
+    pcsPreview.model = (mat4){
+        previewRect.width,0,0,0,
+        0,previewRect.height,0,0,
+        0,0,1,0,
+        previewRect.x,previewRect.y,0,1,
     };
 
     if(platform_drag_and_drop_available() && pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
@@ -859,29 +889,6 @@ bool update(float deltaTime){
         platform_release_drag_and_drop(dragndrop, count);
     }
 
-    Rect timelineRect = (Rect){
-        .height = min(((float)swapchainExtent.height / 4), 200.0f)
-    };
-
-    Rect previewPos = (Rect){
-        .width = swapchainExtent.width - effectsTab.width - 1,
-        .height = swapchainExtent.height - timelineRect.height - 30,
-        .y = 30,
-        .x = 1,
-    };
-
-    timelineRect.width = previewPos.width;
-    timelineRect.y = previewPos.y + previewPos.height;
-
-    Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
-    
-    pcsPreview.model = (mat4){
-        previewRect.width,0,0,0,
-        0,previewRect.height,0,0,
-        0,0,1,0,
-        previewRect.x,previewRect.y,0,1,
-    };
-
     if(playing){
         bool didSmth = false;
         while(time > videoFrame.frameTime){
@@ -912,8 +919,116 @@ bool update(float deltaTime){
         }
     }
 
-    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineRect) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        time = ((float)input.mouse_x - timelineRect.x) * video.duration / timelineRect.width;
+    // --------------------------- EFFECTS RACK --------------------------------
+    Rect effectRack = (Rect){
+        .width = effectsTab.width - 4,
+        .height = effectsTab.height,
+        .x = effectsTab.x + 4,
+        .y = effectsTab.y
+    };
+
+    Rect effectRackSplitter = (Rect){
+        .width = 4,
+        .height = effectsTab.height,
+        .x = effectsTab.x,
+        .y = effectsTab.y
+    };
+
+    bool effectsSplitterHover = pointInsideRect(input.mouse_x, input.mouse_y, effectRackSplitter);
+    static bool usingEffectsSplitter = false;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectRackSplitter.x, effectRackSplitter.y},
+        .scale = (vec2){effectRackSplitter.width, effectRackSplitter.height},
+        .albedo = effectsSplitterHover || usingEffectsSplitter ? hex2rgb(0xFF909090) : hex2rgb(0xFF101010),
+    });
+
+    if(effectsSplitterHover && !usingEffectsSplitter && input.keys[KEY_MOUSE_LEFT].justPressed) usingEffectsSplitter = true;
+    if(usingEffectsSplitter && input.keys[KEY_MOUSE_LEFT].justReleased) usingEffectsSplitter = false;
+    if(usingEffectsSplitter) effectTabSplitterOffset = swapchainExtent.width - input.mouse_x;
+
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectRack.x, effectRack.y},
+        .scale = (vec2){effectRack.width, effectRack.height},
+        .albedo = (vec3){(float)0x25/255,(float)0x25/255,(float)0x25/255},
+    });
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectRack.x, effectRack.y},
+        .scale = (vec2){effectRack.width, UI_FONT_SIZE * 1.5},
+        .albedo = hex2rgb(0xFF454545)
+    });
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){effectRack.x, effectRack.y},
+        .scale = (vec2){effectRack.width, UI_FONT_SIZE * 1.5 - 1},
+        .albedo = hex2rgb(0xFF181818)
+    });
+
+    char* effectsRackStr = "Effects Rack";
+
+    drawText(effectsRackStr, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+        .x = effectRack.x + effectRack.width/2 - measureText(effectsRackStr, UI_FONT_SIZE)/2,
+        .y = effectRack.y + UI_FONT_SIZE*1.5/2 - UI_FONT_SIZE * 0.75,
+    });
+
+    Rect vfxContainer = (Rect){
+        .x = effectRack.x,
+        .y = effectRack.y + UI_FONT_SIZE * 1.5 + 2,
+        .width = effectRack.width,
+        .height = effectRack.height - UI_FONT_SIZE * 1.5
+    };
+
+    drawCurrentModuleInstances(vfxContainer, deltaTime);
+
+    // --------------------------- Timeline --------------------------------
+
+    Rect timelineContainer = (Rect){
+        .width = timelineRect.width,
+        .height = timelineRect.height - 4,
+        .x = timelineRect.x,
+        .y = timelineRect.y + 4
+    };
+
+    Rect timelineSplitter = (Rect){
+        .width = timelineRect.width,
+        .height = 4,
+        .x = timelineRect.x,
+        .y = timelineRect.y
+    };
+
+    bool timelineSplitterHover = pointInsideRect(input.mouse_x, input.mouse_y, timelineSplitter);
+    static bool usingTimelineSplitter = false;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){timelineSplitter.x, timelineSplitter.y},
+        .scale = (vec2){timelineSplitter.width, timelineSplitter.height},
+        .albedo = timelineSplitterHover || usingTimelineSplitter ? hex2rgb(0xFF909090) : hex2rgb(0xFF101010),
+    });
+
+    if(timelineSplitterHover && !usingTimelineSplitter && input.keys[KEY_MOUSE_LEFT].justPressed) usingTimelineSplitter = true;
+    if(usingTimelineSplitter && input.keys[KEY_MOUSE_LEFT].justReleased) usingTimelineSplitter = false;
+    if(usingTimelineSplitter) timelineSplitterOffset = swapchainExtent.height - input.mouse_y;
+
+    float percent = videoFrame.frameTime / video.duration;
+
+    float cursorWidth = 1;
+
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){timelineContainer.x, timelineContainer.y},
+        .scale = (vec2){timelineContainer.width, timelineContainer.height},
+        .albedo = hex2rgb(0xFF181818),
+    });
+    
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){floor(timelineContainer.x+percent*timelineContainer.width+cursorWidth/2),timelineContainer.y},
+        .scale = (vec2){cursorWidth, timelineContainer.height},
+        .albedo = (vec3){1.0,0.0,0.0},
+    });
+
+    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineContainer) && input.keys[KEY_MOUSE_LEFT].justPressed){
+        time = ((float)input.mouse_x - timelineContainer.x) * video.duration / timelineContainer.width;
         if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
         if(audioInMedia) {
             ffmpegAudioSeek(&audio, time);
@@ -932,56 +1047,11 @@ bool update(float deltaTime){
         }
     }
 
+    // -------------------------------- top bar ---------------------------------------
     drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectsTab.x, effectsTab.y},
-        .scale = (vec2){effectsTab.width, effectsTab.height},
-        .albedo = (vec3){(float)0x25/255,(float)0x25/255,(float)0x25/255},
-    });
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectsTab.x, effectsTab.y},
-        .scale = (vec2){effectsTab.width, UI_FONT_SIZE * 1.5},
-        .albedo = hex2rgb(0xFF454545)
-    });
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectsTab.x, effectsTab.y},
-        .scale = (vec2){effectsTab.width, UI_FONT_SIZE * 1.5 - 1},
-        .albedo = hex2rgb(0xFF181818)
-    });
-
-    char* effectsRackStr = "Effects Rack";
-
-    drawText(effectsRackStr, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-        .x = effectsTab.x + effectsTab.width/2 - measureText(effectsRackStr, UI_FONT_SIZE)/2,
-        .y = effectsTab.y + UI_FONT_SIZE*1.5/2 - UI_FONT_SIZE * 0.75,
-    });
-
-    Rect vfxContainer = (Rect){
-        .x = effectsTab.x,
-        .y = effectsTab.y + UI_FONT_SIZE * 1.5 + 2,
-        .width = effectsTab.width,
-        .height = effectsTab.height - UI_FONT_SIZE * 1.5
-    };
-
-    drawCurrentModuleInstances(vfxContainer, deltaTime);
-
-    float backgroundSpeed = cosf(sinf(time/20))*time;
-
-    //Draw Black stuff behind 
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){previewPos.x,previewPos.y},
-        .scale = (vec2){previewPos.width, previewPos.height},
-    });
-
-    float percent = videoFrame.frameTime / video.duration;
-
-    float cursorWidth = timelineRect.width / 500;
-    
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){floor(timelineRect.x+percent*timelineRect.width+cursorWidth/2),timelineRect.y},
-        .scale = (vec2){cursorWidth, timelineRect.height},
-        .albedo = (vec3){1.0,0.0,0.0},
+        .position = (vec2){topBarRect.x, topBarRect.y},
+        .scale = (vec2){topBarRect.width, topBarRect.height},
+        .albedo = hex2rgb(0xFF181818),
     });
 
     drawText("FVFX", 0xFFFFFF, UI_FONT_SIZE, (Rect){
@@ -1129,32 +1199,10 @@ bool draw(){
 
     VkImageView swapchainImage = getSwapchainImageView();
 
-    //sprite pass
-    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
-        .colorAttachment = swapchainImage,
-        .clearColor = (Color){18.0f/255.f,18.0f/255.f,18.0f/255.f,1.0f},
-    });
-    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-        .width = swapchainExtent.width,
-        .height = swapchainExtent.height
-    });
-        
-    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = swapchainExtent,
-    });
-        
-    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
-
-    vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
-
-    renderSprites();
-
-    vkCmdEndRendering(cmd);
-
     //preview pass
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
         .colorAttachment = swapchainImage,
+        .clearColor = (Color){0,0,0, 1},
     });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
@@ -1171,6 +1219,28 @@ bool draw(){
     vkCmdPushConstants(cmd,pipelineLayoutPreview,VK_SHADER_STAGE_ALL,0,sizeof(PushConstantsPreview), &pcsPreview);
 
     vkCmdDraw(cmd, 6, 1, 0, 0);
+
+    vkCmdEndRendering(cmd);
+
+    //sprite pass
+    vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
+        .colorAttachment = swapchainImage,
+    });
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+        .extent = swapchainExtent,
+    });
+        
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
+
+    vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
+
+    renderSprites();
 
     vkCmdEndRendering(cmd);
     return true;
