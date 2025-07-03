@@ -660,13 +660,13 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
         bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
 
-        if(input.scroll > 0 && i > 0 && hovering){
+        if(input.keys[KEY_CONTROL].isDown && input.scroll > 0 && i > 0 && hovering){
             VfxInstance copy = *instance;
             memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i - 1], sizeof(VfxInstance));
             memcpy(&currentModuleInstances.items[i - 1], &copy, sizeof(VfxInstance));
         }
 
-        if(input.scroll < 0 && i < currentModuleInstances.count-1 && hovering){
+        if(input.keys[KEY_CONTROL].isDown && input.scroll < 0 && i < currentModuleInstances.count-1 && hovering){
             VfxInstance copy = *instance;
             memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i + 1], sizeof(VfxInstance));
             memcpy(&currentModuleInstances.items[i + 1], &copy, sizeof(VfxInstance));
@@ -716,7 +716,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
         offset += ContainerHeight;
 
         if(instance->opened && instance->module->inputs.count > 0){
-            float openSize = UI_FONT_SIZE*1.5 * instance->module->inputs.count;
+            float openSize = UI_FONT_SIZE*1.5 * instance->module->inputs.count + 1;
 
             Rect openRect = (Rect){
                 .x = moduleRect.x,
@@ -739,24 +739,28 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
             size_t byteOffset = 0;
 
+            const float inputHeight = UI_FONT_SIZE * 1.5;
+
             for(size_t j = 0; j < instance->module->inputs.count; j++){
+                float inputY = openRect.y + 1 + inputHeight*j;
+
                 VfxInput* input = &instance->module->inputs.items[j];
                 drawText(input->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
                     .x = openRect.x,
-                    .y = openRect.y + UI_FONT_SIZE*1.5*j,
+                    .y = inputY,
                 });
 
                 switch (input->type)
                 {
                 case VFX_FLOAT:
                     {
-                        const float floatInputWidth = openRect.width /3;
+                        const float floatInputWidth = openRect.width / 2;
 
                         drawFloatBox_internal((Rect){
                             .x = openRect.x + openRect.width - floatInputWidth,
-                            .y = openRect.y + UI_FONT_SIZE*1.5*j,
+                            .y = inputY,
                             .width = floatInputWidth,
-                            .height = UI_FONT_SIZE * 1.5,
+                            .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j);
                         break;
                     }
