@@ -62,10 +62,6 @@ void drawText(const char* text, uint32_t color, float fontSize, Rect bounding){
         bounding.x += metric.ax * fontSize / FREE_GLYPH_FONT_SIZE;
         bounding.y += metric.ay * fontSize / FREE_GLYPH_FONT_SIZE;
 
-        float r,g,b;
-
-        hexToRgb(color, &r,&g,&b);
-
         drawSprite((SpriteDrawCommand){
             .position = (vec2){x2,y2},
             .scale = (vec2){w,h},
