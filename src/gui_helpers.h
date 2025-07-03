@@ -19,6 +19,7 @@ Rect fitRectangle(Rect outer, float innerWidth, float innerHeight);
 void drawText(const char* text, uint32_t color, float fontSize, Rect bounding);
 float measureText(const char* text, float fontSize);
 bool pointInsideRect(float x, float y, Rect rect);
+bool rectIntersectsRect(Rect a, Rect b);
 
 #define UI_FONT_SIZE (16.0f)
 

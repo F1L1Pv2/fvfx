@@ -10,6 +10,7 @@
 #include "engine/vulkan_buffer.h"
 
 #include "spriteManager.h"
+#include "gui_helpers.h"
 
 typedef struct {
     SpriteDrawCommand* items;
@@ -28,6 +29,19 @@ bool initSpriteManager(){
 }
 
 void drawSprite(SpriteDrawCommand cmd){
+    // tbh i dont know how much this will impact performance if it will be a bottleneck then i can remove it
+    if(!rectIntersectsRect((Rect){
+        .x = cmd.position.x,
+        .y = cmd.position.y,
+        .width = cmd.scale.x,
+        .height = cmd.scale.y,
+    }, (Rect){
+        .x = 0,
+        .y = 0,
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height
+    })) return;
+
     if(spriteDrawQueue.count < MAX_SPRITE_COUNT){
         if(cmd.size.x == 0 && cmd.size.y == 0){
             cmd.size.x = 1;

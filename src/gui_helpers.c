@@ -107,6 +107,15 @@ bool pointInsideRect(float x, float y, Rect rect){
     );
 }
 
+bool rectIntersectsRect(Rect a, Rect b) {
+    return !(
+        a.x + a.width < b.x ||
+        a.x > b.x + b.width ||
+        a.y + a.height < b.y ||
+        a.y > b.y + b.height
+    );
+}
+
 vec3 hex2rgb(uint32_t hex){
     return (vec3){
         (float)((hex >> 8 * 2) & 0xFF) / 255.0f,
