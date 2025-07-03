@@ -639,6 +639,8 @@ atomic_bool playing = true;
 String_Builder sb = {0};
 VkShaderModule fragmentShader;
 
+#define EFFECT_RACK_OFFSET_BETWEEN_INSTANCES 2
+
 void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
     const float ContainerHeight = UI_FONT_SIZE * 1.5;
     const float ContainerWidth = vfxContainer.width;
@@ -716,7 +718,9 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
         offset += ContainerHeight;
 
         if(instance->opened && instance->module->inputs.count > 0){
-            float openSize = UI_FONT_SIZE*1.5 * instance->module->inputs.count + 1;
+            const float inputHeight = UI_FONT_SIZE * 1.5;
+
+            float openSize = inputHeight * instance->module->inputs.count + 1;
 
             Rect openRect = (Rect){
                 .x = moduleRect.x,
@@ -738,8 +742,6 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             });
 
             size_t byteOffset = 0;
-
-            const float inputHeight = UI_FONT_SIZE * 1.5;
 
             for(size_t j = 0; j < instance->module->inputs.count; j++){
                 float inputY = openRect.y + 1 + inputHeight*j;
@@ -774,7 +776,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             offset += openSize;
         }
 
-        offset += 2;
+        offset += EFFECT_RACK_OFFSET_BETWEEN_INSTANCES;
     }
 }
 
