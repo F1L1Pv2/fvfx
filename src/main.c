@@ -785,6 +785,8 @@ float timelineSplitterOffset = 100;
 
 #define SPLITTER_THICKNESS 4
 
+#define TOP_BAR_FONT_SIZE 16
+
 bool update(float deltaTime){
     temp_reset();
     if(audioInMedia){
@@ -794,6 +796,9 @@ bool update(float deltaTime){
     }
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
+    if(input.keys[KEY_SHIFT].isDown && input.scroll != 0){
+        UI_FONT_SIZE += input.scroll*deltaTime;
+    }
 
     Rect topBarRect = (Rect){
         .x = 0,
@@ -1062,7 +1067,7 @@ bool update(float deltaTime){
         .albedo = hex2rgb(0xFF181818),
     });
 
-    drawText("FVFX", 0xFFFFFF, UI_FONT_SIZE, (Rect){
+    drawText("FVFX", 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
         .x = 10,
         .y = 3,
     });
@@ -1071,8 +1076,8 @@ bool update(float deltaTime){
 
     sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
 
-    drawText(text, 0xFFFFFF, UI_FONT_SIZE, (Rect){
-        .x = swapchainExtent.width / 2 - measureText(text,UI_FONT_SIZE) / 2,
+    drawText(text, 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
+        .x = swapchainExtent.width / 2 - measureText(text,TOP_BAR_FONT_SIZE) / 2,
         .y = 3,
     });
 

@@ -1,6 +1,8 @@
 #include "gui_helpers.h"
 #include "engine/input.h"
 
+float UI_FONT_SIZE = 16.0f;
+
 Rect fitRectangle(Rect outer, float innerWidth, float innerHeight){
     Rect out = {0};
     out.x = outer.x;

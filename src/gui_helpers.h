@@ -21,7 +21,7 @@ float measureText(const char* text, float fontSize);
 bool pointInsideRect(float x, float y, Rect rect);
 bool rectIntersectsRect(Rect a, Rect b);
 
-#define UI_FONT_SIZE (16.0f)
+extern float UI_FONT_SIZE;
 
 vec3 hex2rgb(uint32_t hex);
 
