@@ -1304,6 +1304,7 @@ bool draw(){
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
         .colorAttachment = previewView1,
         .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        .clearColor = (Color){0,0,0,1},
     });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
@@ -1358,6 +1359,7 @@ bool draw(){
         vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
             .colorAttachment = currentAttachment == 0 ? previewView2 : previewView1,
             .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+            .clearColor = (Color){0,0,0,1},
         });
 
         vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
