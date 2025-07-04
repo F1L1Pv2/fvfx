@@ -858,18 +858,75 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                 case VFX_VEC2:
                     {
                         drawFloatBox_internal((Rect){
-                            .x = openRect.x + openRect.width - inputWidth/2,
+                            .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
                             .width = inputWidth/2,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 2);
 
                         drawFloatBox_internal((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
+                            .x = openRect.x + openRect.width - inputWidth/2,
                             .y = inputY,
                             .width = inputWidth/2,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 2 + 1);
+                        break;
+                    }
+
+                case VFX_VEC3:
+                    {
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth,
+                            .y = inputY,
+                            .width = inputWidth/3,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 3);
+                        
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth + inputWidth/3,
+                            .y = inputY,
+                            .width = inputWidth/3,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 3 + 1);
+
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth/3,
+                            .y = inputY,
+                            .width = inputWidth/3,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2), 1000 * i + j * 3 + 2);
+                        break;
+                    }
+
+                case VFX_VEC4:
+                    {
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth,
+                            .y = inputY,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 4);
+                        
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth + inputWidth/4,
+                            .y = inputY,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 4 + 1);
+
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth + inputWidth * 2 /4,
+                            .y = inputY,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2), 1000 * i + j * 4 + 2);
+
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth/4,
+                            .y = inputY,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3), 1000 * i + j * 4 + 3);
                         break;
                     }
 
