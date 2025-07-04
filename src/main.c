@@ -145,6 +145,7 @@ typedef struct {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
     size_t pushContantsSize;
+    void* defaultPushConstantValue;
 } VfxModule;
 
 typedef struct{
@@ -208,121 +209,6 @@ HashItem* getFromHashMap(Hashmap* hashmap, const char* key) {
     return new_item;
 }
 
-bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
-    sv = sv_trim_left(sv);
-    if(sv.count < 2) {
-        printf("Empty file!");
-        return false;
-    }
-    if(sv.data[0] != '/' && sv.data[1] != '*') {
-        printf("No metadata descriptor\n");
-        return false;
-    }
-    sv.data += 2;
-    sv = sv_trim_left(sv);
-    if(sv.count == 0) {
-        printf("Empty file!");
-        return false;
-    }
-
-    String_Builder sb = {0};
-
-    while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
-        String_View leftSide = sv_chop_by_delim(&sv, ':');
-        sv = sv_trim_left(sv);
-
-        String_View arg = sv_chop_by_delim(&sv, '\n');
-        if(arg.count == 0) printf("Expected value for "SV_Fmt"\n",SV_Arg(leftSide));
-        if(sv_eq(leftSide, sv_from_cstr("Name"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->name = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Description"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->description = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Author"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->author = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Input"))){
-            String_View inputName = sv_trim_left(arg);
-            String_View inputType = sv_trim(sv_chop_by_delim(&inputName, ' '));
-
-            if(inputType.count == 0){
-                printf("Please provide type for MetaInput\n");
-                return false;
-            }
-
-            if(inputName.count == 0){
-                printf("Please provide name for MetaInput\n");
-                return false;
-            }
-
-            VfxInput input = {0};
-            
-                 if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
-            else if(sv_eq(inputType, sv_from_cstr("int"))) input.type = VFX_INT;
-            else if(sv_eq(inputType, sv_from_cstr("uint"))) input.type = VFX_UINT;
-            else if(sv_eq(inputType, sv_from_cstr("double"))) input.type = VFX_DOUBLE;
-            else if(sv_eq(inputType, sv_from_cstr("bool"))) input.type = VFX_BOOL;
-
-            else if(sv_eq(inputType, sv_from_cstr("vec2"))) input.type = VFX_VEC2;
-            else if(sv_eq(inputType, sv_from_cstr("vec3"))) input.type = VFX_VEC3;
-            else if(sv_eq(inputType, sv_from_cstr("vec4"))) input.type = VFX_VEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("bvec2"))) input.type = VFX_BVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("bvec3"))) input.type = VFX_BVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("bvec4"))) input.type = VFX_BVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("ivec2"))) input.type = VFX_IVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("ivec3"))) input.type = VFX_IVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("ivec4"))) input.type = VFX_IVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("uvec2"))) input.type = VFX_UVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("uvec3"))) input.type = VFX_UVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("uvec4"))) input.type = VFX_UVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("dvec2"))) input.type = VFX_DVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
-
-            if(input.type == VFX_NONE){
-                printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
-                return false;
-            }
-            
-            sb.count = 0;
-            sb_append_buf(&sb, inputName.data, inputName.count);
-            sb_append_null(&sb);
-            input.name = sa_strdup(&sa, sb.items);
-
-            da_append(&out->inputs, input);
-        }
-        else{
-            printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
-
-            da_free(sb);
-            return false;
-        }
-        sv = sv_trim_left(sv);
-        if(sv.count == 0) {
-            printf("No metadata ending '*/' reached end of file");
-            da_free(sb);
-            return false;
-        }
-    }
-
-    da_free(sb);
-    return true;
-}
-
 char* get_vfxInputTypeName(VfxInputType type){
     switch (type)
     {
@@ -377,6 +263,140 @@ size_t get_vfxInputTypeSize(VfxInputType type){
 
         default: UNREACHABLE("update this!");
     }
+}
+
+bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
+    sv = sv_trim_left(sv);
+    if(sv.count < 2) {
+        printf("Empty file!");
+        return false;
+    }
+    if(sv.data[0] != '/' && sv.data[1] != '*') {
+        printf("No metadata descriptor\n");
+        return false;
+    }
+    sv.data += 2;
+    sv = sv_trim_left(sv);
+    if(sv.count == 0) {
+        printf("Empty file!");
+        return false;
+    }
+
+    String_Builder sb = {0};
+
+    while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
+        String_View leftSide = sv_chop_by_delim(&sv, ':');
+        sv = sv_trim_left(sv);
+
+        String_View arg = sv_chop_by_delim(&sv, '\n');
+        if(arg.count == 0) printf("Expected value for "SV_Fmt"\n",SV_Arg(leftSide));
+        if(sv_eq(leftSide, sv_from_cstr("Name"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->name = sa_strdup(&sa, sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Description"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->description = sa_strdup(&sa, sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Author"))){
+            sb.count = 0;
+            sb_append_buf(&sb, arg.data, arg.count);
+            sb_append_null(&sb);
+            out->author = sa_strdup(&sa, sb.items);
+        }
+        else if(sv_eq(leftSide, sv_from_cstr("Input"))){
+            String_View inputArg = sv_trim_left(arg);
+            String_View inputType = sv_trim(sv_chop_by_delim(&inputArg, ' '));
+            String_View inputName = sv_trim(sv_chop_by_delim(&inputArg, ' '));
+
+            if(inputType.count == 0){
+                printf("Please provide type for MetaInput\n");
+                return false;
+            }
+
+            if(inputName.count == 0){
+                printf("Please provide name for MetaInput\n");
+                return false;
+            }
+
+            VfxInput input = {0};
+            
+                 if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
+            else if(sv_eq(inputType, sv_from_cstr("int"))) input.type = VFX_INT;
+            else if(sv_eq(inputType, sv_from_cstr("uint"))) input.type = VFX_UINT;
+            else if(sv_eq(inputType, sv_from_cstr("double"))) input.type = VFX_DOUBLE;
+            else if(sv_eq(inputType, sv_from_cstr("bool"))) input.type = VFX_BOOL;
+
+            else if(sv_eq(inputType, sv_from_cstr("vec2"))) input.type = VFX_VEC2;
+            else if(sv_eq(inputType, sv_from_cstr("vec3"))) input.type = VFX_VEC3;
+            else if(sv_eq(inputType, sv_from_cstr("vec4"))) input.type = VFX_VEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("bvec2"))) input.type = VFX_BVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("bvec3"))) input.type = VFX_BVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("bvec4"))) input.type = VFX_BVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("ivec2"))) input.type = VFX_IVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("ivec3"))) input.type = VFX_IVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("ivec4"))) input.type = VFX_IVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("uvec2"))) input.type = VFX_UVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("uvec3"))) input.type = VFX_UVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("uvec4"))) input.type = VFX_UVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("dvec2"))) input.type = VFX_DVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
+
+            if(input.type == VFX_NONE){
+                printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
+                return false;
+            }
+            
+            sb.count = 0;
+            sb_append_buf(&sb, inputName.data, inputName.count);
+            sb_append_null(&sb);
+            input.name = sa_strdup(&sa, sb.items);
+
+            da_append(&out->inputs, input);
+
+            if(inputArg.count > 0){
+                sb.count = 0;
+                sb_append_buf(&sb, inputArg.data, inputArg.count);
+                sb_append_null(&sb);
+
+                out->defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
+
+                switch (input.type)
+                {
+                case VFX_FLOAT: sscanf(sb.items,"%f",         ((float*)out->defaultPushConstantValue)); break;
+                case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1); break;
+                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2); break;
+                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
+                
+                default: TODO("IMPLEMENT THIS");
+                }
+            }
+        }
+        else{
+            printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
+
+            da_free(sb);
+            return false;
+        }
+        sv = sv_trim_left(sv);
+        if(sv.count == 0) {
+            printf("No metadata ending '*/' reached end of file");
+            da_free(sb);
+            return false;
+        }
+    }
+
+    da_free(sb);
+    return true;
 }
 
 bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
@@ -1014,6 +1034,7 @@ bool update(float deltaTime){
             }
 
             if(item->value.filepath == NULL){
+                item->value = (VfxModule){0};
                 item->value.filepath = item->key.data;
     
                 sb.count = 0;
@@ -1057,6 +1078,9 @@ bool update(float deltaTime){
 
             if(instance.module->pushContantsSize > 0){
                 instance.inputPushConstants = calloc(instance.module->pushContantsSize,1);
+                if(instance.module->defaultPushConstantValue != NULL){
+                    memcpy(instance.inputPushConstants, instance.module->defaultPushConstantValue, instance.module->pushContantsSize);
+                }
             }
             
             da_append(&currentModuleInstances, instance);

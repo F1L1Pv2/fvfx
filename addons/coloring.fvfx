@@ -2,10 +2,10 @@
 Name: Color
 Description: changingColor
 Author: F1L1P
-Input: vec3 color
+Input: vec4 color 1,1,1,1
 */
 
 void main() {
     vec4 color = texture(imageIN, uv);
-    outColor = color * vec4(Input.color, 1);
+    outColor = color * Input.color;
 }
