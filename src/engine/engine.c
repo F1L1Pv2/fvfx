@@ -18,7 +18,13 @@
 #include "platform.h"
 #include "app.h"
 
-bool platform_resize_window_callback(){
+bool sleep = false;
+
+bool platform_resize_window_callback(bool minimized){
+    sleep = minimized;
+
+    if(sleep) return true;
+
     if(!swapchain) return true;
     VkResult result = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     if(result != VK_SUCCESS){
@@ -75,25 +81,27 @@ int engineStart(){
             return 1;
         }
 
-        uint64_t time = platform_get_time();
-        float deltaTime = (float)(time - oldTime) / 1000.0f;
-        if(deltaTime > frameDuration) deltaTime = frameDuration;
-        oldTime = time;
-
-        if(!update(deltaTime)){
-            printf("ERROR: Couldn't update frame\n");
-            return 1;   
+        if(!sleep){
+            uint64_t time = platform_get_time();
+            float deltaTime = (float)(time - oldTime) / 1000.0f;
+            if(deltaTime > frameDuration) deltaTime = frameDuration;
+            oldTime = time;
+    
+            if(!update(deltaTime)){
+                printf("ERROR: Couldn't update frame\n");
+                return 1;   
+            }
+            
+            beginDrawing();
+            if(!draw()) {
+                printf("ERROR: Couldn't draw frame\n");
+                return 1;
+            }
+            endDrawing();
+    
+            uint64_t frameTook = platform_get_time() - time;
+            if(((float)(frameTook)/1000.0f) < frameDuration) platform_sleep(frameDuration*1000.0f - frameTook);
         }
-        
-        beginDrawing();
-        if(!draw()) {
-            printf("ERROR: Couldn't draw frame\n");
-            return 1;
-        }
-        endDrawing();
-
-        uint64_t frameTook = platform_get_time() - time;
-        if(((float)(frameTook)/1000.0f) < frameDuration) platform_sleep(frameDuration*1000.0f - frameTook);
     }
 
     return 0;

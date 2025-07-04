@@ -59,7 +59,7 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_CLOSE: window_open = false; break;
         case WM_SIZE: {
-            if(!platform_resize_window_callback()) error = true;
+            if(!platform_resize_window_callback(wParam == SIZE_MINIMIZED)) error = true;
             break;
         }
         case WM_SETCURSOR: {
