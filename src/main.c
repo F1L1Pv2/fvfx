@@ -98,7 +98,31 @@ bool audioInMedia = false;
 
 typedef enum {
     VFX_NONE = 0,
+    VFX_BOOL,
+    VFX_INT,
+    VFX_UINT,
     VFX_FLOAT,
+    VFX_DOUBLE,
+
+    VFX_BVEC2,
+    VFX_BVEC3,
+    VFX_BVEC4,
+
+    VFX_IVEC2,
+    VFX_IVEC3,
+    VFX_IVEC4,
+
+    VFX_UVEC2,
+    VFX_UVEC3,
+    VFX_UVEC4,
+
+    VFX_VEC2, // float vecs
+    VFX_VEC3, // float vecs
+    VFX_VEC4, // float vecs
+
+    VFX_DVEC2,
+    VFX_DVEC3,
+    VFX_DVEC4,
 } VfxInputType;
 
 typedef struct{
@@ -243,7 +267,31 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
 
             VfxInput input = {0};
             
-            if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
+                 if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
+            else if(sv_eq(inputType, sv_from_cstr("int"))) input.type = VFX_INT;
+            else if(sv_eq(inputType, sv_from_cstr("uint"))) input.type = VFX_UINT;
+            else if(sv_eq(inputType, sv_from_cstr("double"))) input.type = VFX_DOUBLE;
+            else if(sv_eq(inputType, sv_from_cstr("bool"))) input.type = VFX_BOOL;
+
+            else if(sv_eq(inputType, sv_from_cstr("vec2"))) input.type = VFX_VEC2;
+            else if(sv_eq(inputType, sv_from_cstr("vec3"))) input.type = VFX_VEC3;
+            else if(sv_eq(inputType, sv_from_cstr("vec4"))) input.type = VFX_VEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("bvec2"))) input.type = VFX_BVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("bvec3"))) input.type = VFX_BVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("bvec4"))) input.type = VFX_BVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("ivec2"))) input.type = VFX_IVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("ivec3"))) input.type = VFX_IVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("ivec4"))) input.type = VFX_IVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("uvec2"))) input.type = VFX_UVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("uvec3"))) input.type = VFX_UVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("uvec4"))) input.type = VFX_UVEC4;
+
+            else if(sv_eq(inputType, sv_from_cstr("dvec2"))) input.type = VFX_DVEC2;
+            else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
+            else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
 
             if(input.type == VFX_NONE){
                 printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
@@ -278,7 +326,27 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
 char* get_vfxInputTypeName(VfxInputType type){
     switch (type)
     {
+        case VFX_BOOL: return "bool";
+        case VFX_INT: return "int";
+        case VFX_UINT: return "uint";
         case VFX_FLOAT: return "float";
+        case VFX_DOUBLE: return "double";
+        case VFX_BVEC2: return "bvec2";
+        case VFX_BVEC3: return "bvec3";
+        case VFX_BVEC4: return "bvec4";
+        case VFX_IVEC2: return "ivec2";
+        case VFX_IVEC3: return "ivec3";
+        case VFX_IVEC4: return "ivec4";
+        case VFX_UVEC2: return "uvec2";
+        case VFX_UVEC3: return "uvec3";
+        case VFX_UVEC4: return "uvec4";
+        case VFX_VEC2: return "vec2";
+        case VFX_VEC3: return "vec3";
+        case VFX_VEC4: return "vec4";
+        case VFX_DVEC2: return "dvec2";
+        case VFX_DVEC3: return "dvec3";
+        case VFX_DVEC4: return "dvec4";
+
         default: UNREACHABLE("update this!");
     }
 }
@@ -286,7 +354,27 @@ char* get_vfxInputTypeName(VfxInputType type){
 size_t get_vfxInputTypeSize(VfxInputType type){
     switch (type)
     {
+        case VFX_BOOL: return sizeof(bool);
+        case VFX_INT: return sizeof(int32_t);
+        case VFX_UINT: return sizeof(uint32_t);
         case VFX_FLOAT: return sizeof(float);
+        case VFX_DOUBLE: return sizeof(double);
+        case VFX_BVEC2: return sizeof(bool) * 2;
+        case VFX_BVEC3: return sizeof(bool) * 3;
+        case VFX_BVEC4: return sizeof(bool) * 4;
+        case VFX_IVEC2: return sizeof(int32_t) * 2;
+        case VFX_IVEC3: return sizeof(int32_t) * 3;
+        case VFX_IVEC4: return sizeof(int32_t) * 4;
+        case VFX_UVEC2: return sizeof(uint32_t) * 2;
+        case VFX_UVEC3: return sizeof(uint32_t) * 3;
+        case VFX_UVEC4: return sizeof(uint32_t) * 4;
+        case VFX_VEC2: return sizeof(float) * 2;
+        case VFX_VEC3: return sizeof(float) * 3;
+        case VFX_VEC4: return sizeof(float) * 4;
+        case VFX_DVEC2: return sizeof(double) * 2;
+        case VFX_DVEC3: return sizeof(double) * 3;
+        case VFX_DVEC4: return sizeof(double) * 4;
+
         default: UNREACHABLE("update this!");
     }
 }
@@ -752,21 +840,39 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                     .y = inputY,
                 });
 
+                const float inputWidth = min(openRect.width - measureText(input->name, UI_FONT_SIZE), openRect.width * 0.65);
+
                 switch (input->type)
                 {
                 case VFX_FLOAT:
                     {
-                        const float floatInputWidth = openRect.width / 2;
-
                         drawFloatBox_internal((Rect){
-                            .x = openRect.x + openRect.width - floatInputWidth,
+                            .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
-                            .width = floatInputWidth,
+                            .width = inputWidth,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j);
                         break;
                     }
                 
+                case VFX_VEC2:
+                    {
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth/2,
+                            .y = inputY,
+                            .width = inputWidth/2,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 2);
+
+                        drawFloatBox_internal((Rect){
+                            .x = openRect.x + openRect.width - inputWidth,
+                            .y = inputY,
+                            .width = inputWidth/2,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 2 + 1);
+                        break;
+                    }
+
                 default: UNREACHABLE("Implement This!");
                 }
 
