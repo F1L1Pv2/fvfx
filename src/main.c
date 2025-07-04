@@ -1252,6 +1252,11 @@ bool update(float deltaTime){
     drawSprite((SpriteDrawCommand){
         .position = (vec2){topBarRect.x, topBarRect.y},
         .scale = (vec2){topBarRect.width, topBarRect.height},
+        .albedo = hex2rgb(0xFF454545),
+    });
+    drawSprite((SpriteDrawCommand){
+        .position = (vec2){topBarRect.x, topBarRect.y},
+        .scale = (vec2){topBarRect.width, topBarRect.height - 1},
         .albedo = hex2rgb(0xFF181818),
     });
 
