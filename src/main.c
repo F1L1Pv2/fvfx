@@ -1019,71 +1019,72 @@ bool update(float deltaTime){
         previewRect.x,previewRect.y,0,1,
     };
 
-    if(platform_drag_and_drop_available() && pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
+    if(platform_drag_and_drop_available()){
         int count = -1;
         const char** dragndrop = platform_get_drag_and_drop_files(&count);
 
         printf("Got drag and drop mousex: %zu mousey: %zu\n", input.mouse_x, input.mouse_y);
-
-        for(int i = 0; i < count; i++){
-
-            HashItem* item = getFromHashMap(&vfxModulesHashMap, dragndrop[i]);
-            if(item == NULL){
-                printf("UNREACHABLE!\n");
-                return false;
-            }
-
-            if(item->value.filepath == NULL){
-                item->value = (VfxModule){0};
-                item->value.filepath = item->key.data;
+        if(pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
+            for(int i = 0; i < count; i++){
     
-                sb.count = 0;
-                nob_read_entire_file(item->value.filepath,&sb);
-                
-                //REMOVING FOCKIN CARRIAGE RETURN!
-                char* current_pos = sb.items;
-                while ((current_pos = strchr(current_pos, '\r'))) {
-                    memmove(current_pos, current_pos + 1, strlen(current_pos + 1) + 1);
-                    sb.count--;
+                HashItem* item = getFromHashMap(&vfxModulesHashMap, dragndrop[i]);
+                if(item == NULL){
+                    printf("UNREACHABLE!\n");
+                    return false;
                 }
-
-                if(!extractVFXModuleMetaData(sb_to_sv(sb), &item->value)) return false;
-                if(!preprocessVFXModule(&sb, &item->value)) return false;
-                sb_append_null(&sb);
-                
-                if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
-                
-                size_t pushContantsSize = 0;
-                for(size_t i = 0; i < item->value.inputs.count; i++){
-                    pushContantsSize += get_vfxInputTypeSize(item->value.inputs.items[i].type);
+    
+                if(item->value.filepath == NULL){
+                    item->value = (VfxModule){0};
+                    item->value.filepath = item->key.data;
+        
+                    sb.count = 0;
+                    nob_read_entire_file(item->value.filepath,&sb);
+                    
+                    //REMOVING FOCKIN CARRIAGE RETURN!
+                    char* current_pos = sb.items;
+                    while ((current_pos = strchr(current_pos, '\r'))) {
+                        memmove(current_pos, current_pos + 1, strlen(current_pos + 1) + 1);
+                        sb.count--;
+                    }
+    
+                    if(!extractVFXModuleMetaData(sb_to_sv(sb), &item->value)) return false;
+                    if(!preprocessVFXModule(&sb, &item->value)) return false;
+                    sb_append_null(&sb);
+                    
+                    if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+                    
+                    size_t pushContantsSize = 0;
+                    for(size_t i = 0; i < item->value.inputs.count; i++){
+                        pushContantsSize += get_vfxInputTypeSize(item->value.inputs.items[i].type);
+                    }
+                    item->value.pushContantsSize = pushContantsSize;
+    
+                    if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
+                        .vertexShader = vfxVertexShader,
+                        .fragmentShader = fragmentShader,
+                        .pipelineOUT = &item->value.pipeline,
+                        .pipelineLayoutOUT = &item->value.pipelineLayout,
+                        .descriptorSetLayoutCount = 1,
+                        .descriptorSetLayouts = &vfxDescriptorSetLayout,
+                        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                        .pushConstantsSize = pushContantsSize,
+                    })) return false;
+    
+                    printf("COMPILIN!\n");
                 }
-                item->value.pushContantsSize = pushContantsSize;
-
-                if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
-                    .vertexShader = vfxVertexShader,
-                    .fragmentShader = fragmentShader,
-                    .pipelineOUT = &item->value.pipeline,
-                    .pipelineLayoutOUT = &item->value.pipelineLayout,
-                    .descriptorSetLayoutCount = 1,
-                    .descriptorSetLayouts = &vfxDescriptorSetLayout,
-                    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                    .pushConstantsSize = pushContantsSize,
-                })) return false;
-
-                printf("COMPILIN!\n");
+    
+                VfxInstance instance = {0};
+                instance.module = &item->value;
+    
+                if(instance.module->pushContantsSize > 0){
+                    instance.inputPushConstants = calloc(instance.module->pushContantsSize,1);
+                    if(instance.module->defaultPushConstantValue != NULL){
+                        memcpy(instance.inputPushConstants, instance.module->defaultPushConstantValue, instance.module->pushContantsSize);
+                    }
+                }
+                
+                da_append(&currentModuleInstances, instance);
             }
-
-            VfxInstance instance = {0};
-            instance.module = &item->value;
-
-            if(instance.module->pushContantsSize > 0){
-                instance.inputPushConstants = calloc(instance.module->pushContantsSize,1);
-                if(instance.module->defaultPushConstantValue != NULL){
-                    memcpy(instance.inputPushConstants, instance.module->defaultPushConstantValue, instance.module->pushContantsSize);
-                }
-            }
-            
-            da_append(&currentModuleInstances, instance);
         }
         
         platform_release_drag_and_drop(dragndrop, count);

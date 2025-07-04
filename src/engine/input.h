@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 typedef enum {
   KEY_MOUSE_LEFT,
@@ -85,8 +86,8 @@ typedef struct {
 typedef struct {
     Key keys[KEY_COUNT];
     
-    size_t mouse_x;
-    size_t mouse_y;
+    int64_t mouse_x;
+    int64_t mouse_y;
 
     int scroll;
 } Input;

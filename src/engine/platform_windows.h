@@ -20,6 +20,7 @@ bool platform_still_running(){
 static bool s_drag_and_drop_available = false;
 static char** s_dropped_files = NULL;
 static int s_dropped_files_count = 0;
+static bool trackingMouse = false;
 
 LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg){
@@ -74,6 +75,21 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             input.mouse_x = LOWORD(lParam);
             input.mouse_y = HIWORD(lParam);
 
+            if (!trackingMouse) {
+                TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                trackingMouse = true;
+            }
+            break;
+        }
+
+        case WM_MOUSELEAVE: {
+            // Mouse has left client area
+            trackingMouse = false;
+            input.mouse_x = -1;
+            input.mouse_y = -1;
             break;
         }
 
@@ -132,6 +148,12 @@ LRESULT HandleMsg(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             key->oldIsDown = isDown;
+
+            if(isDown){
+                SetCapture(hwnd);
+            }else{
+                ReleaseCapture();
+            }
 
             break;
         }
