@@ -5,80 +5,123 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/Xutil.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdint.h>
+#include <sys/time.h>
+#include <string.h>
 
 #include "platform.h"
 #include "platform_globals.h"
-
-#include <stdint.h>
-#include <sys/time.h>
 #include "input.h"
+#include "nob.h"
 
 void platform_fill_keycode_lookup_table();
 
 static bool running = false;
 static Atom wmDeleteWindow;
-
-
-#include "nob.h"
-
+static const char** dropped_files = NULL;
+static int dropped_file_count = 0;
+static int BUTTONS_KEYCODE_OFFSET = 250;
 Window window;
 Display* display;
 
-void platform_create_window(const char* title, size_t width, size_t height){
-    display = XOpenDisplay(NULL);
+// Xdnd atoms
+static Atom XdndAwareAtom = 0;
+static Atom XdndEnterAtom = 0;
+static Atom XdndPositionAtom = 0;
+static Atom XdndStatusAtom = 0;
+static Atom XdndActionCopyAtom = 0;
+static Atom XdndDropAtom = 0;
+static Atom XdndSelectionAtom = 0;
+static Atom XdndFinishedAtom = 0;
+static Atom UriListAtom = 0;
 
-    window = XCreateSimpleWindow(display, 
-                               DefaultRootWindow(display),
-                               10,      // xPos
-                               10,      // yPos
-                               width, 
-                               height,
-                               0,       // border width
-                               0,       // border
-                               0);       // background
+// Xdnd state
+static Window drag_source = 0;
+static Time drop_time = 0;
 
-  // Set the input mask for our window on the current display
-  // ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | 
-  // PointerMotionMask | ButtonMotionMask | FocusChangeMask
-  long event_mask = ExposureMask
-                | KeyPressMask | KeyReleaseMask
-                | ButtonPressMask | ButtonReleaseMask
-                | StructureNotifyMask;
-  XSelectInput(display, window, event_mask);
+static void parse_uri_list(const char* data) {
+    // Free previous drop data
+    for (int i = 0; i < dropped_file_count; i++) free((void*)dropped_files[i]);
+    free(dropped_files);
+    dropped_files = NULL;
+    dropped_file_count = 0;
 
-  XMapWindow(display, window);
+    // Parse new URIs
+    const char* start = data;
+    while (*start) {
+        while (*start == '\r' || *start == '\n') start++;
+        const char* end = strchr(start, '\n');
+        if (!end) end = start + strlen(start);
 
-  // Tell the server to notify us when the window manager attempts to destroy the window
-  wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
-  XSetWMProtocols(display, window, &wmDeleteWindow, 1);
-
-  running = true;
-
-  XStoreName(display, window, title);
-
-  platform_fill_keycode_lookup_table();
+        if (strncmp(start, "file://", 7) == 0) {
+            // Skip "file://" and trim trailing whitespace
+            const char* path_start = start + 7;
+            size_t length = end - path_start;
+            
+            // Strip trailing carriage return if exists
+            if (length > 0 && path_start[length-1] == '\r') length--;
+            
+            // Copy path
+            char* path = malloc(length + 1);
+            strncpy(path, path_start, length);
+            path[length] = '\0';
+            
+            // Add to list
+            dropped_files = realloc(dropped_files, sizeof(char*) * (dropped_file_count + 1));
+            dropped_files[dropped_file_count++] = path;
+        }
+        start = end;
+    }
 }
-static int BUTTONS_KEYCODE_OFFSET = 250;
+
+void platform_create_window(const char* title, size_t width, size_t height) {
+    display = XOpenDisplay(NULL);
+    window = XCreateSimpleWindow(display, DefaultRootWindow(display), 10, 10, width, height, 0, 0, 0);
+    
+    long event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | 
+                     ButtonReleaseMask | StructureNotifyMask | PropertyChangeMask;
+    XSelectInput(display, window, event_mask);
+    XMapWindow(display, window);
+
+    wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(display, window, &wmDeleteWindow, 1);
+    XStoreName(display, window, title);
+
+    // Initialize Xdnd atoms
+    XdndAwareAtom = XInternAtom(display, "XdndAware", False);
+    XdndEnterAtom = XInternAtom(display, "XdndEnter", False);
+    XdndPositionAtom = XInternAtom(display, "XdndPosition", False);
+    XdndStatusAtom = XInternAtom(display, "XdndStatus", False);
+    XdndActionCopyAtom = XInternAtom(display, "XdndActionCopy", False);
+    XdndDropAtom = XInternAtom(display, "XdndDrop", False);
+    XdndSelectionAtom = XInternAtom(display, "XdndSelection", False);
+    XdndFinishedAtom = XInternAtom(display, "XdndFinished", False);
+    UriListAtom = XInternAtom(display, "text/uri-list", False);
+
+    // Register as Xdnd aware
+    unsigned long version = 5;
+    XChangeProperty(display, window, XdndAwareAtom, XA_ATOM, 32, 
+                   PropModeReplace, (unsigned char*)&version, 1);
+
+    running = true;
+    platform_fill_keycode_lookup_table();
+}
 
 bool platform_window_handle_events() {
-    Window root;
-    Window child;
-    int root_x;
-    int root_y;
-    int win_x;
-    int win_y;
+    Window root, child;
+    int root_x, root_y, win_x, win_y;
     unsigned int mask_return;
     XQueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
 
     input.scroll;
-
     input.mouse_x = win_x;
     input.mouse_y = win_y;
 
-    for(int i = 0; i < NOB_ARRAY_LEN(input.keys); i++){
+    for(int i = 0; i < NOB_ARRAY_LEN(input.keys); i++) {
         input.keys[i].justPressed = 0;
         input.keys[i].justReleased = 0;
     }
@@ -88,86 +131,129 @@ bool platform_window_handle_events() {
         XNextEvent(display, &event);
 
         switch(event.type) {
-            case ConfigureNotify: {
-                if (event.xconfigure.width != 0 && event.xconfigure.height != 0) {
-                    if(!platform_resize_window_callback()) return false;
-                }
+            case ConfigureNotify: 
+                if (event.xconfigure.width != 0 && event.xconfigure.height != 0) 
+                    if(!platform_resize_window_callback(false)) return false;
                 break;
-            }
 
-            case KeyPress:
-            case KeyRelease:
-            {
+            case KeyPress: case KeyRelease: {
                 bool isDown = event.type == KeyPress;
                 KeyCodeID keyCode = KeyCodeLookupTable[event.xkey.keycode];
                 Key* key = &input.keys[keyCode];
-
                 key->isDown = isDown;
-                if(key->oldIsDown == !isDown){
-                    if(isDown){
-                        key->justPressed = 1;
-                    }else{
-                        key->justReleased = 1;
-                    }
+                if(key->oldIsDown == !isDown) {
+                    if(isDown) key->justPressed = 1;
+                    else key->justReleased = 1;
                 }
                 key->oldIsDown = isDown;
-
                 break;
             }
 
-            case ButtonPress:
-            case ButtonRelease:
-            {
+            case ButtonPress: case ButtonRelease: {
                 bool isDown = event.type == ButtonPress;
-
-                if(isDown){
+                if(isDown) {
                     switch(event.xbutton.button) {
-                        case Button4: input.scroll += 1; break; // Wheel up
-                        case Button5: input.scroll -= 1; break; // Wheel down
+                        case Button4: input.scroll += 1; break;
+                        case Button5: input.scroll -= 1; break;
                     }
                 }
-
                 KeyCodeID keyCode = KeyCodeLookupTable[BUTTONS_KEYCODE_OFFSET + event.xbutton.button];
                 Key* key = &input.keys[keyCode];
-
                 key->isDown = isDown;
-                if(key->oldIsDown == !isDown){
-                    if(isDown){
-                        key->justPressed = 1;
-                    }else{
-                        key->justReleased = 1;
-                    }
+                if(key->oldIsDown == !isDown) {
+                    if(isDown) key->justPressed = 1;
+                    else key->justReleased = 1;
                 }
                 key->oldIsDown = isDown;
-
                 break;
             }
 
             case ClientMessage: {
-                Atom wmProtocol = XInternAtom(display, "WM_PROTOCOLS", False);
-                Atom wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
+                Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", False);
 
-                if (event.xclient.message_type == wmProtocol &&
-                    event.xclient.data.l[0] == wmDeleteWindow) {
+                if (event.xclient.message_type == XdndEnterAtom) {
+                    // Get source window and version
+                    drag_source = event.xclient.data.l[0];
+                } 
+                else if (event.xclient.message_type == XdndPositionAtom) {
+                    // Reply that we accept the drop
+                    drag_source = event.xclient.data.l[0];
+                    
+                    XEvent response = {0};
+                    response.xclient.type = ClientMessage;
+                    response.xclient.message_type = XdndStatusAtom;
+                    response.xclient.display = display;
+                    response.xclient.window = drag_source;
+                    response.xclient.format = 32;
+                    response.xclient.data.l[0] = window;
+                    response.xclient.data.l[1] = 1; // Accept with no rectangle
+                    response.xclient.data.l[2] = 0; // Empty rectangle
+                    response.xclient.data.l[3] = 0;
+                    response.xclient.data.l[4] = XdndActionCopyAtom;
+                    
+                    XSendEvent(display, drag_source, False, NoEventMask, &response);
+                }
+                else if (event.xclient.message_type == XdndDropAtom) {
+                    drag_source = event.xclient.data.l[0];
+                    drop_time = event.xclient.data.l[2];
+                    XConvertSelection(display, XdndSelectionAtom, UriListAtom, 
+                                     XdndSelectionAtom, window, drop_time);
+                } 
+                else if (event.xclient.message_type == wmProtocols && 
+                         (Atom)event.xclient.data.l[0] == wmDeleteWindow) {
                     running = false;
                 }
                 break;
             }
+
+            case SelectionNotify: 
+                if (event.xselection.property && 
+                    event.xselection.selection == XdndSelectionAtom &&
+                    event.xselection.target == UriListAtom) {
+                    
+                    Atom actual_type;
+                    int actual_format;
+                    unsigned long nitems, bytes_after;
+                    unsigned char* data = NULL;
+
+                    if (XGetWindowProperty(display, window, event.xselection.property, 0, (~0L),
+                                     False, AnyPropertyType, &actual_type, &actual_format,
+                                     &nitems, &bytes_after, &data) == Success) {
+                        if (data) {
+                            parse_uri_list((const char*)data);
+                            XFree(data);
+                        }
+                    }
+                    
+                    // Notify source we're done
+                    if (drag_source) {
+                        XEvent finished = {0};
+                        finished.xclient.type = ClientMessage;
+                        finished.xclient.message_type = XdndFinishedAtom;
+                        finished.xclient.display = display;
+                        finished.xclient.window = drag_source;
+                        finished.xclient.format = 32;
+                        finished.xclient.data.l[0] = window;
+                        finished.xclient.data.l[1] = (data != NULL) ? 1 : 0;
+                        finished.xclient.data.l[2] = None;
+                        
+                        XSendEvent(display, drag_source, False, NoEventMask, &finished);
+                        drag_source = 0;
+                    }
+                    
+                    // Delete the property
+                    XDeleteProperty(display, window, event.xselection.property);
+                }
+                break;
         }
     }
-
     return true;
 }
 
-bool platform_still_running(){
-    return running;
-}
+bool platform_still_running() { return running; }
+void platform_sleep(size_t milis) { usleep(milis*1000); }
 
-void platform_sleep(size_t milis){
-    usleep(milis*1000);
-}
-
-uint64_t platform_get_time(){
+uint64_t platform_get_time() {
     #ifdef CLOCK_REALTIME
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -179,134 +265,47 @@ uint64_t platform_get_time(){
     #endif
 }
 
-void platform_fill_keycode_lookup_table(){
-    // A - Z
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_A)] = KEY_A;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_B)] = KEY_B;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_C)] = KEY_C;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_D)] = KEY_D;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_E)] = KEY_E;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F)] = KEY_F;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_G)] = KEY_G;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_H)] = KEY_H;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_I)] = KEY_I;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_J)] = KEY_J;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_K)] = KEY_K;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_L)] = KEY_L;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_M)] = KEY_M;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_N)] = KEY_N;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_O)] = KEY_O;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_P)] = KEY_P;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Q)] = KEY_Q;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_R)] = KEY_R;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_S)] = KEY_S;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_T)] = KEY_T;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_U)] = KEY_U;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_V)] = KEY_V;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_W)] = KEY_W;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_X)] = KEY_X;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Y)] = KEY_Y;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Z)] = KEY_Z;
+void platform_fill_keycode_lookup_table() {
+    // Alphabet keys
+    for (char c = 'A'; c <= 'Z'; c++) {
+        KeyCodeLookupTable[XKeysymToKeycode(display, XK_A + (c - 'A'))] = KEY_A + (c - 'A');
+        KeyCodeLookupTable[XKeysymToKeycode(display, XK_a + (c - 'A'))] = KEY_A + (c - 'A');
+    }
 
-    // a - z
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_a)] = KEY_A;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_b)] = KEY_B;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_c)] = KEY_C;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_d)] = KEY_D;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_e)] = KEY_E;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_f)] = KEY_F;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_g)] = KEY_G;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_h)] = KEY_H;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_i)] = KEY_I;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_j)] = KEY_J;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_k)] = KEY_K;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_l)] = KEY_L;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_m)] = KEY_M;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_n)] = KEY_N;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_o)] = KEY_O;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_p)] = KEY_P;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_q)] = KEY_Q;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_r)] = KEY_R;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_s)] = KEY_S;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_t)] = KEY_T;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_u)] = KEY_U;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_v)] = KEY_V;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_w)] = KEY_W;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_x)] = KEY_X;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_y)] = KEY_Y;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_z)] = KEY_Z;
+    // Number keys
+    for (char c = '0'; c <= '9'; c++) {
+        KeyCodeLookupTable[XKeysymToKeycode(display, XK_0 + (c - '0'))] = KEY_0 + (c - '0');
+    }
 
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_0)] = KEY_0;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_1)] = KEY_1;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_2)] = KEY_2;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_3)] = KEY_3;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_4)] = KEY_4;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_5)] = KEY_5;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_6)] = KEY_6;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_7)] = KEY_7;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_8)] = KEY_8;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_9)] = KEY_9;
+    // Special keys
+    struct { KeySym sym; KeyCodeID code; } keys[] = {
+        {XK_space, KEY_SPACE}, {XK_grave, KEY_TICK}, {XK_minus, KEY_MINUS},
+        {XK_equal, KEY_EQUAL}, {XK_bracketleft, KEY_LEFT_BRACKET}, {XK_bracketright, KEY_RIGHT_BRACKET},
+        {XK_semicolon, KEY_SEMICOLON}, {XK_quotedbl, KEY_QUOTE}, {XK_comma, KEY_COMMA},
+        {XK_period, KEY_PERIOD}, {XK_slash, KEY_FORWARD_SLASH}, {XK_backslash, KEY_BACKWARD_SLASH},
+        {XK_Tab, KEY_TAB}, {XK_Escape, KEY_ESCAPE}, {XK_Pause, KEY_PAUSE},
+        {XK_Up, KEY_UP}, {XK_Down, KEY_DOWN}, {XK_Left, KEY_LEFT}, {XK_Right, KEY_RIGHT},
+        {XK_BackSpace, KEY_BACKSPACE}, {XK_Return, KEY_RETURN}, {XK_Delete, KEY_DELETE},
+        {XK_Insert, KEY_INSERT}, {XK_Home, KEY_HOME}, {XK_End, KEY_END},
+        {XK_Page_Up, KEY_PAGE_UP}, {XK_Page_Down, KEY_PAGE_DOWN}, {XK_Caps_Lock, KEY_CAPS_LOCK},
+        {XK_Num_Lock, KEY_NUM_LOCK}, {XK_Scroll_Lock, KEY_SCROLL_LOCK}, {XK_Menu, KEY_MENU},
+        {XK_Shift_L, KEY_SHIFT}, {XK_Shift_R, KEY_SHIFT}, {XK_Control_L, KEY_CONTROL},
+        {XK_Control_R, KEY_CONTROL}, {XK_Alt_L, KEY_ALT}, {XK_Alt_R, KEY_ALT}
+    };
+    
+    for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
+        KeyCodeLookupTable[XKeysymToKeycode(display, keys[i].sym)] = keys[i].code;
+    }
 
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_space)] = KEY_SPACE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_grave)] = KEY_TICK;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_minus)] = KEY_MINUS;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_equal)] = KEY_EQUAL;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_bracketleft)] = KEY_LEFT_BRACKET;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_bracketright)] = KEY_RIGHT_BRACKET;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_semicolon)] = KEY_SEMICOLON;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_quotedbl)] = KEY_QUOTE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_comma)] = KEY_COMMA;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_period)] = KEY_PERIOD;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_slash)] = KEY_FORWARD_SLASH;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_backslash)] = KEY_BACKWARD_SLASH;
+    // Function keys
+    for (int i = 1; i <= 12; i++) {
+        KeyCodeLookupTable[XKeysymToKeycode(display, XK_F1 + (i-1))] = KEY_F1 + (i-1);
+    }
 
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Tab)] = KEY_TAB;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Escape)] = KEY_ESCAPE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Pause)] = KEY_PAUSE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Up)] = KEY_UP;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Down)] = KEY_DOWN;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Left)] = KEY_LEFT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Right)] = KEY_RIGHT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_BackSpace)] = KEY_BACKSPACE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Return)] = KEY_RETURN;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Delete)] = KEY_DELETE;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Insert)] = KEY_INSERT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Home)] = KEY_HOME;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_End)] = KEY_END;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Page_Up)] = KEY_PAGE_UP;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Page_Down)] = KEY_PAGE_DOWN;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Caps_Lock)] = KEY_CAPS_LOCK;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Num_Lock)] = KEY_NUM_LOCK;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Scroll_Lock)] = KEY_SCROLL_LOCK;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Menu)] = KEY_MENU;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Shift_L)] = KEY_SHIFT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Shift_R)] = KEY_SHIFT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Control_L)] = KEY_CONTROL;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Control_R)] = KEY_CONTROL;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Alt_L)] = KEY_ALT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_Alt_R)] = KEY_ALT;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F1)] = KEY_F1;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F2)] = KEY_F2;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F3)] = KEY_F3;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F4)] = KEY_F4;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F5)] = KEY_F5;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F6)] = KEY_F6;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F7)] = KEY_F7;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F8)] = KEY_F8;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F9)] = KEY_F9;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F10)] = KEY_F10;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F11)] = KEY_F11;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_F12)] = KEY_F12;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_0)] = KEY_NUMPAD_0;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_1)] = KEY_NUMPAD_1;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_2)] = KEY_NUMPAD_2;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_3)] = KEY_NUMPAD_3;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_4)] = KEY_NUMPAD_4;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_5)] = KEY_NUMPAD_5;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_6)] = KEY_NUMPAD_6;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_7)] = KEY_NUMPAD_7;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_8)] = KEY_NUMPAD_8;
-    KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_9)] = KEY_NUMPAD_9;
+    // Numpad keys
+    for (int i = 0; i <= 9; i++) {
+        KeyCodeLookupTable[XKeysymToKeycode(display, XK_KP_0 + i)] = KEY_NUMPAD_0 + i;
+    }
 }
 
 void platform_set_mouse_position(size_t x, size_t y) {
@@ -326,4 +325,14 @@ void platform_disable_fullscreen() {
     XChangeProperty(display, window, XInternAtom(display, "_NET_WM_STATE", False),
                    XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 0);
     XFlush(display);
+}
+
+bool platform_drag_and_drop_available() { return dropped_file_count > 0; }
+const char** platform_get_drag_and_drop_files(int* count) { *count = dropped_file_count; return dropped_files; }
+
+void platform_release_drag_and_drop(const char** files, int count) {
+    for (int i = 0; i < dropped_file_count; i++) free((void*)dropped_files[i]);
+    free(dropped_files);
+    dropped_files = NULL;
+    dropped_file_count = 0;
 }

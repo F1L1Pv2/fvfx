@@ -1,6 +1,8 @@
 #ifndef FVFX_STRING_ALLOCATOR
 #define FVFX_STRING_ALLOCATOR
 
+#include <stdlib.h>
+
 typedef struct StringAllocator StringAllocator;
 
 #ifndef SA_INIT_CAP

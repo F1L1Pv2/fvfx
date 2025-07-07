@@ -18,10 +18,10 @@
 #include "platform.h"
 #include "app.h"
 
-bool sleep = false;
+bool sleeping = false;
 
 bool platform_resize_window_callback(bool minimized){
-    sleep = minimized;
+    sleeping = minimized;
 
     if(sleep) return true;
 
@@ -81,7 +81,7 @@ int engineStart(){
             return 1;
         }
 
-        if(!sleep){
+        if(!sleeping){
             uint64_t time = platform_get_time();
             float deltaTime = (float)(time - oldTime) / 1000.0f;
             if(deltaTime > frameDuration) deltaTime = frameDuration;

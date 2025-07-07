@@ -29,6 +29,8 @@
 #include <stdatomic.h>
 #include "string_alloc.h"
 
+#define min(a,b) ((a) > (b) ? (b) : (a))
+
 StringAllocator sa = {0};
 
 typedef struct{
