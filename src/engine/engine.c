@@ -23,7 +23,7 @@ bool sleeping = false;
 bool platform_resize_window_callback(bool minimized){
     sleeping = minimized;
 
-    if(sleep) return true;
+    if(sleeping) return true;
 
     if(!swapchain) return true;
     VkResult result = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
