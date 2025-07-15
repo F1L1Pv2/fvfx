@@ -753,6 +753,8 @@ VkShaderModule fragmentShader;
 
 #define EFFECT_RACK_OFFSET_BETWEEN_INSTANCES 2
 
+SpriteDrawCommands tempDrawQueue = {0};
+
 void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
     const float ContainerHeight = UI_FONT_SIZE * 1.5;
     const float ContainerWidth = vfxContainer.width;
@@ -830,33 +832,21 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
         offset += ContainerHeight;
 
         if(instance->opened && instance->module->inputs.count > 0){
-            const float inputHeight = UI_FONT_SIZE * 1.5;
+            tempDrawQueue.count = 0;
+            redirectDrawSprites(&tempDrawQueue);
 
-            float openSize = inputHeight * instance->module->inputs.count + 1;
+            float openSize = 0;
 
             Rect openRect = (Rect){
                 .x = moduleRect.x,
                 .y = moduleRect.y + moduleRect.height,
                 .width = moduleRect.width,
-                .height = openSize
             };
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y},
-                .scale = (vec2){openRect.width, openRect.height},
-                .albedo = hex2rgb(0xFF909090)
-            });
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y + 1},
-                .scale = (vec2){openRect.width, openRect.height - 1},
-                .albedo = hex2rgb(0xFF404040)
-            });
 
             size_t byteOffset = 0;
 
             for(size_t j = 0; j < instance->module->inputs.count; j++){
-                float inputY = openRect.y + 1 + inputHeight*j;
+                float inputY = openRect.y + 1 + openSize;
 
                 VfxInput* input = &instance->module->inputs.items[j];
                 drawText(input->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
@@ -865,6 +855,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                 });
 
                 const float inputWidth = min(openRect.width - measureText(input->name, UI_FONT_SIZE), openRect.width * 0.65);
+                const float inputHeight = UI_FONT_SIZE * 1.5;
 
                 switch (input->type)
                 {
@@ -876,6 +867,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                             .width = inputWidth,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset));
+
+                        openSize += inputHeight;
                         break;
                     }
                 
@@ -894,6 +887,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                             .width = inputWidth/2,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
+
+                        openSize += inputHeight;
                         break;
                     }
 
@@ -919,6 +914,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                             .width = inputWidth/3,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2));
+
+                        openSize += inputHeight;
                         break;
                     }
 
@@ -951,6 +948,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                             .width = inputWidth/4,
                             .height = inputHeight,
                         }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3));
+
+                        openSize += inputHeight;
                         break;
                     }
 
@@ -959,6 +958,22 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
                 byteOffset += get_vfxInputTypeSize(input->type);
             }
+
+            redirectDrawSprites(NULL);
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y},
+                .scale = (vec2){openRect.width, openSize},
+                .albedo = hex2rgb(0xFF909090)
+            });
+
+            drawSprite((SpriteDrawCommand){
+                .position = (vec2){openRect.x, openRect.y + 1},
+                .scale = (vec2){openRect.width, openSize - 1},
+                .albedo = hex2rgb(0xFF404040)
+            });
+
+            drawSprites(&tempDrawQueue);
 
             offset += openSize;
         }

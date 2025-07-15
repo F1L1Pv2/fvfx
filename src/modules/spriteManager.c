@@ -12,21 +12,19 @@
 #include "spriteManager.h"
 #include "gui_helpers.h"
 
-typedef struct {
-    SpriteDrawCommand* items;
-    size_t count;
-    size_t capacity;
-} SpriteDrawCommands;
-
 static SpriteDrawCommands spriteDrawQueue = {0};
 
 VkBuffer spriteDrawBuffer;
 VkDeviceMemory spriteDrawMemory;
 
+SpriteDrawCommands* usedSpriteDrawQueue;
+
 bool initSpriteManager(){
     if(!createBuffer(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,sizeof(SpriteDrawCommand)*MAX_SPRITE_COUNT,&spriteDrawBuffer,&spriteDrawMemory)) return false;
+    usedSpriteDrawQueue = &spriteDrawQueue;
     return true;
 }
+
 
 void drawSprite(SpriteDrawCommand cmd){
     // tbh i dont know how much this will impact performance if it will be a bottleneck then i can remove it
@@ -47,8 +45,21 @@ void drawSprite(SpriteDrawCommand cmd){
             cmd.size.x = 1;
             cmd.size.y = 1;
         }
-        da_append(&spriteDrawQueue, cmd);
+        da_append(usedSpriteDrawQueue, cmd);
     }
+}
+
+//set to null to set to default draw queue
+void redirectDrawSprites(SpriteDrawCommands* drawQueue){
+    if(drawQueue != NULL){
+        usedSpriteDrawQueue = drawQueue;
+    }else{
+        usedSpriteDrawQueue = &spriteDrawQueue;
+    }
+}
+
+void drawSprites(SpriteDrawCommands* cmds){
+    da_append_many(&spriteDrawQueue, cmds->items, cmds->count);
 }
 
 void renderSprites(){

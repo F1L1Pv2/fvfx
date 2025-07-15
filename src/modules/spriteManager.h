@@ -18,9 +18,19 @@ typedef struct {
     vec2 size;
 } SpriteDrawCommand;
 
+typedef struct {
+    SpriteDrawCommand* items;
+    size_t count;
+    size_t capacity;
+} SpriteDrawCommands;
+
+
 bool initSpriteManager();
 
 void drawSprite(SpriteDrawCommand cmd);
+
+void redirectDrawSprites(SpriteDrawCommands* drawQueue);
+void drawSprites(SpriteDrawCommands* cmds);
 
 void renderSprites();
 
