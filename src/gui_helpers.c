@@ -126,7 +126,25 @@ vec3 hex2rgb(uint32_t hex){
     };
 }
 
-bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID){
+size_t currentGUID = 0;
+
+size_t editingGUID = -1;
+float origFloatEditVal;
+vec2 startEditPos;
+
+void ui_begin(){
+    currentGUID = 0;
+}
+
+void ui_reset(){
+    editingGUID = -1;
+}
+
+void ui_end(){
+
+}
+
+bool drawButton(Rect boundingBox, const char* text){
     bool hover = pointInsideRect(input.mouse_x, input.mouse_y,  boundingBox);
 
     drawSprite((SpriteDrawCommand){
@@ -150,27 +168,24 @@ bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID){
 
     drawText(text, 0xFFFFFFFF, UI_FONT_SIZE, textRect);
 
+    currentGUID++;
+
     if(hover && input.keys[KEY_MOUSE_LEFT].justReleased) return true;
 
     return false;
 }
 
-size_t editingGUID = -1;
-
-float origFloatEditVal;
-vec2 startEditPos;
-
-void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID){
+void drawFloatBox(Rect boundingBox, float* val){
     if(editingGUID != -1 && input.keys[KEY_MOUSE_LEFT].justReleased) editingGUID = -1;
 
     bool hover = pointInsideRect(input.mouse_x, input.mouse_y, boundingBox);
     if(editingGUID == -1 && hover && input.keys[KEY_MOUSE_LEFT].justPressed){
-        editingGUID = GUID;
+        editingGUID = currentGUID;
         startEditPos = (vec2){input.mouse_x, input.mouse_y};
         origFloatEditVal = *val;
     }
 
-    if(editingGUID == GUID){
+    if(editingGUID == currentGUID){
         *val = origFloatEditVal + (float)(input.mouse_x - startEditPos.x) / 100.0f;
     }
 
@@ -185,7 +200,7 @@ void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID){
     drawSprite((SpriteDrawCommand){
         .position = (vec2){boundingBox.x + border, boundingBox.y + border},
         .scale = (vec2){boundingBox.width - border*2, boundingBox.height - border*2},
-        .albedo = editingGUID == GUID ? hex2rgb(0xFF309530) : (hover ? hex2rgb(0xFF306530) : hex2rgb(0xFF305030)),
+        .albedo = editingGUID == currentGUID ? hex2rgb(0xFF309530) : (hover ? hex2rgb(0xFF306530) : hex2rgb(0xFF305030)),
     });
 
     const char* text = temp_sprintf("%.02ff", *val);
@@ -196,4 +211,6 @@ void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID){
     };
 
     drawText(text, 0xFFFFFFFF, UI_FONT_SIZE, textRect);
+
+    currentGUID++;
 }

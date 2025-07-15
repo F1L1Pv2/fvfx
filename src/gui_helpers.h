@@ -25,10 +25,12 @@ extern float UI_FONT_SIZE;
 
 vec3 hex2rgb(uint32_t hex);
 
-bool drawButton_internal(Rect boundingBox, const char* text, uint32_t GUID);
-#define drawButton(boundingBox, text) drawButton_internal((boundingBox), (text), ((size_t)__FILE__)+__LINE__)
-void drawFloatBox_internal(Rect boundingBox, float* val, uint32_t GUID);
-#define drawFloatBox(boundingBox, val) drawFloatBox_internal((boundingBox), (val), ((size_t)__FILE__)+__LINE__)
+void ui_begin();
+void ui_reset();
+void ui_end();
+
+bool drawButton(Rect boundingBox, const char* text);
+void drawFloatBox(Rect boundingBox, float* val);
 
 
 #endif

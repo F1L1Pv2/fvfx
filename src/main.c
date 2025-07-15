@@ -29,7 +29,9 @@
 #include <stdatomic.h>
 #include "string_alloc.h"
 
+#ifndef min
 #define min(a,b) ((a) > (b) ? (b) : (a))
+#endif
 
 StringAllocator sa = {0};
 
@@ -868,87 +870,87 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                 {
                 case VFX_FLOAT:
                     {
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
                             .width = inputWidth,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
                         break;
                     }
                 
                 case VFX_VEC2:
                     {
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
                             .width = inputWidth/2,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 2);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
 
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth/2,
                             .y = inputY,
                             .width = inputWidth/2,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 2 + 1);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
                         break;
                     }
 
                 case VFX_VEC3:
                     {
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
                             .width = inputWidth/3,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 3);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
                         
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth + inputWidth/3,
                             .y = inputY,
                             .width = inputWidth/3,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 3 + 1);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
 
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth/3,
                             .y = inputY,
                             .width = inputWidth/3,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2), 1000 * i + j * 3 + 2);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2));
                         break;
                     }
 
                 case VFX_VEC4:
                     {
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth,
                             .y = inputY,
                             .width = inputWidth/4,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset), 1000 * i + j * 4);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
                         
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth + inputWidth/4,
                             .y = inputY,
                             .width = inputWidth/4,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)), 1000 * i + j * 4 + 1);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
 
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth + inputWidth * 2 /4,
                             .y = inputY,
                             .width = inputWidth/4,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2), 1000 * i + j * 4 + 2);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2));
 
-                        drawFloatBox_internal((Rect){
+                        drawFloatBox((Rect){
                             .x = openRect.x + openRect.width - inputWidth/4,
                             .y = inputY,
                             .width = inputWidth/4,
                             .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3), 1000 * i + j * 4 + 3);
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3));
                         break;
                     }
 
@@ -973,6 +975,8 @@ float timelineSplitterOffset = 100;
 #define TOP_BAR_FONT_SIZE 16
 
 bool update(float deltaTime){
+    ui_begin();
+
     temp_reset();
     if(audioInMedia){
         time = soundEngineGetTime();
@@ -1022,6 +1026,8 @@ bool update(float deltaTime){
     };
 
     if(platform_drag_and_drop_available()){
+        ui_reset();
+
         int count = -1;
         const char** dragndrop = platform_get_drag_and_drop_files(&count);
 
@@ -1275,6 +1281,8 @@ bool update(float deltaTime){
         .x = swapchainExtent.width / 2 - measureText(text,TOP_BAR_FONT_SIZE) / 2,
         .y = 3,
     });
+
+    ui_end();
 
     return true;
 }
