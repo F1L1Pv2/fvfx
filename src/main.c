@@ -771,7 +771,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
     bool largeEnough = lastOffset > vfxContainer.height;
 
-    if(pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
+    if(!input.keys[KEY_CONTROL].isDown && pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
         if(largeEnough){
             targetScrollOffset += (float)input.scroll * 0.2;
         }else if(input.scroll > 0){
@@ -806,13 +806,13 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
         bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
 
-        if(input.keys[KEY_CONTROL].isDown && input.scroll > 0 && i > 0 && hovering){
+        if(((input.keys[KEY_CONTROL].isDown && input.scroll > 0) || input.keys[KEY_UP].justReleased) && i > 0 && hovering){
             VfxInstance copy = *instance;
             memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i - 1], sizeof(VfxInstance));
             memcpy(&currentModuleInstances.items[i - 1], &copy, sizeof(VfxInstance));
         }
 
-        if(input.keys[KEY_CONTROL].isDown && input.scroll < 0 && i < currentModuleInstances.count-1 && hovering){
+        if(((input.keys[KEY_CONTROL].isDown && input.scroll < 0) || input.keys[KEY_DOWN].justReleased) && i < currentModuleInstances.count-1 && hovering){
             VfxInstance copy = *instance;
             memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i + 1], sizeof(VfxInstance));
             memcpy(&currentModuleInstances.items[i + 1], &copy, sizeof(VfxInstance));
@@ -857,7 +857,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             if(input.keys[KEY_MOUSE_LEFT].justReleased && hovering && !hoverDelete) instance->opened = !instance->opened;
         }
 
-        if(input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) da_remove_at(&currentModuleInstances, i);
+        if((input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) || (input.keys[KEY_DELETE].justReleased && hovering)) da_remove_at(&currentModuleInstances, i);
 
         offset += ContainerHeight;
 
