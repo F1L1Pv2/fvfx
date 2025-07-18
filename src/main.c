@@ -755,17 +755,46 @@ VkShaderModule fragmentShader;
 
 SpriteDrawCommands tempDrawQueue = {0};
 
+float scrollOffset = 0;
+
+float targetScrollOffset = 0;
+
+float expDecay(float a, float b, float decay, float deltaTime){
+    return b + (a - b) * expf(-decay*deltaTime);
+}
+
+float lastOffset = 0;
+
 void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
+    if(currentModuleInstances.count > 0) beginScissor(vfxContainer.x, vfxContainer.y, vfxContainer.width, vfxContainer.height);
+
+    bool largeEnough = lastOffset > vfxContainer.height;
+
+    if(pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
+        if(largeEnough){
+            targetScrollOffset += (float)input.scroll * 0.1;
+        }else if(input.scroll > 0){
+            targetScrollOffset += (float)input.scroll * 0.1;
+        }
+    }
+
     const float ContainerHeight = UI_FONT_SIZE * 1.5;
     const float ContainerWidth = vfxContainer.width;
+    
+    if(targetScrollOffset > 0){
+        targetScrollOffset = expDecay(targetScrollOffset, 0, 8, deltaTime);
+    }
+    scrollOffset = expDecay(scrollOffset, targetScrollOffset, 8, deltaTime);
 
     float offset = 0;
+
+    float lastElementSize = 0;
 
     for(size_t i = 0; i < currentModuleInstances.count; i++){
         VfxInstance* instance = &currentModuleInstances.items[i];
 
         const float moduleX = vfxContainer.x;
-        const float moduleY = vfxContainer.y + offset;
+        const float moduleY = vfxContainer.y + offset + scrollOffset;
 
         Rect moduleRect = (Rect){
             .x = moduleX,
@@ -830,6 +859,8 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
         if(input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) da_remove_at(&currentModuleInstances, i);
 
         offset += ContainerHeight;
+
+        lastElementSize = ContainerHeight;
 
         if(instance->opened && instance->module->inputs.count > 0){
             tempDrawQueue.count = 0;
@@ -976,10 +1007,21 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             drawSprites(&tempDrawQueue);
 
             offset += openSize;
+            lastElementSize += openSize;
         }
 
         offset += EFFECT_RACK_OFFSET_BETWEEN_INSTANCES;
     }
+
+    lastOffset = offset;
+
+    if(largeEnough && -targetScrollOffset > offset - vfxContainer.height){
+        targetScrollOffset = expDecay(targetScrollOffset, -( offset - vfxContainer.height), 8, deltaTime);
+    }else if(targetScrollOffset < 0){
+        targetScrollOffset = expDecay(targetScrollOffset, 0, 8, deltaTime);
+    }
+
+    if(currentModuleInstances.count > 0) endScissor();
 }
 
 float effectTabSplitterOffset = 150;
@@ -1464,16 +1506,12 @@ bool draw(){
         .height = swapchainExtent.height
     });
         
-    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = swapchainExtent,
-    });
-        
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,&bindlessDescriptorSet,0,NULL);
 
     vkCmdPushConstants(cmd,pipelineLayout,VK_SHADER_STAGE_ALL,0,sizeof(PushConstants), &pcs);
 
-    renderSprites();
+    renderSprites(swapchainExtent.width, swapchainExtent.height);
 
     vkCmdEndRendering(cmd);
     return true;

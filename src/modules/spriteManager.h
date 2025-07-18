@@ -27,12 +27,15 @@ typedef struct {
 
 bool initSpriteManager();
 
+void beginScissor(float x, float y, float width, float height);
+void endScissor();
+
 void drawSprite(SpriteDrawCommand cmd);
 
 void redirectDrawSprites(SpriteDrawCommands* drawQueue);
 void drawSprites(SpriteDrawCommands* cmds);
 
-void renderSprites();
+void renderSprites(float renderWidth, float renderHeight);
 
 extern VkBuffer spriteDrawBuffer;
 extern VkDeviceMemory spriteDrawMemory;
