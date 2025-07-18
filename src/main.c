@@ -766,15 +766,16 @@ float expDecay(float a, float b, float decay, float deltaTime){
 float lastOffset = 0;
 
 void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
-    if(currentModuleInstances.count > 0) beginScissor(vfxContainer.x, vfxContainer.y, vfxContainer.width, vfxContainer.height);
+    size_t savedCurrentModuleInstancesCount = currentModuleInstances.count;
+    if(savedCurrentModuleInstancesCount > 0) beginScissor(vfxContainer.x, vfxContainer.y, vfxContainer.width, vfxContainer.height);
 
     bool largeEnough = lastOffset > vfxContainer.height;
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
         if(largeEnough){
-            targetScrollOffset += (float)input.scroll * 0.1;
+            targetScrollOffset += (float)input.scroll * 0.2;
         }else if(input.scroll > 0){
-            targetScrollOffset += (float)input.scroll * 0.1;
+            targetScrollOffset += (float)input.scroll * 0.2;
         }
     }
 
@@ -1017,11 +1018,11 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
 
     if(largeEnough && -targetScrollOffset > offset - vfxContainer.height){
         targetScrollOffset = expDecay(targetScrollOffset, -( offset - vfxContainer.height), 8, deltaTime);
-    }else if(targetScrollOffset < 0){
+    }else if(!largeEnough && targetScrollOffset < 0){
         targetScrollOffset = expDecay(targetScrollOffset, 0, 8, deltaTime);
     }
 
-    if(currentModuleInstances.count > 0) endScissor();
+    if(savedCurrentModuleInstancesCount > 0) endScissor();
 }
 
 float effectTabSplitterOffset = 150;
