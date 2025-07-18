@@ -763,21 +763,9 @@ float expDecay(float a, float b, float decay, float deltaTime){
     return b + (a - b) * expf(-decay*deltaTime);
 }
 
-float lastOffset = 0;
-
 void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
     size_t savedCurrentModuleInstancesCount = currentModuleInstances.count;
     if(savedCurrentModuleInstancesCount > 0) beginScissor(vfxContainer.x, vfxContainer.y, vfxContainer.width, vfxContainer.height);
-
-    bool largeEnough = lastOffset > vfxContainer.height;
-
-    if(!input.keys[KEY_CONTROL].isDown && pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
-        if(largeEnough){
-            targetScrollOffset += (float)input.scroll * 0.2;
-        }else if(input.scroll > 0){
-            targetScrollOffset += (float)input.scroll * 0.2;
-        }
-    }
 
     const float ContainerHeight = UI_FONT_SIZE * 1.5;
     const float ContainerWidth = vfxContainer.width;
@@ -1014,7 +1002,15 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
         offset += EFFECT_RACK_OFFSET_BETWEEN_INSTANCES;
     }
 
-    lastOffset = offset;
+    bool largeEnough = offset > vfxContainer.height;
+
+    if(!input.keys[KEY_CONTROL].isDown && pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
+        if(largeEnough){
+            targetScrollOffset += (float)input.scroll * 0.2;
+        }else if(input.scroll > 0){
+            targetScrollOffset += (float)input.scroll * 0.2;
+        }
+    }
 
     if(largeEnough && -targetScrollOffset > offset - vfxContainer.height){
         targetScrollOffset = expDecay(targetScrollOffset, -( offset - vfxContainer.height), 8, deltaTime);
