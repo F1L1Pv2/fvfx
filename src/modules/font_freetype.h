@@ -40,6 +40,4 @@ typedef struct{
 
 bool GetFontSDFAtlas(const char* filename, VkImage* image, VkDeviceMemory* imageMemory, VkImageView* imageView, GlyphAtlas* glyphAtlas);
 
-#define TEXTURE_EFFECT_SDF (1 << 2*8)
-
 #endif

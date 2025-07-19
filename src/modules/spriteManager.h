@@ -12,7 +12,7 @@
 typedef struct {
     vec2 position;
     vec2 scale;
-    uint32_t textureIDEffects;
+    uint32_t textureIDEffects;  // 0xAAAABBBB lowest bits are textures and higher are effects
     vec3 albedo;
     vec2 offset;
     vec2 size;

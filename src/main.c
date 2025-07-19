@@ -127,6 +127,8 @@ typedef enum {
     VFX_DVEC2,
     VFX_DVEC3,
     VFX_DVEC4,
+
+    VFX_COLOR,
 } VfxInputType;
 
 typedef struct{
@@ -237,6 +239,8 @@ char* get_vfxInputTypeName(VfxInputType type){
         case VFX_DVEC3: return "dvec3";
         case VFX_DVEC4: return "dvec4";
 
+        case VFX_COLOR: return "vec4";
+
         default: UNREACHABLE("update this!");
     }
 }
@@ -264,6 +268,8 @@ size_t get_vfxInputTypeSize(VfxInputType type){
         case VFX_DVEC2: return sizeof(double) * 2;
         case VFX_DVEC3: return sizeof(double) * 3;
         case VFX_DVEC4: return sizeof(double) * 4;
+
+        case VFX_COLOR: return sizeof(float) * 4;
 
         default: UNREACHABLE("update this!");
     }
@@ -355,6 +361,8 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
             else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
             else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
 
+            else if(sv_eq(inputType, sv_from_cstr("Color"))) input.type = VFX_COLOR;
+
             if(input.type == VFX_NONE){
                 printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
                 return false;
@@ -380,6 +388,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
                 case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1); break;
                 case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2); break;
                 case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
+                case VFX_COLOR: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
                 
                 default: TODO("IMPLEMENT THIS");
                 }
@@ -410,9 +419,19 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
                         "#version 450\n"
                         "layout(location = 0) out vec4 outColor;\n"
                         "layout(location = 0) in vec2 uv;\n"
-                        "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n";
+                        "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n"
+                        "vec4 hsv2rgba(vec4 c) {\n"
+                        "    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0),\n"
+                        "                            6.0) - 3.0) - 1.0,\n"
+                        "                    0.0,\n"
+                        "                    1.0);\n"
+                        "    rgb = rgb * rgb * (3.0 - 2.0 * rgb); // smoothstep-like\n"
+                        "    return vec4(c.z * mix(vec3(1.0), rgb, c.y), c.w);\n"
+                        "}\n"
+    ;
 
     sb_append_cstr(&newSB, prepend);
+
 
     /*
     
@@ -477,6 +496,7 @@ int main(int argc, char** argv){
         da_append(&initialTextures,"assets/DropdownDelete.png");
         da_append(&initialTextures,"assets/DropdownOpen.png");
         da_append(&initialTextures,"assets/DropdownClosed.png");
+        da_append(&initialTextures,"assets/ColorPicker.png");
         if(!initBindlessTextures(initialTextures)) return 1;
 
         nob_read_entire_file("assets/shaders/compiled/sprite.vert.spv",&sb);
@@ -838,7 +858,7 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             .position = (vec2){moduleX + ContainerWidth - UI_FONT_SIZE - UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
             .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
             .textureIDEffects = getTextureID("assets/DropdownDelete.png") | (2 << 16),
-            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : (vec3){1,1,1}
+            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : hex2rgb(0xFFFFFFFF)
         });
 
         if(instance->module->inputs.count > 0){
@@ -868,16 +888,14 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
             for(size_t j = 0; j < instance->module->inputs.count; j++){
                 float inputY = openRect.y + 1 + openSize;
 
-                VfxInput* input = &instance->module->inputs.items[j];
-                drawText(input->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-                    .x = openRect.x,
-                    .y = inputY,
-                });
+                VfxInput* inputVFX = &instance->module->inputs.items[j];
 
-                const float inputWidth = min(openRect.width - measureText(input->name, UI_FONT_SIZE), openRect.width * 0.65);
+                float textY = inputY;
+
+                const float inputWidth = min(openRect.width - measureText(inputVFX->name, UI_FONT_SIZE), openRect.width * 0.65);
                 const float inputHeight = UI_FONT_SIZE * 1.5;
 
-                switch (input->type)
+                switch (inputVFX->type)
                 {
                 case VFX_FLOAT:
                     {
@@ -973,10 +991,94 @@ void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
                         break;
                     }
 
+                case VFX_COLOR: 
+                    {
+                        vec3* hsv = (vec3*)(instance->inputPushConstants + byteOffset);
+
+                        const float padding = 10;
+
+                        float finalHeight = 0;
+                        float width = min(inputWidth - padding, 200);
+                        float height = width;
+
+                        Rect colorPicker = (Rect){
+                            .x = openRect.x + openRect.width - width - padding/2,
+                            .y = inputY + padding/2,
+                            .width = width,
+                            .height = height,
+                        };
+
+                        if(pointInsideRect(input.mouse_x, input.mouse_y, colorPicker) && input.keys[KEY_MOUSE_LEFT].isDown){
+                            hsv->y = ((float)input.mouse_x - colorPicker.x) / colorPicker.width;
+                            hsv->z = 1.0f - ((float)input.mouse_y - colorPicker.y) / colorPicker.height;
+                        }
+
+                        drawSprite((SpriteDrawCommand){
+                            .position = (vec2){colorPicker.x, colorPicker.y},
+                            .scale = (vec2){colorPicker.width, colorPicker.height},
+                            .albedo = (vec3){hsv->x},
+                            .textureIDEffects = TEXTURE_EFFECT_HSV_GRADIENT,
+                        });
+
+                        float pickerSize = 12.5;
+
+                        drawSprite((SpriteDrawCommand){
+                            .position = (vec2){
+                                colorPicker.x + hsv->y * colorPicker.width - pickerSize/2,
+                                colorPicker.y + (1.0f - hsv->z) * colorPicker.height - pickerSize/2,
+                            },
+                            .scale = (vec2){
+                                pickerSize, pickerSize
+                            },
+                            .textureIDEffects = getTextureID("assets/ColorPicker.png"),
+                        });
+
+                        finalHeight += height + padding;
+
+                        drawFloatBox((Rect){
+                            .x = openRect.x + openRect.width - inputWidth,
+                            .y = inputY + finalHeight,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, &hsv->x);
+                        
+                        drawFloatBox((Rect){
+                            .x = openRect.x + openRect.width - inputWidth + inputWidth/4,
+                            .y = inputY + finalHeight,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, &hsv->y);
+
+                        drawFloatBox((Rect){
+                            .x = openRect.x + openRect.width - inputWidth + inputWidth * 2 /4,
+                            .y = inputY + finalHeight,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, &hsv->z);
+
+                        drawFloatBox((Rect){
+                            .x = openRect.x + openRect.width - inputWidth/4,
+                            .y = inputY + finalHeight,
+                            .width = inputWidth/4,
+                            .height = inputHeight,
+                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3));
+
+                        finalHeight += inputHeight;
+
+                        openSize += finalHeight;
+                        textY = inputY + finalHeight / 2 - UI_FONT_SIZE * 0.75;
+                        break;
+                    }
+
                 default: UNREACHABLE("Implement This!");
                 }
 
-                byteOffset += get_vfxInputTypeSize(input->type);
+                drawText(inputVFX->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
+                    .x = openRect.x,
+                    .y = textY,
+                });
+
+                byteOffset += get_vfxInputTypeSize(inputVFX->type);
             }
 
             redirectDrawSprites(NULL);
@@ -1214,7 +1316,7 @@ bool update(float deltaTime){
     drawSprite((SpriteDrawCommand){
         .position = (vec2){effectRack.x, effectRack.y},
         .scale = (vec2){effectRack.width, effectRack.height},
-        .albedo = (vec3){(float)0x25/255,(float)0x25/255,(float)0x25/255},
+        .albedo = hex2rgb(0xFF252525),
     });
 
     drawSprite((SpriteDrawCommand){
@@ -1287,7 +1389,7 @@ bool update(float deltaTime){
     drawSprite((SpriteDrawCommand){
         .position = (vec2){floor(timelineContainer.x+percent*timelineContainer.width+cursorWidth/2),timelineContainer.y},
         .scale = (vec2){cursorWidth, timelineContainer.height},
-        .albedo = (vec3){1.0,0.0,0.0},
+        .albedo = hex2rgb(0xFFFF0000),
     });
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineContainer) && input.keys[KEY_MOUSE_LEFT].justPressed){

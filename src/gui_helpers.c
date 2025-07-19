@@ -1,5 +1,6 @@
 #include "gui_helpers.h"
 #include "engine/input.h"
+#include <math.h>
 
 float UI_FONT_SIZE = 16.0f;
 
@@ -33,16 +34,7 @@ Rect fitRectangle(Rect outer, float innerWidth, float innerHeight){
 #include "modules/bindlessTexturesManager.h"
 #include "modules/spriteManager.h"
 
-void hexToRgb(uint32_t hex, float* r, float *g, float *b){
-    *b = (float)((hex >> (0*8)) & 0xFF) / 255.0f;
-    *g = (float)((hex >> (1*8)) & 0xFF) / 255.0f;
-    *r = (float)((hex >> (2*8)) & 0xFF) / 255.0f;
-}
-
 void drawText(const char* text, uint32_t color, float fontSize, Rect bounding){
-    float r,g,b;
-    hexToRgb(color, &r,&g,&b);
-
     float initialX = bounding.x;
     size_t len = strlen(text);
     for(int i = 0; i < len; i++){
@@ -73,7 +65,7 @@ void drawText(const char* text, uint32_t color, float fontSize, Rect bounding){
                 .x = metric.bw / (float)atlas.width,
                 .y = metric.bh / (float) atlas.height
             },
-            .albedo = (vec3){r,g,b},
+            .albedo = hex2rgb(color),
         });
     }
 }
@@ -124,6 +116,63 @@ vec3 hex2rgb(uint32_t hex){
         (float)((hex >> 8 * 1) & 0xFF) / 255.0f,
         (float)((hex >> 8 * 0) & 0xFF) / 255.0f,
     };
+}
+
+vec3 hsv2rgb(vec3 hsv) {
+    float h = hsv.x;
+    float s = hsv.y;
+    float v = hsv.z;
+
+    float c = v * s; // Chroma
+    float hPrime = h * 6.0f;
+    float x = c * (1.0f - fabsf(fmodf(hPrime, 2.0f) - 1.0f));
+
+    float r = 0, g = 0, b = 0;
+
+    if (0 <= hPrime && hPrime < 1) {
+        r = c; g = x; b = 0;
+    } else if (1 <= hPrime && hPrime < 2) {
+        r = x; g = c; b = 0;
+    } else if (2 <= hPrime && hPrime < 3) {
+        r = 0; g = c; b = x;
+    } else if (3 <= hPrime && hPrime < 4) {
+        r = 0; g = x; b = c;
+    } else if (4 <= hPrime && hPrime < 5) {
+        r = x; g = 0; b = c;
+    } else if (5 <= hPrime && hPrime < 6) {
+        r = c; g = 0; b = x;
+    }
+
+    float m = v - c;
+    return (vec3){ r + m, g + m, b + m };
+}
+
+vec3 rgb2hsv(vec3 rgb) {
+    float r = rgb.x;
+    float g = rgb.y;
+    float b = rgb.z;
+
+    float max = fmaxf(r, fmaxf(g, b));
+    float min = fminf(r, fminf(g, b));
+    float delta = max - min;
+
+    float h = 0.0f;
+    if (delta > 0.00001f) {
+        if (max == r) {
+            h = fmodf(((g - b) / delta), 6.0f);
+        } else if (max == g) {
+            h = ((b - r) / delta) + 2.0f;
+        } else {
+            h = ((r - g) / delta) + 4.0f;
+        }
+        h /= 6.0f;
+        if (h < 0.0f) h += 1.0f;
+    }
+
+    float s = (max == 0.0f) ? 0.0f : (delta / max);
+    float v = max;
+
+    return (vec3){ h, s, v };
 }
 
 size_t currentGUID = 0;
