@@ -117,7 +117,7 @@ bool platform_window_handle_events() {
     unsigned int mask_return;
     XQueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
 
-    input.scroll;
+    input.scroll = 0;
     input.mouse_x = win_x;
     input.mouse_y = win_y;
 
@@ -151,12 +151,14 @@ bool platform_window_handle_events() {
 
             case ButtonPress: case ButtonRelease: {
                 bool isDown = event.type == ButtonPress;
+                bool scroll = false;
                 if(isDown) {
                     switch(event.xbutton.button) {
-                        case Button4: input.scroll += 1; break;
-                        case Button5: input.scroll -= 1; break;
+                        case Button4: {input.scroll = 120; scroll = true;} break;
+                        case Button5: {input.scroll = -120; scroll = true;} break;
                     }
                 }
+                if(scroll) break;
                 KeyCodeID keyCode = KeyCodeLookupTable[BUTTONS_KEYCODE_OFFSET + event.xbutton.button];
                 Key* key = &input.keys[keyCode];
                 key->isDown = isDown;
