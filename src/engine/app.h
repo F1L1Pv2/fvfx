@@ -6,5 +6,6 @@
 bool afterResize();
 bool update(float deltaTime);
 bool draw();
+bool postDraw();
 
 #endif

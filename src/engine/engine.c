@@ -98,6 +98,11 @@ int engineStart(){
                 return 1;
             }
             endDrawing();
+
+            if(!postDraw()) {
+                printf("ERROR: Couldn't do post draw\n");
+                return 1;
+            }
     
             uint64_t frameTook = platform_get_time() - time;
             if(((float)(frameTook)/1000.0f) < frameDuration) platform_sleep(frameDuration*1000.0f - frameTook);

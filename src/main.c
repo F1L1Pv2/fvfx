@@ -24,6 +24,7 @@
 #include "modules/font_freetype.h"
 #include "ffmpeg_video.h"
 #include "ffmpeg_audio.h"
+#include "ffmpeg_render.h"
 #include "gui_helpers.h"
 #include "sound_engine.h"
 #include <stdatomic.h>
@@ -79,10 +80,13 @@ static VkDescriptorSetLayout vfxDescriptorSetLayout;
 VkImage previewImage1;
 VkDeviceMemory previewMemory1;
 VkImageView previewView1;
+void* previewMemoryMapped1;
 
 VkImage previewImage2;
 VkDeviceMemory previewMemory2;
 VkImageView previewView2;
+void* previewMemoryMapped2;
+
 
 GlyphAtlas atlas = {0};
 
@@ -93,6 +97,7 @@ uint64_t TIMER_TOTAL;
 #define CHECK_TIMER(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER) / 1000.0f);TIMER = newTimer;} while(0)
 #define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
 
+RenderContext renderContext = {0};
 Video video = {0};
 Frame videoFrame = {0};
 void* videoMapped = NULL;
@@ -695,9 +700,9 @@ int main(int argc, char** argv){
 
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                   0, &previewImage1,&previewMemory1)){
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &previewImage1,&previewMemory1)){
             printf("Couldn't create preview image\n");
             return 1;
         }
@@ -708,9 +713,9 @@ int main(int argc, char** argv){
             return 1;
         }
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                   0, &previewImage2,&previewMemory2)){
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &previewImage2,&previewMemory2)){
             printf("Couldn't create preview image\n");
             return 1;
         }
@@ -720,6 +725,9 @@ int main(int argc, char** argv){
             printf("Couldn't create preview image view\n");
             return 1;
         }
+
+        vkMapMemory(device,previewMemory1, 0, videoVulkanStride*videoFrame.height, 0,&previewMemoryMapped1);
+        vkMapMemory(device,previewMemory2, 0, videoVulkanStride*videoFrame.height, 0,&previewMemoryMapped2);
 
         descriptorImageInfo.sampler = samplerLinear;
         descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1130,6 +1138,13 @@ float timelineSplitterOffset = 100;
 
 #define TOP_BAR_FONT_SIZE 16
 
+bool rendering = false;
+bool stopRendering = false;
+
+void* frameDataProcessed = NULL;
+
+bool didSmth = false;
+
 bool update(float deltaTime){
     ui_begin();
 
@@ -1143,6 +1158,23 @@ bool update(float deltaTime){
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
     if(input.keys[KEY_SHIFT].isDown && input.scroll != 0){
         UI_FONT_SIZE += input.scroll*deltaTime;
+    }
+
+    if(input.keys[KEY_R].justReleased){
+        if(!rendering) {
+            rendering = true;
+            stopRendering = false;
+
+            time = 0;
+            ffmpegVideoSeek(&video, &videoFrame,time);
+            if(audioInMedia) {
+                ffmpegAudioSeek(&audio, time);
+                soundEngineSetTime(time);
+            }
+
+            ffmpegRenderInit(&video, "output.mp4", &renderContext);
+            frameDataProcessed = calloc(videoFrame.width*videoFrame.height*sizeof(uint32_t),1);
+        }
     }
 
     Rect topBarRect = (Rect){
@@ -1255,7 +1287,7 @@ bool update(float deltaTime){
     }
 
     if(playing){
-        bool didSmth = false;
+        didSmth = false;
         while(time > videoFrame.frameTime){
             if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 didSmth = true;
@@ -1276,6 +1308,7 @@ bool update(float deltaTime){
     }
 
     if(time >= video.duration){
+        if(rendering) stopRendering = true;
         time = 0;
         if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
         if(audioInMedia) {
@@ -1424,7 +1457,7 @@ bool update(float deltaTime){
         .albedo = hex2rgb(0xFF181818),
     });
 
-    drawText("FVFX", 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
+    drawText(rendering ? "FVFX RENDERING!" : "FVFX", 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
         .x = 10,
         .y = 3,
     });
@@ -1443,10 +1476,12 @@ bool update(float deltaTime){
     return true;
 }
 
+
+size_t currentAttachment = 0;
 bool draw(){
     static VkImageMemoryBarrier barrier;
-    size_t currentAttachment = 0;
-    
+    currentAttachment = 0;
+
     //previewImage pass / vfx pass
     barrier = (VkImageMemoryBarrier){0};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1613,5 +1648,92 @@ bool draw(){
     renderSprites(swapchainExtent.width, swapchainExtent.height);
 
     vkCmdEndRendering(cmd);
+    return true;
+}
+
+bool postDraw(){
+    if(!rendering) return true;
+    if(!didSmth) return true;
+
+    if(stopRendering){
+        rendering = false;
+        stopRendering = false;
+        ffmpegRenderFinish(&renderContext);
+        free(frameDataProcessed);
+        printf("Finished rendering!\n");
+        return true;
+    }
+
+    VkCommandBuffer tempCmd = beginSingleTimeCommands();
+    // Add memory barrier to ensure the image is ready to be read
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.image = currentAttachment == 0 ? previewImage1 : previewImage2;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(
+        tempCmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
+
+    endSingleTimeCommands(tempCmd);
+
+    // Flush the command buffer to ensure the barrier executes
+    vkQueueWaitIdle(graphicsQueue);
+
+    void* frameData = currentAttachment == 0 ? previewMemoryMapped1 : previewMemoryMapped2;
+
+    // Copy row by row, accounting for possible row pitch differences
+    for(size_t i = 0; i < videoFrame.height; i++) {
+        memcpy(
+            (uint8_t*)frameDataProcessed + i * videoFrame.width * sizeof(uint32_t),
+            (uint8_t*)frameData + i * videoVulkanStride,
+            videoFrame.width * sizeof(uint32_t)
+        );
+    }
+
+    Frame frame = {
+        .data = frameDataProcessed,
+        .width = videoFrame.width,
+        .height = videoFrame.height,
+        .frameTime = videoFrame.frameTime,
+        .pts = videoFrame.pts,
+    };
+    
+    if(!ffmpegRenderPassFrame(&renderContext, &frame)) {
+        printf("Failed to pass frame to renderer\n");
+        return false;
+    }
+
+    tempCmd = beginSingleTimeCommands();
+    // Restore image layout for next frame
+    barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    vkCmdPipelineBarrier(
+        tempCmd,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
+
+    endSingleTimeCommands(tempCmd);
+
     return true;
 }
