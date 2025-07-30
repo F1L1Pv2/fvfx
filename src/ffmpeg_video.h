@@ -11,7 +11,6 @@
 typedef struct{
     void *data;
     double frameTime;
-    int64_t pts;
     size_t width;
     size_t height;
 } Frame;

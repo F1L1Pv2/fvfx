@@ -81,7 +81,6 @@ bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
                 dest, 
                 dest_linesize);
 
-        frame->pts = video->frame->pts;
         frame->frameTime = (double)video->frame->pts * 
             av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
             

@@ -1708,7 +1708,6 @@ bool postDraw(){
         .width = videoFrame.width,
         .height = videoFrame.height,
         .frameTime = videoFrame.frameTime,
-        .pts = videoFrame.pts,
     };
     
     if(!ffmpegRenderPassFrame(&renderContext, &frame)) {

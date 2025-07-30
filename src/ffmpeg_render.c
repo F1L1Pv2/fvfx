@@ -89,14 +89,7 @@ bool ffmpegRenderPassFrame(RenderContext* render, const Frame* frame) {
     av_frame_make_writable(render->frame);
     sws_scale(render->swsContext, srcSlice, srcStride, 0, render->height, render->frame->data, render->frame->linesize);
 
-    // render->frame->pts = av_rescale_q(render->frameCounter++, 
-    //                                (AVRational){1, (int)(render->frameRate + 0.5)}, 
-    //                                render->codecContext->time_base);
-
-    // render->frame->pts = render->frameCounter++ * (double)render->codecContext->framerate.den / (double)render->codecContext->framerate.num;
-
-    //TODO: this is such a fucking temp solution its crazy
-    render->frame->pts = frame->pts;
+    render->frame->pts = frame->frameTime * (double)render->codecContext->time_base.den / (double)render->codecContext->time_base.num;
 
     if (avcodec_send_frame(render->codecContext, render->frame) < 0) return false;
 
