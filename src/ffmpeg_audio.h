@@ -1,7 +1,6 @@
 #ifndef FVFX_FFMPEG_AUDIO
 #define FVFX_FFMPEG_AUDIO
 
-#include <vulkan/vulkan.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <libavcodec/avcodec.h>

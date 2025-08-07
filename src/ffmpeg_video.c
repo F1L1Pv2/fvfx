@@ -4,10 +4,6 @@
 #include <math.h>
 #include <malloc.h>
 #include "ffmpeg_video.h"
-#include "engine/vulkan_globals.h"
-#include "engine/vulkan_helpers.h"
-#include "engine/vulkan_images.h"
-#include "engine/platform.h"
 
 static bool initializeVideoContext(Video* video, const char* filename);
 static bool initializeDecoder(Video* video);
