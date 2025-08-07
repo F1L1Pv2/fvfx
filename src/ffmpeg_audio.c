@@ -4,49 +4,23 @@
 #include <math.h>
 #include <malloc.h>
 #include "ffmpeg_audio.h"
-#include "engine/vulkan_globals.h"
-#include "engine/vulkan_helpers.h"
-#include "engine/vulkan_images.h"
-#include "sound_engine.h"
-#include "engine/platform.h"
-#include <threads.h>
 #include <stdatomic.h>
 
 static bool initializeAudioContext(Audio* audio, const char* filename);
 static bool initializeAudioDecoder(Audio* audio);
-bool ffmpegAudioGetFrame(Audio* audio, bool enqueue);
 
-atomic_bool endWorker = false;
-atomic_bool seeking = false;
-
-extern atomic_bool playing;
-
-int audioWorker(void* data){
-    Audio* audio = (Audio*)data;
-    while(true){
-        if(endWorker) break;
-        while (seeking || !playing) platform_sleep(1);
-        ffmpegAudioGetFrame(audio, true);
-    }
-
-    return 0;
-}
-
-bool ffmpegAudioInit(const char* filename, Audio* audio) 
+bool ffmpegAudioInit(const char* filename, Audio* audio, uint32_t outChannels, uint32_t outSampleRate)
 {
     memset(audio, 0, sizeof(Audio));
     
+    audio->outChannels = outChannels;
+    audio->outSampleRate = outSampleRate;
+
     if (!initializeAudioContext(audio, filename)) goto error;
     if (!initializeAudioDecoder(audio)) goto error;
 
     audio->duration = (double)audio->formatContext->streams[audio->audioStreamIndex]->duration * 
            av_q2d(audio->formatContext->streams[audio->audioStreamIndex]->time_base);
-
-    thrd_t audioWorkerThread = {0};
-
-    if(thrd_create(&audioWorkerThread,audioWorker,audio) != thrd_success) return false;
-
-    thrd_detach(audioWorkerThread);
 
     return true;
 
@@ -55,8 +29,9 @@ error:
     return false;
 }
 
-bool ffmpegAudioGetFrame(Audio* audio, bool enqueue) {
+bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out) {
     av_frame_unref(audio->frame);
+    av_packet_unref(audio->packet);
     int response;
     while (av_read_frame(audio->formatContext, audio->packet) >= 0) {
         if (audio->packet->stream_index != audio->audioStreamIndex) {
@@ -80,8 +55,8 @@ bool ffmpegAudioGetFrame(Audio* audio, bool enqueue) {
             return false;
         }
 
-        if(enqueue){
-            float* data = malloc(audio->frame->nb_samples * soundEngineGetChannels() * sizeof(float));
+        if(out){
+            float* data = malloc(audio->frame->nb_samples * audio->outChannels * sizeof(float));
             uint8_t* out_data[1] = { (uint8_t*)data };
             int out_samples = swr_convert(audio->swrContext,
                 out_data, audio->frame->nb_samples,
@@ -91,21 +66,13 @@ bool ffmpegAudioGetFrame(Audio* audio, bool enqueue) {
                 free(data);
                 continue;
             }
-        
-            AudioFrame audioFrame = {
+
+            *out = (FFmpegAudioFrame){
                 .data = data,
-                .numberSamples = out_samples,
+                .numberSamples = out_samples
             };
-    
-            while(!soundEngineCanEnqueueFrame()){
-                platform_sleep(1);
-            }
-    
-            soundEngineEnqueueFrame(&audioFrame);
         }
 
-
-        av_packet_unref(audio->packet);
         return true;
     }
 
@@ -113,7 +80,6 @@ bool ffmpegAudioGetFrame(Audio* audio, bool enqueue) {
 }
 
 bool ffmpegAudioSeek(Audio* audio, double time_seconds) {
-    seeking = true;
     int64_t target_pts = time_seconds / av_q2d(audio->formatContext->streams[audio->audioStreamIndex]->time_base);
 
     int ret = av_seek_frame(audio->formatContext, audio->audioStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
@@ -125,12 +91,8 @@ bool ffmpegAudioSeek(Audio* audio, double time_seconds) {
     avcodec_flush_buffers(audio->codecContext);
  
     do {
-        if (!ffmpegAudioGetFrame(audio, false)) break;
+        if (!ffmpegAudioGetFrame(audio, NULL)) break;
     } while((double)audio->frame->pts *av_q2d(audio->formatContext->streams[audio->audioStreamIndex]->time_base) < time_seconds);
-
-    soundEngineResetQueue();
-
-    seeking = false;
 
     return true;
 }
@@ -179,12 +141,10 @@ static bool initializeAudioDecoder(Audio* audio) {
             
             if (avcodec_open2(audio->codecContext, codec, NULL) < 0) return false;
 
-            if(!initSoundEngine()) return false;
-
             int ret = swr_alloc_set_opts2(&audio->swrContext,
-                soundEngineGetChannels() == 2 ? &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : &(AVChannelLayout)AV_CHANNEL_LAYOUT_MONO,
+                audio->outChannels == 2 ? &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : &(AVChannelLayout)AV_CHANNEL_LAYOUT_MONO,
                 AV_SAMPLE_FMT_FLT,
-                soundEngineGetSampleRate(),
+                audio->outSampleRate,
                 &audio->codecContext->ch_layout,
                 audio->codecContext->sample_fmt,
                 codecParameters->sample_rate,

@@ -83,7 +83,7 @@ bool ffmpegRenderInit(const Video* sourceVideo, const char* filename, RenderCont
 
 bool ffmpegRenderPassFrame(RenderContext* render, const Frame* frame) {
 
-    uint8_t* srcSlice[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
+    const uint8_t* srcSlice[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
     int srcStride[4] = { (int)(render->width * sizeof(uint32_t)), 0, 0, 0 };
 
     av_frame_make_writable(render->frame);

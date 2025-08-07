@@ -20,7 +20,7 @@ typedef struct {
     size_t width;
     size_t height;
     double frameRate;
-    Video* sourceVideo;
+    const Video* sourceVideo;
 } RenderContext;
 
 bool ffmpegRenderInit(const Video* sourceVideo, const char* filename, RenderContext* render);

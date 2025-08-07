@@ -16,10 +16,18 @@ typedef struct {
     AVPacket* packet;
     struct SwrContext* swrContext;
     double duration;
+
+    uint32_t outChannels;
+    uint32_t outSampleRate;
 } Audio;
 
-bool ffmpegAudioInit(const char* filename, Audio* audio);
+typedef struct {
+    void* data;
+    size_t numberSamples;
+} FFmpegAudioFrame;
+
+bool ffmpegAudioInit(const char* filename, Audio* audio, uint32_t outChannels, uint32_t outSampleRate);
 void ffmpegAudioUninit(Audio* audio);
 bool ffmpegAudioSeek(Audio* audio, double time_seconds);
-
+bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out);
 #endif

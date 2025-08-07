@@ -14,7 +14,5 @@ uint32_t soundEngineGetChannels();
 bool soundEngineCanEnqueueFrame();
 bool soundEngineEnqueueFrame(AudioFrame* audioFrame);
 void soundEngineResetQueue();
-double soundEngineGetTime();
-void soundEngineSetTime(double newTime);
 
 #endif

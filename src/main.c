@@ -29,6 +29,7 @@
 #include "sound_engine.h"
 #include <stdatomic.h>
 #include "string_alloc.h"
+#include "audio_worker.h"
 
 #ifndef min
 #define min(a,b) ((a) > (b) ? (b) : (a))
@@ -479,6 +480,9 @@ VfxInstances currentModuleInstances = {0};
 
 VkShaderModule vfxVertexShader;
 
+double Time;
+atomic_bool playing = true;
+
 int main(int argc, char** argv){
     if(argc < 2){
         printf("you need to provide filename\n");
@@ -759,8 +763,11 @@ int main(int argc, char** argv){
 
         CHECK_TIMER("init vfx pipeline");
 
-        if(ffmpegAudioInit(argv[1], &audio)){
+        if(!initSoundEngine()) return 1;
+
+        if(ffmpegAudioInit(argv[1], &audio, soundEngineGetChannels(), soundEngineGetSampleRate())){
             audioInMedia = true;
+            if(!initAudioWorker(&audio)) return 1;
         }
 
         CHECK_TIMER("init audio");
@@ -771,10 +778,6 @@ int main(int argc, char** argv){
     CHECK_TIMER_TOTAL("init");
     return engineStart();
 }
-
-float time;
-
-atomic_bool playing = true;
 
 String_Builder sb = {0};
 VkShaderModule fragmentShader;
@@ -1149,11 +1152,7 @@ bool update(float deltaTime){
     ui_begin();
 
     temp_reset();
-    if(audioInMedia){
-        time = soundEngineGetTime();
-    }else{
-        if(playing) time += deltaTime;
-    }
+    if(!audioInMedia && playing) Time += deltaTime;
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
     if(input.keys[KEY_SHIFT].isDown && input.scroll != 0){
@@ -1165,12 +1164,9 @@ bool update(float deltaTime){
             rendering = true;
             stopRendering = false;
 
-            time = 0;
-            ffmpegVideoSeek(&video, &videoFrame,time);
-            if(audioInMedia) {
-                ffmpegAudioSeek(&audio, time);
-                soundEngineSetTime(time);
-            }
+            Time = 0;
+            ffmpegVideoSeek(&video, &videoFrame,Time);
+            if(audioInMedia) audio_seek(&audio, Time);
 
             ffmpegRenderInit(&video, "output.mp4", &renderContext);
             frameDataProcessed = calloc(videoFrame.width*videoFrame.height*sizeof(uint32_t),1);
@@ -1288,7 +1284,7 @@ bool update(float deltaTime){
 
     if(playing){
         didSmth = false;
-        while(time > videoFrame.frameTime){
+        while(Time > videoFrame.frameTime){
             if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 didSmth = true;
             }else{
@@ -1307,14 +1303,11 @@ bool update(float deltaTime){
         }
     }
 
-    if(time >= video.duration){
+    if(Time >= video.duration){
         if(rendering) stopRendering = true;
-        time = 0;
-        if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
-        if(audioInMedia) {
-            ffmpegAudioSeek(&audio, time);
-            soundEngineSetTime(time);
-        }
+        Time = 0;
+        if(!ffmpegVideoSeek(&video, &videoFrame,Time)) return false;
+        if(audioInMedia) audio_seek(&audio, Time);
     }
 
     // --------------------------- EFFECTS RACK --------------------------------
@@ -1426,12 +1419,9 @@ bool update(float deltaTime){
     });
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineContainer) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        time = ((float)input.mouse_x - timelineContainer.x) * video.duration / timelineContainer.width;
-        if(!ffmpegVideoSeek(&video, &videoFrame,time)) return false;
-        if(audioInMedia) {
-            ffmpegAudioSeek(&audio, time);
-            soundEngineSetTime(time);
-        }
+        Time = ((float)input.mouse_x - timelineContainer.x) * video.duration / timelineContainer.width;
+        ffmpegVideoSeek(&video, &videoFrame,Time);
+        if(audioInMedia) audio_seek(&audio, Time);
         if(!playing){ //redraw
             if(ffmpegVideoGetFrame(&video,&videoFrame)){
                 for(int i = 0; i < videoFrame.height; i++){
