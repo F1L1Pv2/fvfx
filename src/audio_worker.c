@@ -17,7 +17,7 @@ int audioWorker(void* data){
     while(true){
         while (seeking || !playing) platform_sleep(1);
 
-        if(!ffmpegAudioGetFrame(audio, &audioFrame, true)) continue;
+        if(!ffmpegAudioGetFrame(audio, (FFmpegAudioFrame*)&audioFrame, true)) continue;
 
         while(!soundEngineCanEnqueueFrame()){
             platform_sleep(1);
