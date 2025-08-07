@@ -29,5 +29,5 @@ typedef struct {
 bool ffmpegAudioInit(const char* filename, Audio* audio, uint32_t outChannels, uint32_t outSampleRate);
 void ffmpegAudioUninit(Audio* audio);
 bool ffmpegAudioSeek(Audio* audio, double time_seconds);
-bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out);
+bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out, bool resample);
 #endif

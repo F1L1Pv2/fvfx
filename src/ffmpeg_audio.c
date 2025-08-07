@@ -29,7 +29,7 @@ error:
     return false;
 }
 
-bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out) {
+bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out, bool resample) {
     av_frame_unref(audio->frame);
     av_packet_unref(audio->packet);
     int response;
@@ -56,15 +56,22 @@ bool ffmpegAudioGetFrame(Audio* audio, FFmpegAudioFrame* out) {
         }
 
         if(out){
-            float* data = malloc(audio->frame->nb_samples * audio->outChannels * sizeof(float));
-            uint8_t* out_data[1] = { (uint8_t*)data };
-            int out_samples = swr_convert(audio->swrContext,
-                out_data, audio->frame->nb_samples,
-                (const uint8_t**)audio->frame->data, audio->frame->nb_samples);
-        
-            if (out_samples < 0) {
-                free(data);
-                continue;
+            void* data;
+            int out_samples;
+            if(resample){
+                data = malloc(audio->frame->nb_samples * audio->outChannels * sizeof(float));
+                uint8_t* out_data[1] = { (uint8_t*)data };
+                out_samples = swr_convert(audio->swrContext,
+                    out_data, audio->frame->nb_samples,
+                    (const uint8_t**)audio->frame->data, audio->frame->nb_samples);
+            
+                if (out_samples < 0) {
+                    free(data);
+                    continue;
+                }
+            }else{
+                data = (const uint8_t**)audio->frame->data;
+                out_samples = audio->frame->nb_samples;
             }
 
             *out = (FFmpegAudioFrame){
@@ -91,7 +98,7 @@ bool ffmpegAudioSeek(Audio* audio, double time_seconds) {
     avcodec_flush_buffers(audio->codecContext);
  
     do {
-        if (!ffmpegAudioGetFrame(audio, NULL)) break;
+        if (!ffmpegAudioGetFrame(audio, NULL, false)) break;
     } while((double)audio->frame->pts *av_q2d(audio->formatContext->streams[audio->audioStreamIndex]->time_base) < time_seconds);
 
     return true;
