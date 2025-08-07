@@ -24,7 +24,7 @@
 #include "modules/font_freetype.h"
 #include "ffmpeg_video.h"
 #include "ffmpeg_audio.h"
-#include "ffmpeg_render.h"
+#include "ffmpeg_video_render.h"
 #include "gui_helpers.h"
 #include "sound_engine.h"
 #include <stdatomic.h>
@@ -98,7 +98,7 @@ uint64_t TIMER_TOTAL;
 #define CHECK_TIMER(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER) / 1000.0f);TIMER = newTimer;} while(0)
 #define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
 
-RenderContext renderContext = {0};
+VideoRenderContext renderContext = {0};
 Video video = {0};
 Frame videoFrame = {0};
 void* videoMapped = NULL;
@@ -1168,7 +1168,7 @@ bool update(float deltaTime){
             ffmpegVideoSeek(&video, &videoFrame,Time);
             if(audioInMedia) audio_seek(&audio, Time);
 
-            ffmpegRenderInit(&video, "output.mp4", &renderContext);
+            ffmpegVideoRenderInit(&video, "output.mp4", &renderContext);
             frameDataProcessed = calloc(videoFrame.width*videoFrame.height*sizeof(uint32_t),1);
         }
     }
@@ -1648,7 +1648,7 @@ bool postDraw(){
     if(stopRendering){
         rendering = false;
         stopRendering = false;
-        ffmpegRenderFinish(&renderContext);
+        ffmpegVideoRenderFinish(&renderContext);
         free(frameDataProcessed);
         printf("Finished rendering!\n");
         return true;
@@ -1700,7 +1700,7 @@ bool postDraw(){
         .frameTime = videoFrame.frameTime,
     };
     
-    if(!ffmpegRenderPassFrame(&renderContext, &frame)) {
+    if(!ffmpegVideoRenderPassFrame(&renderContext, &frame)) {
         printf("Failed to pass frame to renderer\n");
         return false;
     }

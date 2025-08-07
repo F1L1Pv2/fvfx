@@ -21,10 +21,10 @@ typedef struct {
     size_t height;
     double frameRate;
     const Video* sourceVideo;
-} RenderContext;
+} VideoRenderContext;
 
-bool ffmpegRenderInit(const Video* sourceVideo, const char* filename, RenderContext* render);
-bool ffmpegRenderPassFrame(RenderContext* render, const Frame* frame);
-void ffmpegRenderFinish(RenderContext* render);
+bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, VideoRenderContext* render);
+bool ffmpegVideoRenderPassFrame(VideoRenderContext* render, const Frame* frame);
+void ffmpegVideoRenderFinish(VideoRenderContext* render);
 
 #endif

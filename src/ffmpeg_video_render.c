@@ -2,10 +2,10 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "ffmpeg_render.h"
+#include "ffmpeg_video_render.h"
 
-bool ffmpegRenderInit(const Video* sourceVideo, const char* filename, RenderContext* render) {
-    memset(render, 0, sizeof(RenderContext));
+bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, VideoRenderContext* render) {
+    memset(render, 0, sizeof(VideoRenderContext));
 
     render->width = sourceVideo->frame->width;
     render->height = sourceVideo->frame->height;
@@ -81,7 +81,7 @@ bool ffmpegRenderInit(const Video* sourceVideo, const char* filename, RenderCont
     return true;
 }
 
-bool ffmpegRenderPassFrame(RenderContext* render, const Frame* frame) {
+bool ffmpegVideoRenderPassFrame(VideoRenderContext* render, const Frame* frame) {
 
     const uint8_t* srcSlice[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
     int srcStride[4] = { (int)(render->width * sizeof(uint32_t)), 0, 0, 0 };
@@ -103,7 +103,7 @@ bool ffmpegRenderPassFrame(RenderContext* render, const Frame* frame) {
     return true;
 }
 
-void ffmpegRenderFinish(RenderContext* render) {
+void ffmpegVideoRenderFinish(VideoRenderContext* render) {
     avcodec_send_frame(render->codecContext, NULL);
     while (avcodec_receive_packet(render->codecContext, render->packet) == 0) {
         render->packet->stream_index = render->stream->index;
@@ -124,5 +124,5 @@ void ffmpegRenderFinish(RenderContext* render) {
     sws_freeContext(render->swsContext);
     avformat_free_context(render->formatContext);
     
-    memset(render, 0, sizeof(RenderContext));
+    memset(render, 0, sizeof(VideoRenderContext));
 }
