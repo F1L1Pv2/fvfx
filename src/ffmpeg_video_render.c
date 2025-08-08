@@ -7,8 +7,8 @@
 bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, VideoRenderContext* render) {
     memset(render, 0, sizeof(VideoRenderContext));
 
-    render->width = sourceVideo->frame->width;
-    render->height = sourceVideo->frame->height;
+    render->width = sourceVideo->codecContext->width;
+    render->height = sourceVideo->codecContext->height;
     render->sourceVideo = sourceVideo;
     AVStream* srcStream = sourceVideo->formatContext->streams[sourceVideo->videoStreamIndex];
     render->frameRate = av_q2d(srcStream->avg_frame_rate);
@@ -31,18 +31,10 @@ bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, Video
     render->codecContext->width = render->width;
     render->codecContext->height = render->height;
 
-    // render->codecContext->time_base = av_inv_q(srcStream->avg_frame_rate);
-    // render->stream->time_base = render->codecContext->time_base;
-    // render->codecContext->time_base = srcStream->time_base;
-    // render->stream->time_base = srcStream->time_base;
-    // render->codecContext->framerate = srcStream->avg_frame_rate;
-
     render->codecContext->framerate = srcStream->avg_frame_rate; 
     render->stream->avg_frame_rate = srcStream->avg_frame_rate;
     render->codecContext->time_base = srcStream->time_base;
     render->stream->time_base = srcStream->time_base;
-    // render->codecContext->time_base = av_inv_q(srcStream->avg_frame_rate);
-    // render->stream->time_base = av_inv_q(srcStream->avg_frame_rate);
 
     render->codecContext->bit_rate = sourceVideo->codecContext->bit_rate;
     render->codecContext->gop_size = sourceVideo->codecContext->gop_size;

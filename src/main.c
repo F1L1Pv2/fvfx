@@ -11,23 +11,20 @@ int main(int argc, char** argv){
     printf("Hjello Freunder!\n");
 
     Video video = {0};
-    Frame frame = {0};
-    
     if(!ffmpegVideoInit(argv[1], &video)){
         fprintf(stderr, "Couldn't initialize ffmpeg video!\n");
         return 1;
     }
-
-    ffmpegVideoGetFrame(&video, &frame);
     VideoRenderContext renderContext = {0};
+    if(!ffmpegVideoRenderInit(&video, "output.mp4", &renderContext)){
+        fprintf(stderr, "Couldn't initialize ffmpeg video renderer!\n");
+        return 1;
+    }
 
-    ffmpegVideoRenderInit(&video, "output.mp4", &renderContext);
-    ffmpegVideoRenderPassFrame(&renderContext, &frame);
-
+    Frame frame = {0};
     while(ffmpegVideoGetFrame(&video, &frame)){
         ffmpegVideoRenderPassFrame(&renderContext, &frame);
     }
-
     ffmpegVideoRenderFinish(&renderContext);
 
     printf("Finished rendering!\n");
