@@ -55,19 +55,21 @@ bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
             return false;
         }
 
-        if(frame->width == 0 && frame->height == 0 && frame->data == NULL){
+        frame->type = FRAME_TYPE_VIDEO;
+
+        if(frame->as.video.width == 0 && frame->as.video.height == 0 && frame->as.video.data == NULL){
             video->swsContext = sws_getContext(
                 video->frame->width, video->frame->height, video->codecContext->pix_fmt,
                 video->frame->width, video->frame->height, AV_PIX_FMT_RGBA,
                 SWS_FAST_BILINEAR, NULL, NULL, NULL
             );
-            frame->width = video->frame->width;
-            frame->height = video->frame->height;
-            frame->data = malloc(frame->width*frame->height*sizeof(uint32_t));
+            frame->as.video.width = video->frame->width;
+            frame->as.video.height = video->frame->height;
+            frame->as.video.data = malloc(frame->as.video.width*frame->as.video.height*sizeof(uint32_t));
         }
 
         // Convert frame to RGB
-        uint8_t* dest[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
+        uint8_t* dest[4] = {(uint8_t*)frame->as.video.data, NULL, NULL, NULL};
         int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0, 0, 0};
         sws_scale(video->swsContext, 
                 (const uint8_t* const*)video->frame->data, 

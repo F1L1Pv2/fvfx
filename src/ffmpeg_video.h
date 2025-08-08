@@ -7,11 +7,32 @@
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 
-typedef struct{
+typedef enum {
+    FRAME_TYPE_NONE = 0,
+    FRAME_TYPE_VIDEO,
+    FRAME_TYPE_AUDIO
+} FrameType;
+
+typedef struct {
     void *data;
-    double frameTime;
     size_t width;
     size_t height;
+} VideoFrame;
+
+typedef struct {
+    uint8_t* data;
+    int size;
+    int channels;
+    int sampleRate;
+} AudioFrame;
+
+typedef struct{
+    FrameType type;
+    double frameTime;
+    union {
+        VideoFrame video;
+        AudioFrame audio;
+    } as;
 } Frame;
 
 typedef struct {

@@ -74,8 +74,12 @@ bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, Video
 }
 
 bool ffmpegVideoRenderPassFrame(VideoRenderContext* render, const Frame* frame) {
+    if(frame->type != FRAME_TYPE_VIDEO){
+        fprintf(stderr, "Unsupported frame type!\n");
+        abort();
+    }
 
-    const uint8_t* srcSlice[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
+    const uint8_t* srcSlice[4] = {(uint8_t*)frame->as.video.data, NULL, NULL, NULL};
     int srcStride[4] = { (int)(render->width * sizeof(uint32_t)), 0, 0, 0 };
 
     av_frame_make_writable(render->frame);
