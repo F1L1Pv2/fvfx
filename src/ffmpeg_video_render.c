@@ -9,7 +9,6 @@ bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, Video
 
     render->width = sourceVideo->codecContext->width;
     render->height = sourceVideo->codecContext->height;
-    render->sourceVideo = sourceVideo;
     AVStream* srcStream = sourceVideo->formatContext->streams[sourceVideo->videoStreamIndex];
     render->frameRate = av_q2d(srcStream->avg_frame_rate);
 

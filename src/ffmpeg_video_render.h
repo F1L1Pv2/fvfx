@@ -26,7 +26,6 @@ typedef struct {
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
-    const Video* sourceVideo;
 } VideoRenderContext;
 
 bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, VideoRenderContext* render);
