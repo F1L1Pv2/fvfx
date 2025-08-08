@@ -24,9 +24,6 @@ int main(int argc, char** argv){
     Frame frame = {0};
     while(ffmpegVideoGetFrame(&video, &frame)){
         ffmpegVideoRenderPassFrame(&renderContext, &frame);
-        if(frame.type == FRAME_TYPE_AUDIO){
-            free(frame.audio.data);
-        }
     }
     ffmpegVideoRenderFinish(&renderContext);
 

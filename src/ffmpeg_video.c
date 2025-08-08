@@ -36,7 +36,7 @@ bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
     int response;
     while (av_read_frame(video->formatContext, video->packet) >= 0) {
         if (video->packet->stream_index == video->audioStreamIndex) {
-            int response = avcodec_send_packet(video->audioCodecContext, video->packet);
+            response = avcodec_send_packet(video->audioCodecContext, video->packet);
             if (response >= 0) {
                 response = avcodec_receive_frame(video->audioCodecContext, video->audioFrame);
                 if (response >= 0) {
@@ -45,14 +45,22 @@ bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
                         av_q2d(video->formatContext->streams[video->audioStreamIndex]->time_base);
 
                     int data_size = av_samples_get_buffer_size(NULL, 
-                                                            video->audioCodecContext->ch_layout.nb_channels,
-                                                            video->audioFrame->nb_samples,
-                                                            video->audioCodecContext->sample_fmt, 1);
-                    frame->audio.data = malloc(data_size);
+                                            video->audioCodecContext->ch_layout.nb_channels,
+                                            video->audioFrame->nb_samples,
+                                            video->audioCodecContext->sample_fmt, 1);
+
+                    // Only (re)allocate if needed
+                    if (frame->audio.data == NULL || frame->audio.size < data_size) {
+                        free(frame->audio.data); // Free existing buffer if any
+                        frame->audio.data = calloc(data_size, 1);
+                        frame->audio.size = data_size; // Store allocated buffer size
+                    }
+
                     memcpy(frame->audio.data, video->audioFrame->data[0], data_size);
-                    frame->audio.size = data_size;
                     frame->audio.channels = video->audioCodecContext->ch_layout.nb_channels;
                     frame->audio.sampleRate = video->audioCodecContext->sample_rate;
+                    frame->audio.size = data_size; // Set actual data size used
+
                     return true;
                 }
             }
