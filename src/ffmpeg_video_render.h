@@ -20,6 +20,12 @@ typedef struct {
     size_t width;
     size_t height;
     double frameRate;
+    
+    int audioStreamIndex;
+    AVCodecContext* audioCodecContext;
+    AVStream* audioStream;
+    AVFrame* audioFrame;
+    AVPacket* audioPacket;
     const Video* sourceVideo;
 } VideoRenderContext;
 

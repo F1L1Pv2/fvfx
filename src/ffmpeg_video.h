@@ -29,10 +29,8 @@ typedef struct {
 typedef struct{
     FrameType type;
     double frameTime;
-    union {
-        VideoFrame video;
-        AudioFrame audio;
-    } as;
+    VideoFrame video;
+    AudioFrame audio;
 } Frame;
 
 typedef struct {
@@ -44,6 +42,10 @@ typedef struct {
     struct SwsContext* swsContext;
     double duration;
     double frameRate;
+
+    int audioStreamIndex;
+    AVCodecContext* audioCodecContext;
+    AVFrame* audioFrame;
 } Video;
 
 bool ffmpegVideoInit(const char* filename, Video* video);

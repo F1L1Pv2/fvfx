@@ -32,58 +32,81 @@ error:
 
 bool ffmpegVideoGetFrame(Video* video, Frame* frame) {
     av_frame_unref(video->frame);
+    av_packet_unref(video->packet);
     int response;
     while (av_read_frame(video->formatContext, video->packet) >= 0) {
-        if (video->packet->stream_index != video->videoStreamIndex) {
+        if (video->packet->stream_index == video->audioStreamIndex) {
+            int response = avcodec_send_packet(video->audioCodecContext, video->packet);
+            if (response >= 0) {
+                response = avcodec_receive_frame(video->audioCodecContext, video->audioFrame);
+                if (response >= 0) {
+                    frame->type = FRAME_TYPE_AUDIO;
+                    frame->frameTime = (double)video->audioFrame->pts * 
+                        av_q2d(video->formatContext->streams[video->audioStreamIndex]->time_base);
+
+                    int data_size = av_samples_get_buffer_size(NULL, 
+                                                            video->audioCodecContext->ch_layout.nb_channels,
+                                                            video->audioFrame->nb_samples,
+                                                            video->audioCodecContext->sample_fmt, 1);
+                    frame->audio.data = malloc(data_size);
+                    memcpy(frame->audio.data, video->audioFrame->data[0], data_size);
+                    frame->audio.size = data_size;
+                    frame->audio.channels = video->audioCodecContext->ch_layout.nb_channels;
+                    frame->audio.sampleRate = video->audioCodecContext->sample_rate;
+                    return true;
+                }
+            }
             av_packet_unref(video->packet);
             continue;
         }
 
-        response = avcodec_send_packet(video->codecContext, video->packet);
-        if (response < 0) {
-            av_packet_unref(video->packet);
-            continue;
+        if (video->packet->stream_index == video->videoStreamIndex) {
+            response = avcodec_send_packet(video->codecContext, video->packet);
+            if (response < 0) {
+                av_packet_unref(video->packet);
+                continue;
+            }
+    
+            response = avcodec_receive_frame(video->codecContext, video->frame);
+            if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
+                av_packet_unref(video->packet);
+                continue;
+            } 
+            else if (response < 0) {
+                av_packet_unref(video->packet);
+                return false;
+            }
+    
+            frame->type = FRAME_TYPE_VIDEO;
+    
+            if(frame->video.width == 0 && frame->video.height == 0 && frame->video.data == NULL){
+                video->swsContext = sws_getContext(
+                    video->frame->width, video->frame->height, video->codecContext->pix_fmt,
+                    video->frame->width, video->frame->height, AV_PIX_FMT_RGBA,
+                    SWS_FAST_BILINEAR, NULL, NULL, NULL
+                );
+                frame->video.width = video->frame->width;
+                frame->video.height = video->frame->height;
+                frame->video.data = malloc(frame->video.width*frame->video.height*sizeof(uint32_t));
+            }
+    
+            // Convert frame to RGB
+            uint8_t* dest[4] = {(uint8_t*)frame->video.data, NULL, NULL, NULL};
+            int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0, 0, 0};
+            sws_scale(video->swsContext, 
+                    (const uint8_t* const*)video->frame->data, 
+                    video->frame->linesize, 
+                    0, 
+                    video->frame->height, 
+                    dest, 
+                    dest_linesize);
+    
+            frame->frameTime = (double)video->frame->pts * 
+                av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
+                
+            return true;
         }
 
-        response = avcodec_receive_frame(video->codecContext, video->frame);
-        if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
-            av_packet_unref(video->packet);
-            continue;
-        } 
-        else if (response < 0) {
-            av_packet_unref(video->packet);
-            return false;
-        }
-
-        frame->type = FRAME_TYPE_VIDEO;
-
-        if(frame->as.video.width == 0 && frame->as.video.height == 0 && frame->as.video.data == NULL){
-            video->swsContext = sws_getContext(
-                video->frame->width, video->frame->height, video->codecContext->pix_fmt,
-                video->frame->width, video->frame->height, AV_PIX_FMT_RGBA,
-                SWS_FAST_BILINEAR, NULL, NULL, NULL
-            );
-            frame->as.video.width = video->frame->width;
-            frame->as.video.height = video->frame->height;
-            frame->as.video.data = malloc(frame->as.video.width*frame->as.video.height*sizeof(uint32_t));
-        }
-
-        // Convert frame to RGB
-        uint8_t* dest[4] = {(uint8_t*)frame->as.video.data, NULL, NULL, NULL};
-        int dest_linesize[4] = {video->frame->width * sizeof(uint32_t), 0, 0, 0};
-        sws_scale(video->swsContext, 
-                (const uint8_t* const*)video->frame->data, 
-                video->frame->linesize, 
-                0, 
-                video->frame->height, 
-                dest, 
-                dest_linesize);
-
-        frame->frameTime = (double)video->frame->pts * 
-            av_q2d(video->formatContext->streams[video->videoStreamIndex]->time_base);
-            
-        av_packet_unref(video->packet);
-        return true;
     }
 
     return false;
@@ -112,6 +135,8 @@ void ffmpegVideoUninit(Video* video) {
     if (video->codecContext) avcodec_free_context(&video->codecContext);
     if (video->frame) av_frame_free(&video->frame);
     if (video->packet) av_packet_free(&video->packet);
+    if (video->audioFrame) av_frame_free(&video->audioFrame);
+    if (video->audioCodecContext) avcodec_free_context(&video->audioCodecContext);
     if (video->formatContext) {
         avformat_close_input(&video->formatContext);
         avformat_free_context(video->formatContext);
@@ -157,6 +182,28 @@ static bool initializeDecoder(Video* video) {
     }
     
     if (video->videoStreamIndex == -1) return false;
+
+    video->audioStreamIndex = -1;
+    for (int i = 0; i < video->formatContext->nb_streams; i++) {
+        AVStream* stream = video->formatContext->streams[i];
+        if (video->audioStreamIndex == -1 && stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            video->audioStreamIndex = i;
+            AVCodecParameters* codecParameters = stream->codecpar;
+
+            const AVCodec* codec = avcodec_find_decoder(codecParameters->codec_id);
+            if (!codec) return false;
+
+            video->audioCodecContext = avcodec_alloc_context3(codec);
+            if (!video->audioCodecContext) return false;
+
+            if (avcodec_parameters_to_context(video->audioCodecContext, codecParameters) < 0) return false;
+
+            if (avcodec_open2(video->audioCodecContext, codec, NULL) < 0) return false;
+            break;
+        }
+    }
+
+    if(video->audioStreamIndex != -1) video->audioFrame = av_frame_alloc();
     
     video->frame = av_frame_alloc();
     video->packet = av_packet_alloc();
