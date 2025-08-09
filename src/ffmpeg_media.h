@@ -51,5 +51,6 @@ bool ffmpegMediaInit(const char* filename, Media* media);
 void ffmpegMediaUninit(Media* media);
 bool ffmpegMediaGetFrame(Media* media, Frame* frame);
 bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds);
+double ffmpegMediaDuration(Media* media);
 
 #endif

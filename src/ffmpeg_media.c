@@ -123,6 +123,9 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
 bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
     int64_t target_pts = time_seconds / av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
 
+    avcodec_flush_buffers(media->videoCodecContext);
+    avcodec_flush_buffers(media->audioCodecContext);
+
     int ret = av_seek_frame(media->formatContext, media->videoStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
         printf("Seek failed: %s\n", av_err2str(ret));
@@ -130,6 +133,7 @@ bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
     }
 
     avcodec_flush_buffers(media->videoCodecContext);
+    avcodec_flush_buffers(media->audioCodecContext);
  
     do {
         if (!ffmpegMediaGetFrame(media, frame)) break;
@@ -216,4 +220,9 @@ static bool initializeDecoder(Media* media) {
     media->videoFrame = av_frame_alloc();
     media->packet = av_packet_alloc();
     return media->videoFrame && media->packet;
+}
+
+double ffmpegMediaDuration(Media* media){
+    return (double)media->formatContext->streams[media->videoStreamIndex]->duration * 
+            av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
 }

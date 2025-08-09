@@ -10,7 +10,7 @@
 
 typedef struct{
     double offset;
-    double time;
+    double duration;
 } Slice;
 
 typedef struct{
@@ -119,7 +119,7 @@ bool parseSlice(Slice* slice, char* file_content, char* end_file_content, char**
 
     free(buff);
 
-    slice->time = duration;
+    slice->duration = duration;
     slice->offset = 0;
     slice->offset += hour*60*60;
     slice->offset += minute*60;
@@ -176,7 +176,7 @@ int main(int argc, char** argv){
     printf("Slices %zu:\n", slices.count);
     for(size_t i = 0; i < slices.count; i++){
         Slice* slice = &slices.items[i];
-        printf("%lf:%lf\n", slice->offset, slice->time);
+        printf("%lf:%lf\n", slice->offset, slice->duration);
     }
     
     printf("Hjello Freunder!\n");
@@ -192,10 +192,35 @@ int main(int argc, char** argv){
         return 1;
     }
 
+    double duration = ffmpegMediaDuration(&media);
+    size_t currentSlice = 0;
+
+    double checkDuration = slices.items[currentSlice].duration;
+    if(checkDuration == -1) checkDuration = duration - slices.items[currentSlice].offset;
+
+    double localTime = 0;
+    double timeBase = 0;
     Frame frame = {0};
-    while(ffmpegMediaGetFrame(&media, &frame)){
+
+    ffmpegMediaSeek(&media, &frame, slices.items[currentSlice].offset);
+
+    while(true){
+        if(localTime >= checkDuration){
+            currentSlice++;
+            if(currentSlice >= slices.count) break;
+            localTime = 0;
+            timeBase+=checkDuration;
+            checkDuration = slices.items[currentSlice].duration;
+            if(checkDuration == -1) checkDuration = duration - slices.items[currentSlice].offset;
+            ffmpegMediaSeek(&media, &frame, slices.items[currentSlice].offset);
+        }
+
+        if(!ffmpegMediaGetFrame(&media, &frame)) break;
+        localTime = frame.frameTime - slices.items[currentSlice].offset;
+        frame.frameTime = timeBase + localTime;
         ffmpegMediaRenderPassFrame(&renderContext, &frame);
     }
+
     ffmpegMediaRenderFinish(&renderContext);
 
     printf("Finished rendering!\n");
