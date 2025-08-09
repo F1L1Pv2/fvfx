@@ -44,22 +44,45 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                     frame->frameTime = (double)media->audioFrame->pts * 
                         av_q2d(media->formatContext->streams[media->audioStreamIndex]->time_base);
 
-                    int data_size = av_samples_get_buffer_size(NULL, 
-                                            media->audioCodecContext->ch_layout.nb_channels,
-                                            media->audioFrame->nb_samples,
-                                            media->audioCodecContext->sample_fmt, 1);
+                    int channels = media->audioCodecContext->ch_layout.nb_channels;
+                    int nb_samples = media->audioFrame->nb_samples;
+                    enum AVSampleFormat src_fmt = media->audioCodecContext->sample_fmt;
+                    int bytes_per_sample = av_get_bytes_per_sample(src_fmt);
+                    bool is_planar = av_sample_fmt_is_planar(src_fmt);
 
-                    // Only (re)allocate if needed
-                    if (frame->audio.data == NULL || frame->audio.size < data_size) {
-                        free(frame->audio.data); // Free existing buffer if any
-                        frame->audio.data = calloc(data_size, 1);
-                        frame->audio.size = data_size; // Store allocated buffer size
+                    int plane_size = nb_samples * bytes_per_sample;
+                    int total_size = channels * plane_size;
+
+                    if (frame->audio.data == NULL || frame->audio.nb_samples < total_size) {
+                        free(frame->audio.data);
+                        frame->audio.data = calloc(total_size, 1);
+                        frame->audio.nb_samples = total_size;
                     }
 
-                    memcpy(frame->audio.data, media->audioFrame->data[0], data_size);
-                    frame->audio.channels = media->audioCodecContext->ch_layout.nb_channels;
+                    if (is_planar) {
+                        for (int ch = 0; ch < channels; ch++) {
+                            memcpy(
+                                (uint8_t*)frame->audio.data + ch * plane_size,
+                                media->audioFrame->data[ch],
+                                plane_size
+                            );
+                        }
+                    } else {
+                        const uint8_t *src = media->audioFrame->data[0];
+                        for (int s = 0; s < nb_samples; s++) {
+                            for (int ch = 0; ch < channels; ch++) {
+                                memcpy(
+                                    (uint8_t*)frame->audio.data + ch * plane_size + s * bytes_per_sample,
+                                    src + (s * channels + ch) * bytes_per_sample,
+                                    bytes_per_sample
+                                );
+                            }
+                        }
+                    }
+
+                    frame->audio.channels = channels;
                     frame->audio.sampleRate = media->audioCodecContext->sample_rate;
-                    frame->audio.size = data_size; // Set actual data size used
+                    frame->audio.nb_samples = nb_samples;
 
                     return true;
                 }
@@ -211,6 +234,11 @@ static bool initializeDecoder(Media* media) {
             if (avcodec_parameters_to_context(media->audioCodecContext, codecParameters) < 0) return false;
 
             if (avcodec_open2(media->audioCodecContext, codec, NULL) < 0) return false;
+
+            if(media->audioCodecContext->ch_layout.nb_channels > 2){
+                fprintf(stderr, "more than 2 audio channels is not supported\n");
+                return false;
+            }
             break;
         }
     }

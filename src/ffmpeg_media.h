@@ -21,7 +21,7 @@ typedef struct {
 
 typedef struct {
     uint8_t* data;
-    int size;
+    int nb_samples;
     int channels;
     int sampleRate;
 } AudioFrame;

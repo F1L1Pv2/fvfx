@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "ffmpeg_media_render.h"
 
@@ -93,6 +94,11 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, Media
 
         av_frame_get_buffer(render->audioFrame, 0);
         render->audioPacket = av_packet_alloc();
+
+        if(render->audioCodecContext->ch_layout.nb_channels > 2){
+            fprintf(stderr, "more than 2 audio channels is not supported\n");
+            return false;
+        }
     }
 
     if (!(render->formatContext->oformat->flags & AVFMT_NOFILE)) {
@@ -109,25 +115,29 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) 
         av_frame_make_writable(render->audioFrame);
 
         int channels = render->audioCodecContext->ch_layout.nb_channels;
+        // TODO: handle it
+        assert(channels == frame->audio.channels);assert(channels == frame->audio.channels);
         int bytes_per_sample = av_get_bytes_per_sample(render->audioCodecContext->sample_fmt);
 
         if (av_sample_fmt_is_planar(render->audioCodecContext->sample_fmt)) {
-            // Planar: copy each channel separately
-            for (int ch = 0; ch < channels; ch++) {
+        for (int ch = 0; ch < channels; ch++) {
                 memcpy(render->audioFrame->data[ch],
                     frame->audio.data + ch * render->audioFrame->nb_samples * bytes_per_sample,
                     render->audioFrame->nb_samples * bytes_per_sample);
             }
         } else {
-            // Interleaved: copy once
-            int data_size = av_samples_get_buffer_size(
-                NULL,
-                channels,
-                render->audioFrame->nb_samples,
-                render->audioCodecContext->sample_fmt,
-                1
-            );
-            memcpy(render->audioFrame->data[0], frame->audio.data, data_size);
+            uint8_t *dst = render->audioFrame->data[0];
+            const uint8_t *src[channels];
+            for (int ch = 0; ch < channels; ch++) {
+                src[ch] = frame->audio.data + ch * render->audioFrame->nb_samples * bytes_per_sample;
+            }
+
+            for (int i = 0; i < render->audioFrame->nb_samples; i++) {
+                for (int ch = 0; ch < channels; ch++) {
+                    memcpy(dst, src[ch] + i * bytes_per_sample, bytes_per_sample);
+                    dst += bytes_per_sample;
+                }
+            }
         }
 
         render->audioFrame->pts = frame->frameTime * render->audioCodecContext->sample_rate;
