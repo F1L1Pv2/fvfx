@@ -7,29 +7,26 @@
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
-#include "ffmpeg_video.h"
+#include "ffmpeg_media.h"
 
 typedef struct {
     AVFormatContext* formatContext;
-    AVStream* stream;
-    AVCodecContext* codecContext;
-    AVFrame* frame;
     AVPacket* packet;
+
+    AVStream* videoStream;
+    AVCodecContext* videoCodecContext;
+    AVFrame* videoFrame;
     struct SwsContext* swsContext;
-    size_t frameCounter;
-    size_t width;
-    size_t height;
-    double frameRate;
     
     int audioStreamIndex;
     AVCodecContext* audioCodecContext;
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
-} VideoRenderContext;
+} MediaRenderContext;
 
-bool ffmpegVideoRenderInit(const Video* sourceVideo, const char* filename, VideoRenderContext* render);
-bool ffmpegVideoRenderPassFrame(VideoRenderContext* render, const Frame* frame);
-void ffmpegVideoRenderFinish(VideoRenderContext* render);
+bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, MediaRenderContext* render);
+bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame);
+void ffmpegMediaRenderFinish(MediaRenderContext* render);
 
 #endif

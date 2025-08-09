@@ -35,22 +35,21 @@ typedef struct{
 
 typedef struct {
     AVFormatContext* formatContext;
-    int videoStreamIndex;
-    AVCodecContext* codecContext;
-    AVFrame* frame;
     AVPacket* packet;
+
+    int videoStreamIndex;
+    AVCodecContext* videoCodecContext;
+    AVFrame* videoFrame;
     struct SwsContext* swsContext;
-    double duration;
-    double frameRate;
 
     int audioStreamIndex;
     AVCodecContext* audioCodecContext;
     AVFrame* audioFrame;
-} Video;
+} Media;
 
-bool ffmpegVideoInit(const char* filename, Video* video);
-void ffmpegVideoUninit(Video* video);
-bool ffmpegVideoGetFrame(Video* video, Frame* frame);
-bool ffmpegVideoSeek(Video* video, Frame* frame, double time_seconds);
+bool ffmpegMediaInit(const char* filename, Media* media);
+void ffmpegMediaUninit(Media* media);
+bool ffmpegMediaGetFrame(Media* media, Frame* frame);
+bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds);
 
 #endif
