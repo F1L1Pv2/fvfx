@@ -105,17 +105,35 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, Media
 }
 
 bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) {
-    if(frame->type == FRAME_TYPE_AUDIO){
+    if (frame->type == FRAME_TYPE_AUDIO) {
         av_frame_make_writable(render->audioFrame);
-        int data_size = av_samples_get_buffer_size(NULL, 
-                                                render->audioCodecContext->ch_layout.nb_channels,
-                                                render->audioFrame->nb_samples,
-                                                render->audioCodecContext->sample_fmt, 1);
-        memcpy(render->audioFrame->data[0], frame->audio.data, data_size);
+
+        int channels = render->audioCodecContext->ch_layout.nb_channels;
+        int bytes_per_sample = av_get_bytes_per_sample(render->audioCodecContext->sample_fmt);
+
+        if (av_sample_fmt_is_planar(render->audioCodecContext->sample_fmt)) {
+            // Planar: copy each channel separately
+            for (int ch = 0; ch < channels; ch++) {
+                memcpy(render->audioFrame->data[ch],
+                    frame->audio.data + ch * render->audioFrame->nb_samples * bytes_per_sample,
+                    render->audioFrame->nb_samples * bytes_per_sample);
+            }
+        } else {
+            // Interleaved: copy once
+            int data_size = av_samples_get_buffer_size(
+                NULL,
+                channels,
+                render->audioFrame->nb_samples,
+                render->audioCodecContext->sample_fmt,
+                1
+            );
+            memcpy(render->audioFrame->data[0], frame->audio.data, data_size);
+        }
 
         render->audioFrame->pts = frame->frameTime * render->audioCodecContext->sample_rate;
 
-        if (avcodec_send_frame(render->audioCodecContext, render->audioFrame) < 0) return false;
+        if (avcodec_send_frame(render->audioCodecContext, render->audioFrame) < 0)
+            return false;
 
         while (avcodec_receive_packet(render->audioCodecContext, render->audioPacket) == 0) {
             render->audioPacket->stream_index = render->audioStream->index;
