@@ -1,7 +1,7 @@
 #include <stdio.h>
 
-#include "ffmpeg_video.h"
-#include "ffmpeg_video_render.h"
+#include "ffmpeg_media.h"
+#include "ffmpeg_media_render.h"
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -10,22 +10,22 @@ int main(int argc, char** argv){
     }
     printf("Hjello Freunder!\n");
 
-    Video video = {0};
-    if(!ffmpegVideoInit(argv[1], &video)){
-        fprintf(stderr, "Couldn't initialize ffmpeg video!\n");
+    Media media = {0};
+    if(!ffmpegMediaInit(argv[1], &media)){
+        fprintf(stderr, "Couldn't initialize ffmpeg media!\n");
         return 1;
     }
-    VideoRenderContext renderContext = {0};
-    if(!ffmpegVideoRenderInit(&video, "output.mp4", &renderContext)){
-        fprintf(stderr, "Couldn't initialize ffmpeg video renderer!\n");
+    MediaRenderContext renderContext = {0};
+    if(!ffmpegMediaRenderInit(&media, "output.mp4", &renderContext)){
+        fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
 
     Frame frame = {0};
-    while(ffmpegVideoGetFrame(&video, &frame)){
-        ffmpegVideoRenderPassFrame(&renderContext, &frame);
+    while(ffmpegMediaGetFrame(&media, &frame)){
+        ffmpegMediaRenderPassFrame(&renderContext, &frame);
     }
-    ffmpegVideoRenderFinish(&renderContext);
+    ffmpegMediaRenderFinish(&renderContext);
 
     printf("Finished rendering!\n");
 
