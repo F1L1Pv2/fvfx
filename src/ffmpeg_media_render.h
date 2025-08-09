@@ -1,5 +1,5 @@
-#ifndef FVFX_FFMPEG_RENDER
-#define FVFX_FFMPEG_RENDER
+#ifndef FVFX_FFMPEG_MEDIA_RENDER
+#define FVFX_FFMPEG_MEDIA_RENDER
 
 #include <stdint.h>
 #include <stdbool.h>

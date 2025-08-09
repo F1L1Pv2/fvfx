@@ -1,5 +1,5 @@
-#ifndef FVFX_FFMPEG_VIDEO
-#define FVFX_FFMPEG_VIDEO
+#ifndef FVFX_FFMPEG_MEDIA
+#define FVFX_FFMPEG_MEDIA
 
 #include <stdbool.h>
 #include <stdint.h>
