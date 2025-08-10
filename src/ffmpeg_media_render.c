@@ -115,29 +115,24 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) 
         av_frame_make_writable(render->audioFrame);
 
         int channels = render->audioCodecContext->ch_layout.nb_channels;
-        // TODO: handle it
-        assert(channels == frame->audio.channels);assert(channels == frame->audio.channels);
         int bytes_per_sample = av_get_bytes_per_sample(render->audioCodecContext->sample_fmt);
+        bool is_planar = av_sample_fmt_is_planar(render->audioCodecContext->sample_fmt);
 
-        if (av_sample_fmt_is_planar(render->audioCodecContext->sample_fmt)) {
-        for (int ch = 0; ch < channels; ch++) {
-                memcpy(render->audioFrame->data[ch],
-                    frame->audio.data + ch * render->audioFrame->nb_samples * bytes_per_sample,
-                    render->audioFrame->nb_samples * bytes_per_sample);
-            }
-        } else {
-            uint8_t *dst = render->audioFrame->data[0];
-            const uint8_t *src[channels];
-            for (int ch = 0; ch < channels; ch++) {
-                src[ch] = frame->audio.data + ch * render->audioFrame->nb_samples * bytes_per_sample;
-            }
+        av_frame_make_writable(render->audioFrame);
 
-            for (int i = 0; i < render->audioFrame->nb_samples; i++) {
+        if (is_planar) {
+            for (int s = 0; s < render->audioFrame->nb_samples; s++) {
                 for (int ch = 0; ch < channels; ch++) {
-                    memcpy(dst, src[ch] + i * bytes_per_sample, bytes_per_sample);
-                    dst += bytes_per_sample;
+                    memcpy(
+                        render->audioFrame->data[ch] + s * bytes_per_sample,
+                        frame->audio.data + (s * channels + ch) * bytes_per_sample,
+                        bytes_per_sample
+                    );
                 }
             }
+        } else {
+            memcpy(render->audioFrame->data[0], frame->audio.data, 
+                render->audioFrame->nb_samples * channels * bytes_per_sample);
         }
 
         render->audioFrame->pts = frame->frameTime * render->audioCodecContext->sample_rate;

@@ -21,9 +21,11 @@ typedef struct {
 
 typedef struct {
     uint8_t* data;
+    size_t size;
     int nb_samples;
     int channels;
     int sampleRate;
+    int bytes_per_sample;   // Bytes per sample
 } AudioFrame;
 
 typedef struct{

@@ -49,40 +49,31 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                     enum AVSampleFormat src_fmt = media->audioCodecContext->sample_fmt;
                     int bytes_per_sample = av_get_bytes_per_sample(src_fmt);
                     bool is_planar = av_sample_fmt_is_planar(src_fmt);
+                    int total_size = nb_samples * channels * bytes_per_sample;
 
-                    int plane_size = nb_samples * bytes_per_sample;
-                    int total_size = channels * plane_size;
-
-                    if (frame->audio.data == NULL || frame->audio.nb_samples < total_size) {
+                    if (frame->audio.data == NULL || frame->audio.size < nb_samples) {
                         free(frame->audio.data);
-                        frame->audio.data = calloc(total_size, 1);
-                        frame->audio.nb_samples = total_size;
+                        frame->audio.data = malloc(total_size);
+                        frame->audio.size = nb_samples;
+                        frame->audio.bytes_per_sample = bytes_per_sample;
                     }
 
                     if (is_planar) {
-                        for (int ch = 0; ch < channels; ch++) {
-                            memcpy(
-                                (uint8_t*)frame->audio.data + ch * plane_size,
-                                media->audioFrame->data[ch],
-                                plane_size
-                            );
-                        }
-                    } else {
-                        const uint8_t *src = media->audioFrame->data[0];
                         for (int s = 0; s < nb_samples; s++) {
                             for (int ch = 0; ch < channels; ch++) {
                                 memcpy(
-                                    (uint8_t*)frame->audio.data + ch * plane_size + s * bytes_per_sample,
-                                    src + (s * channels + ch) * bytes_per_sample,
+                                    frame->audio.data + (s * channels + ch) * bytes_per_sample,
+                                    media->audioFrame->data[ch] + s * bytes_per_sample,
                                     bytes_per_sample
                                 );
                             }
                         }
+                    } else {
+                        memcpy(frame->audio.data, media->audioFrame->data[0], total_size);
                     }
 
                     frame->audio.channels = channels;
                     frame->audio.sampleRate = media->audioCodecContext->sample_rate;
-                    frame->audio.nb_samples = nb_samples;
 
                     return true;
                 }
