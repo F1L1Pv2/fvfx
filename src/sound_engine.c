@@ -6,39 +6,57 @@
 #include <stdio.h>
 
 typedef struct {
-    AudioFrame* items;
+    SoundAudioFrame* items;
     size_t count;
     atomic_int read_cur;
     atomic_int write_cur;
 } AudioFrameFIFO;
 
-void createAudioFrameFIFO(size_t count, AudioFrameFIFO* audioFrameFIFO) {
-    audioFrameFIFO->items = calloc(sizeof(AudioFrame) * count,1);
+static void createAudioFrameFIFO(size_t count, AudioFrameFIFO* audioFrameFIFO) {
+    audioFrameFIFO->items = calloc(sizeof(SoundAudioFrame) * count,1);
     audioFrameFIFO->count = count;
     audioFrameFIFO->read_cur = 0;
     audioFrameFIFO->write_cur = 0;
 }
 
-AudioFrame* readAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO) {
+static SoundAudioFrame* readAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO) {
     if (audioFrameFIFO->read_cur == audioFrameFIFO->write_cur) return NULL;
-    AudioFrame* data = &audioFrameFIFO->items[audioFrameFIFO->read_cur];
+    SoundAudioFrame* data = &audioFrameFIFO->items[audioFrameFIFO->read_cur];
     audioFrameFIFO->read_cur = (audioFrameFIFO->read_cur + 1) % audioFrameFIFO->count;
     return data;
 }
 
-bool canWriteAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO) {
+static bool canWriteAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO) {
     return !((audioFrameFIFO->write_cur + 1) % audioFrameFIFO->count == audioFrameFIFO->read_cur);
 }
 
-bool writeAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO, AudioFrame* item) {
+static bool writeAudioFrameFIFO(AudioFrameFIFO* audioFrameFIFO, SoundAudioFrame* item) {
     if (!canWriteAudioFrameFIFO(audioFrameFIFO)) return false;
     if(audioFrameFIFO->items[audioFrameFIFO->write_cur].data){
         free(audioFrameFIFO->items[audioFrameFIFO->write_cur].data);
         audioFrameFIFO->items[audioFrameFIFO->write_cur].data = NULL;
     }
-    memcpy(&audioFrameFIFO->items[audioFrameFIFO->write_cur], item, sizeof(AudioFrame));
+    memcpy(&audioFrameFIFO->items[audioFrameFIFO->write_cur], item, sizeof(SoundAudioFrame));
     audioFrameFIFO->write_cur = (audioFrameFIFO->write_cur + 1) % audioFrameFIFO->count;
     return true;
+}
+
+static atomic_bool clearing = false;
+
+static void clearAudioFrameFIFO(AudioFrameFIFO* fifo) {
+    clearing = true;
+    while (true) {
+        SoundAudioFrame* frame = readAudioFrameFIFO(fifo);
+        if (!frame) break;
+        if (frame->data) {
+            free(frame->data);
+            frame->data = NULL;
+        }
+        memset(frame, 0, sizeof(*frame));
+    }
+    fifo->read_cur = 0;
+    fifo->write_cur = 0;
+    clearing = false;
 }
 
 AudioFrameFIFO audioFrameFifo = {0};
@@ -47,11 +65,15 @@ bool soundEngineCanEnqueueFrame(){
     return canWriteAudioFrameFIFO(&audioFrameFifo);
 }
 
-bool soundEngineEnqueueFrame(AudioFrame* audioFrame){
+bool soundEngineEnqueueFrame(SoundAudioFrame* audioFrame){
     return writeAudioFrameFIFO(&audioFrameFifo, audioFrame);
 }
 
-static AudioFrame* currentFrame = NULL;
+void soundEngineClear(){
+    clearAudioFrameFIFO(&audioFrameFifo);
+}
+
+static SoundAudioFrame* currentFrame = NULL;
 static size_t currentPos = 0;
 
 void soundEngineResetQueue() {
@@ -70,11 +92,11 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     const size_t totalSamplesNeeded = frameCount * channels;
     size_t samplesCopied = 0;
 
-    if(!playing) {
+    if(!playing || clearing) {
         memset(output, 0, totalSamplesNeeded);
         return;
     }
-    if(playing) Time += (double)frameCount / (double)pDevice->sampleRate;
+    if(playing && !clearing) Time += (double)frameCount / (double)pDevice->sampleRate;
 
     while (samplesCopied < totalSamplesNeeded) {
         if (!currentFrame) {
@@ -108,8 +130,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
 ma_device soundDevice;
 
+static bool inited = false;
+
 bool initSoundEngine() {
-    createAudioFrameFIFO(30,&audioFrameFifo);
+    createAudioFrameFIFO(100,&audioFrameFifo);
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
     config.playback.channels = 2;
@@ -135,6 +159,7 @@ bool initSoundEngine() {
     }
 
     ma_device_start(&soundDevice);
+    inited = true;
     return true;
 }
 
@@ -144,4 +169,8 @@ uint32_t soundEngineGetSampleRate(){
 
 uint32_t soundEngineGetChannels(){
     return soundDevice.playback.channels;
+}
+
+bool soundEngineInitialized(){
+    return inited;
 }

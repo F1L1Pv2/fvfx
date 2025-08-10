@@ -22,14 +22,13 @@
 #include "modules/bindlessTexturesManager.h"
 #include "modules/spriteManager.h"
 #include "modules/font_freetype.h"
-#include "ffmpeg_video.h"
-#include "ffmpeg_audio.h"
-#include "ffmpeg_video_render.h"
+#include "ffmpeg_media.h"
+#include "ffmpeg_media_render.h"
 #include "gui_helpers.h"
-#include "sound_engine.h"
 #include <stdatomic.h>
 #include "string_alloc.h"
-#include "audio_worker.h"
+#include "sound_engine.h"
+#include "ffmpeg_worker.h"
 
 #ifndef min
 #define min(a,b) ((a) > (b) ? (b) : (a))
@@ -98,13 +97,10 @@ uint64_t TIMER_TOTAL;
 #define CHECK_TIMER(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER) / 1000.0f);TIMER = newTimer;} while(0)
 #define CHECK_TIMER_TOTAL(thing) do {uint64_t newTimer = platform_get_time();printf("%s: took %.2fs\n", (thing), (float)(newTimer - TIMER_TOTAL) / 1000.0f);TIMER_TOTAL = newTimer;} while(0)
 
-VideoRenderContext renderContext = {0};
-Video video = {0};
-Frame videoFrame = {0};
+MediaRenderContext renderContext = {0};
+Media media = {0};
 void* videoMapped = NULL;
 size_t videoVulkanStride = 0;
-Audio audio = {0};
-bool audioInMedia = false;
 
 typedef enum {
     VFX_NONE = 0,
@@ -482,6 +478,7 @@ VkShaderModule vfxVertexShader;
 
 double Time;
 atomic_bool playing = true;
+bool oldPlaying = false;
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -610,26 +607,50 @@ int main(int argc, char** argv){
         VkImageView imageView;
         VkDeviceMemory imageMemory;
 
-        if(!ffmpegVideoInit(argv[1], &video)) {
+        if(!ffmpegMediaInit(argv[1], &media)) {
             printf("Couldn't load video\n");
             return 1;
         }
 
-        if(!ffmpegVideoGetFrame(&video,&videoFrame)){
-            printf("Couldn't get video frame\n");
-            return 1;
+        if(media.audioStreamIndex != -1){
+            initSoundEngine();
         }
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+        if(!createImage(media.videoCodecContext->width,media.videoCodecContext->height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
                    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &image,&imageMemory)){
             printf("Couldn't create video image\n");
             return 1;
         }
 
-        if(!sendDataToImage(image,videoFrame.data,videoFrame.width, videoFrame.width*sizeof(uint32_t), videoFrame.height)){
-            printf("Couldn't send frame data to video image\n");
-            return 1;
+        {
+            VkCommandBuffer tempCmd = beginSingleTimeCommands();
+            VkImageMemoryBarrier barrier = {0};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            
+            vkCmdPipelineBarrier(
+                tempCmd,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0, NULL,
+                0, NULL,
+                1, &barrier
+            );
+
+            endSingleTimeCommands(tempCmd);
         }
 
         if(!createImageView(image,VK_FORMAT_R8G8B8A8_UNORM, 
@@ -648,7 +669,7 @@ int main(int argc, char** argv){
         vkGetImageSubresourceLayout(device, image, &subresource, &layout);
         videoVulkanStride = layout.rowPitch;
 
-        vkMapMemory(device,imageMemory, 0, videoVulkanStride*videoFrame.height, 0, &videoMapped);
+        vkMapMemory(device,imageMemory, 0, videoVulkanStride*media.videoCodecContext->height, 0, &videoMapped);
 
         CHECK_TIMER("init video");
 
@@ -704,7 +725,7 @@ int main(int argc, char** argv){
 
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+        if(!createImage(media.videoCodecContext->width,media.videoCodecContext->height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &previewImage1,&previewMemory1)){
             printf("Couldn't create preview image\n");
@@ -717,7 +738,7 @@ int main(int argc, char** argv){
             return 1;
         }
 
-        if(!createImage(videoFrame.width,videoFrame.height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+        if(!createImage(media.videoCodecContext->width,media.videoCodecContext->height, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_TILING_LINEAR,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &previewImage2,&previewMemory2)){
             printf("Couldn't create preview image\n");
@@ -730,8 +751,8 @@ int main(int argc, char** argv){
             return 1;
         }
 
-        vkMapMemory(device,previewMemory1, 0, videoVulkanStride*videoFrame.height, 0,&previewMemoryMapped1);
-        vkMapMemory(device,previewMemory2, 0, videoVulkanStride*videoFrame.height, 0,&previewMemoryMapped2);
+        vkMapMemory(device,previewMemory1, 0, videoVulkanStride*media.videoCodecContext->height, 0,&previewMemoryMapped1);
+        vkMapMemory(device,previewMemory2, 0, videoVulkanStride*media.videoCodecContext->height, 0,&previewMemoryMapped2);
 
         descriptorImageInfo.sampler = samplerLinear;
         descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -763,14 +784,7 @@ int main(int argc, char** argv){
 
         CHECK_TIMER("init vfx pipeline");
 
-        if(!initSoundEngine()) return 1;
-
-        if(ffmpegAudioInit(argv[1], &audio, soundEngineGetChannels(), soundEngineGetSampleRate())){
-            audioInMedia = true;
-            if(!initAudioWorker(&audio)) return 1;
-        }
-
-        CHECK_TIMER("init audio");
+        initializeFFmpegWorker(&media);
     }
 
     sb_free(sb);
@@ -1146,15 +1160,53 @@ bool stopRendering = false;
 
 void* frameDataProcessed = NULL;
 
-bool didSmth = false;
 
 bool update(float deltaTime){
     ui_begin();
 
     temp_reset();
-    if(!audioInMedia && playing) Time += deltaTime;
+    if(!soundEngineInitialized() && playing) Time += deltaTime;
+
+    if (playing) {
+        Frame* frame = NULL;
+
+        while ((frame = workerPeekVideoFrame()) != NULL) {
+            if (frame->frameTime > Time)
+                break;
+
+            frame = workerAskForVideoFrame();
+            if (frame) {
+                for (int i = 0; i < media.videoCodecContext->height; i++) {
+                    memcpy(
+                        videoMapped + videoVulkanStride * i,
+                        frame->video.data + media.videoCodecContext->width * sizeof(uint32_t) * i,
+                        media.videoCodecContext->width * sizeof(uint32_t)
+                    );
+                }
+                free(frame->video.data);
+                frame->video.data = NULL;
+            }
+        }
+
+        if (Time >= media.duration) {
+            if (rendering)
+                stopRendering = true;
+            Time = 0;
+            workerAskForSeek(Time);
+        }
+    }
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
+
+    if(oldPlaying != playing){
+        if(playing){
+            workerAskForResume();
+        }else{
+            workerAskForPause();
+        }
+        oldPlaying = playing;
+    }
+
     if(input.keys[KEY_SHIFT].isDown && input.scroll != 0){
         UI_FONT_SIZE += input.scroll*deltaTime;
     }
@@ -1165,11 +1217,12 @@ bool update(float deltaTime){
             stopRendering = false;
 
             Time = 0;
-            ffmpegVideoSeek(&video, &videoFrame,Time);
-            if(audioInMedia) audio_seek(&audio, Time);
+            workerAskForSeek(Time);
 
-            ffmpegVideoRenderInit(&video, "output.mp4", &renderContext);
-            frameDataProcessed = calloc(videoFrame.width*videoFrame.height*sizeof(uint32_t),1);
+            TODO("implement this");
+
+            // ffmpegMediaRenderInit(&media, "output.mp4", &renderContext);
+            // frameDataProcessed = calloc(media.videoCodecContext->width*media.videoCodecContext->height*sizeof(uint32_t),1);
         }
     }
 
@@ -1200,7 +1253,7 @@ bool update(float deltaTime){
     timelineRect.width = swapchainExtent.width - effectsTab.width;
     timelineRect.y = previewPos.y + previewPos.height;
 
-    Rect previewRect = fitRectangle(previewPos, videoFrame.width, videoFrame.height);
+    Rect previewRect = fitRectangle(previewPos, media.videoCodecContext->width, media.videoCodecContext->height);
     
     pcsPreview.model = (mat4){
         previewRect.width,0,0,0,
@@ -1280,34 +1333,6 @@ bool update(float deltaTime){
         }
         
         platform_release_drag_and_drop(dragndrop, count);
-    }
-
-    if(playing){
-        didSmth = false;
-        while(Time > videoFrame.frameTime){
-            if(ffmpegVideoGetFrame(&video,&videoFrame)){
-                didSmth = true;
-            }else{
-                break;
-            }
-        }
-
-        if(didSmth){
-            for(int i = 0; i < videoFrame.height; i++){
-                memcpy(
-                    videoMapped + videoVulkanStride*i,
-                    videoFrame.data + videoFrame.width*sizeof(uint32_t)*i,
-                    videoFrame.width *sizeof(uint32_t)
-                );
-            }
-        }
-    }
-
-    if(Time >= video.duration){
-        if(rendering) stopRendering = true;
-        Time = 0;
-        if(!ffmpegVideoSeek(&video, &videoFrame,Time)) return false;
-        if(audioInMedia) audio_seek(&audio, Time);
     }
 
     // --------------------------- EFFECTS RACK --------------------------------
@@ -1402,7 +1427,7 @@ bool update(float deltaTime){
     if(usingTimelineSplitter && input.keys[KEY_MOUSE_LEFT].justReleased) usingTimelineSplitter = false;
     if(usingTimelineSplitter) timelineSplitterOffset = swapchainExtent.height - input.mouse_y;
 
-    float percent = videoFrame.frameTime / video.duration;
+    float percent = Time / media.duration;
 
     float cursorWidth = 1;
 
@@ -1419,20 +1444,9 @@ bool update(float deltaTime){
     });
 
     if(pointInsideRect(input.mouse_x, input.mouse_y, timelineContainer) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        Time = ((float)input.mouse_x - timelineContainer.x) * video.duration / timelineContainer.width;
-        ffmpegVideoSeek(&video, &videoFrame,Time);
-        if(audioInMedia) audio_seek(&audio, Time);
-        if(!playing){ //redraw
-            if(ffmpegVideoGetFrame(&video,&videoFrame)){
-                for(int i = 0; i < videoFrame.height; i++){
-                    memcpy(
-                        videoMapped + videoVulkanStride*i,
-                        videoFrame.data + videoFrame.width*sizeof(uint32_t)*i,
-                        videoFrame.width *sizeof(uint32_t)
-                    );
-                }
-            }
-        }
+        Time = ((float)input.mouse_x - timelineContainer.x) * media.duration / timelineContainer.width;
+        workerAskForSeek(Time);
+        //TODO: add back drawing pr3eview during not playing
     }
 
     // -------------------------------- top bar ---------------------------------------
@@ -1454,7 +1468,7 @@ bool update(float deltaTime){
 
     char text[256];
 
-    sprintf(text, "%.2fs/%.2fs", videoFrame.frameTime, video.duration);
+    sprintf(text, "%.2fs/%.2fs", Time, media.duration);
 
     drawText(text, 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
         .x = swapchainExtent.width / 2 - measureText(text,TOP_BAR_FONT_SIZE) / 2,
@@ -1500,17 +1514,17 @@ bool draw(){
 
     vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
         .colorAttachment = previewView1,
-        .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        .renderArea = (VkExtent2D){.width = media.videoCodecContext->width, .height = media.videoCodecContext->height},
         .clearColor = (Color){0,0,0,1},
     });
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-        .width = videoFrame.width,
-        .height = videoFrame.height
+        .width = media.videoCodecContext->width,
+        .height = media.videoCodecContext->height
     });
         
     vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+        .extent = (VkExtent2D){.width = media.videoCodecContext->width, .height = media.videoCodecContext->height},
     });
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineImagePreview);
@@ -1555,17 +1569,17 @@ bool draw(){
 
         vkCmdBeginRenderingEX(cmd, (BeginRenderingEX){
             .colorAttachment = currentAttachment == 0 ? previewView2 : previewView1,
-            .renderArea = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+            .renderArea = (VkExtent2D){.width = media.videoCodecContext->width, .height = media.videoCodecContext->height},
             .clearColor = (Color){0,0,0,1},
         });
 
         vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-            .width = videoFrame.width,
-            .height = videoFrame.height
+            .width = media.videoCodecContext->width,
+            .height = media.videoCodecContext->height
         });
             
         vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-            .extent = (VkExtent2D){.width = videoFrame.width, .height = videoFrame.height},
+            .extent = (VkExtent2D){.width = media.videoCodecContext->width, .height = media.videoCodecContext->height},
         });
 
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, module->pipeline);
@@ -1642,13 +1656,17 @@ bool draw(){
 }
 
 bool postDraw(){
+    return true;
+
+    /*
+
     if(!rendering) return true;
     if(!didSmth) return true;
 
     if(stopRendering){
         rendering = false;
         stopRendering = false;
-        ffmpegVideoRenderFinish(&renderContext);
+        ffmpegMediaRenderFinish(&renderContext);
         free(frameDataProcessed);
         printf("Finished rendering!\n");
         return true;
@@ -1685,22 +1703,18 @@ bool postDraw(){
     void* frameData = currentAttachment == 0 ? previewMemoryMapped1 : previewMemoryMapped2;
 
     // Copy row by row, accounting for possible row pitch differences
-    for(size_t i = 0; i < videoFrame.height; i++) {
+    for(size_t i = 0; i < media.videoCodecContext->height; i++) {
         memcpy(
-            (uint8_t*)frameDataProcessed + i * videoFrame.width * sizeof(uint32_t),
+            (uint8_t*)frameDataProcessed + i * media.videoCodecContext->width * sizeof(uint32_t),
             (uint8_t*)frameData + i * videoVulkanStride,
-            videoFrame.width * sizeof(uint32_t)
+            media.videoCodecContext->width * sizeof(uint32_t)
         );
     }
 
-    Frame frame = {
-        .data = frameDataProcessed,
-        .width = videoFrame.width,
-        .height = videoFrame.height,
-        .frameTime = videoFrame.frameTime,
-    };
+    Frame renderFrame = frame;
+    renderFrame.video.data = frameDataProcessed;
     
-    if(!ffmpegVideoRenderPassFrame(&renderContext, &frame)) {
+    if(!ffmpegMediaRenderPassFrame(&renderContext, &renderFrame)) {
         printf("Failed to pass frame to renderer\n");
         return false;
     }
@@ -1725,4 +1739,6 @@ bool postDraw(){
     endSingleTimeCommands(tempCmd);
 
     return true;
+
+    */
 }

@@ -1,0 +1,60 @@
+#ifndef FVFX_FFMPEG_MEDIA
+#define FVFX_FFMPEG_MEDIA
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+
+typedef enum {
+    FRAME_TYPE_NONE = 0,
+    FRAME_TYPE_VIDEO,
+    FRAME_TYPE_AUDIO
+} FrameType;
+
+typedef struct {
+    void *data;
+    size_t width;
+    size_t height;
+} VideoFrame;
+
+typedef struct {
+    uint8_t* data;
+    size_t size;
+    int nb_samples;
+    int channels;
+    int sampleRate;
+    int bytes_per_sample;   // Bytes per sample
+} AudioFrame;
+
+typedef struct{
+    FrameType type;
+    double frameTime;
+    VideoFrame video;
+    AudioFrame audio;
+} Frame;
+
+typedef struct {
+    AVFormatContext* formatContext;
+    AVPacket* packet;
+
+    int videoStreamIndex;
+    AVCodecContext* videoCodecContext;
+    AVFrame* videoFrame;
+    struct SwsContext* swsContext;
+
+    int audioStreamIndex;
+    AVCodecContext* audioCodecContext;
+    AVFrame* audioFrame;
+
+    double duration;
+} Media;
+
+bool ffmpegMediaInit(const char* filename, Media* media);
+void ffmpegMediaUninit(Media* media);
+bool ffmpegMediaGetFrame(Media* media, Frame* frame);
+bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds);
+double ffmpegMediaDuration(Media* media);
+
+#endif

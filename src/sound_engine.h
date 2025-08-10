@@ -6,13 +6,15 @@
 typedef struct {
     void* data;
     size_t numberSamples;
-} AudioFrame;
+} SoundAudioFrame;
 
 bool initSoundEngine();
 uint32_t soundEngineGetSampleRate();
 uint32_t soundEngineGetChannels();
 bool soundEngineCanEnqueueFrame();
-bool soundEngineEnqueueFrame(AudioFrame* audioFrame);
+bool soundEngineEnqueueFrame(SoundAudioFrame* audioFrame);
 void soundEngineResetQueue();
+bool soundEngineInitialized();
+void soundEngineClear();
 
 #endif
