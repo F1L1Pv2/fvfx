@@ -106,6 +106,10 @@ bool parseSlice(Slice* slice, char* file_content, char* end_file_content, char**
 
     char* slice_ptr = file_content;
     while(end_file_content - file_content > 0 && file_content[0] != '\n') file_content++;
+    if(end_file_content - file_content <= 0) {
+        slice->offset = -1;
+        return true;
+    }
     size_t slice_size = file_content - slice_ptr;
 
     char* buff = calloc(slice_size+1, sizeof(char));
@@ -138,7 +142,7 @@ bool parseProjectFile(char** outputFilename, char** filename, Slices* slices, ch
         while(file_content[0] == '\n'  && end_file_content - file_content > 0) file_content++;
 
         if(!parseSlice(&slice, file_content, end_file_content, &file_content)) return false;
-        da_append(slices, slice);
+        if(slice.offset != -1) da_append(slices, slice);
     }
 
     return true;
