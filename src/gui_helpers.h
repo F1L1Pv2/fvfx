@@ -37,4 +37,6 @@ void drawFloatBox(Rect boundingBox, float* val);
 #define TEXTURE_EFFECT_SDF (1 << 2*8)
 #define TEXTURE_EFFECT_HSV_GRADIENT (1 << 2*8)
 
+float expDecay(float a, float b, float decay, float deltaTime);
+
 #endif

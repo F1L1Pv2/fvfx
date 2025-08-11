@@ -263,3 +263,7 @@ void drawFloatBox(Rect boundingBox, float* val){
 
     currentGUID++;
 }
+
+float expDecay(float a, float b, float decay, float deltaTime){
+    return b + (a - b) * expf(-decay*deltaTime);
+}

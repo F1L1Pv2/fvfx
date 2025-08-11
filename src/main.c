@@ -26,15 +26,17 @@
 #include "ffmpeg_media_render.h"
 #include "gui_helpers.h"
 #include <stdatomic.h>
-#include "string_alloc.h"
 #include "sound_engine.h"
 #include "ffmpeg_worker.h"
+#include "vfx.h"
+#include "ui_effectsRack.h"
+#include "ui_topBar.h"
+#include "ui_timeline.h"
+#include "ui_splitters.h"
 
 #ifndef min
 #define min(a,b) ((a) > (b) ? (b) : (a))
 #endif
-
-StringAllocator sa = {0};
 
 typedef struct{
     mat4 projView;
@@ -75,7 +77,7 @@ static VkPipeline pipelinePreview;
 static VkPipelineLayout pipelineLayoutPreview;
 static VkDescriptorSet outDescriptorSet1;
 static VkDescriptorSet outDescriptorSet2;
-static VkDescriptorSetLayout vfxDescriptorSetLayout;
+VkDescriptorSetLayout vfxDescriptorSetLayout;
 
 VkImage previewImage1;
 VkDeviceMemory previewMemory1;
@@ -101,375 +103,6 @@ MediaRenderContext renderContext = {0};
 Media media = {0};
 void* videoMapped = NULL;
 size_t videoVulkanStride = 0;
-
-typedef enum {
-    VFX_NONE = 0,
-    VFX_BOOL,
-    VFX_INT,
-    VFX_UINT,
-    VFX_FLOAT,
-    VFX_DOUBLE,
-
-    VFX_BVEC2,
-    VFX_BVEC3,
-    VFX_BVEC4,
-
-    VFX_IVEC2,
-    VFX_IVEC3,
-    VFX_IVEC4,
-
-    VFX_UVEC2,
-    VFX_UVEC3,
-    VFX_UVEC4,
-
-    VFX_VEC2, // float vecs
-    VFX_VEC3, // float vecs
-    VFX_VEC4, // float vecs
-
-    VFX_DVEC2,
-    VFX_DVEC3,
-    VFX_DVEC4,
-
-    VFX_COLOR,
-} VfxInputType;
-
-typedef struct{
-    VfxInputType type;
-    const char* name;
-} VfxInput;
-
-typedef struct{
-    VfxInput* items;
-    size_t count;
-    size_t capacity;
-} VfxInputs;
-
-typedef struct {
-    const char* filepath;
-    const char* name;
-    const char* description;
-    const char* author;
-    VfxInputs inputs;
-    VkPipeline pipeline;
-    VkPipelineLayout pipelineLayout;
-    size_t pushContantsSize;
-    void* defaultPushConstantValue;
-} VfxModule;
-
-typedef struct{
-    VfxModule* module;
-    void *inputPushConstants;
-    bool opened;
-} VfxInstance;
-
-typedef struct{
-    VfxInstance* items;
-    size_t count;
-    size_t capacity;
-} VfxInstances;
-
-typedef struct HashItem HashItem;
-
-struct HashItem {
-    HashItem* next;
-    String_View key;
-    VfxModule value;
-};
-
-typedef struct {
-    HashItem** buckets;
-    size_t bucket_count;
-} Hashmap;
-
-void initHashMap(Hashmap* hashmap, size_t size) {
-    hashmap->buckets = calloc(size, sizeof(HashItem*));
-    hashmap->bucket_count = size;
-}
-
-uint32_t hashFunction(const char *key, uint32_t map_size) {
-    uint32_t hash = 5381;
-    int c;
-    
-    while ((c = *key++)) {
-        hash = ((hash << 5) + hash) + c;
-    }
-    
-    return hash % map_size;
-}
-
-HashItem* getFromHashMap(Hashmap* hashmap, const char* key) {
-    uint32_t hash = hashFunction(key, hashmap->bucket_count);
-    String_View sv = sv_from_cstr(key);
-    HashItem** item_ptr = &hashmap->buckets[hash];
-
-    while (*item_ptr) {
-        if (sv_eq((*item_ptr)->key, sv)) {
-            return *item_ptr;
-        }
-        item_ptr = &(*item_ptr)->next;
-    }
-
-    HashItem* new_item = calloc(1, sizeof(HashItem));
-    new_item->key = sv_from_cstr(sa_strdup(&sa, key));
-    new_item->next = NULL;
-
-    *item_ptr = new_item;
-    return new_item;
-}
-
-char* get_vfxInputTypeName(VfxInputType type){
-    switch (type)
-    {
-        case VFX_BOOL: return "bool";
-        case VFX_INT: return "int";
-        case VFX_UINT: return "uint";
-        case VFX_FLOAT: return "float";
-        case VFX_DOUBLE: return "double";
-        case VFX_BVEC2: return "bvec2";
-        case VFX_BVEC3: return "bvec3";
-        case VFX_BVEC4: return "bvec4";
-        case VFX_IVEC2: return "ivec2";
-        case VFX_IVEC3: return "ivec3";
-        case VFX_IVEC4: return "ivec4";
-        case VFX_UVEC2: return "uvec2";
-        case VFX_UVEC3: return "uvec3";
-        case VFX_UVEC4: return "uvec4";
-        case VFX_VEC2: return "vec2";
-        case VFX_VEC3: return "vec3";
-        case VFX_VEC4: return "vec4";
-        case VFX_DVEC2: return "dvec2";
-        case VFX_DVEC3: return "dvec3";
-        case VFX_DVEC4: return "dvec4";
-
-        case VFX_COLOR: return "vec4";
-
-        default: UNREACHABLE("update this!");
-    }
-}
-
-size_t get_vfxInputTypeSize(VfxInputType type){
-    switch (type)
-    {
-        case VFX_BOOL: return sizeof(bool);
-        case VFX_INT: return sizeof(int32_t);
-        case VFX_UINT: return sizeof(uint32_t);
-        case VFX_FLOAT: return sizeof(float);
-        case VFX_DOUBLE: return sizeof(double);
-        case VFX_BVEC2: return sizeof(bool) * 2;
-        case VFX_BVEC3: return sizeof(bool) * 3;
-        case VFX_BVEC4: return sizeof(bool) * 4;
-        case VFX_IVEC2: return sizeof(int32_t) * 2;
-        case VFX_IVEC3: return sizeof(int32_t) * 3;
-        case VFX_IVEC4: return sizeof(int32_t) * 4;
-        case VFX_UVEC2: return sizeof(uint32_t) * 2;
-        case VFX_UVEC3: return sizeof(uint32_t) * 3;
-        case VFX_UVEC4: return sizeof(uint32_t) * 4;
-        case VFX_VEC2: return sizeof(float) * 2;
-        case VFX_VEC3: return sizeof(float) * 3;
-        case VFX_VEC4: return sizeof(float) * 4;
-        case VFX_DVEC2: return sizeof(double) * 2;
-        case VFX_DVEC3: return sizeof(double) * 3;
-        case VFX_DVEC4: return sizeof(double) * 4;
-
-        case VFX_COLOR: return sizeof(float) * 4;
-
-        default: UNREACHABLE("update this!");
-    }
-}
-
-bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
-    sv = sv_trim_left(sv);
-    if(sv.count < 2) {
-        printf("Empty file!");
-        return false;
-    }
-    if(sv.data[0] != '/' && sv.data[1] != '*') {
-        printf("No metadata descriptor\n");
-        return false;
-    }
-    sv.data += 2;
-    sv = sv_trim_left(sv);
-    if(sv.count == 0) {
-        printf("Empty file!");
-        return false;
-    }
-
-    String_Builder sb = {0};
-
-    while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
-        String_View leftSide = sv_chop_by_delim(&sv, ':');
-        sv = sv_trim_left(sv);
-
-        String_View arg = sv_chop_by_delim(&sv, '\n');
-        if(arg.count == 0) printf("Expected value for "SV_Fmt"\n",SV_Arg(leftSide));
-        if(sv_eq(leftSide, sv_from_cstr("Name"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->name = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Description"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->description = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Author"))){
-            sb.count = 0;
-            sb_append_buf(&sb, arg.data, arg.count);
-            sb_append_null(&sb);
-            out->author = sa_strdup(&sa, sb.items);
-        }
-        else if(sv_eq(leftSide, sv_from_cstr("Input"))){
-            String_View inputArg = sv_trim_left(arg);
-            String_View inputType = sv_trim(sv_chop_by_delim(&inputArg, ' '));
-            String_View inputName = sv_trim(sv_chop_by_delim(&inputArg, ' '));
-
-            if(inputType.count == 0){
-                printf("Please provide type for MetaInput\n");
-                return false;
-            }
-
-            if(inputName.count == 0){
-                printf("Please provide name for MetaInput\n");
-                return false;
-            }
-
-            VfxInput input = {0};
-            
-                 if(sv_eq(inputType, sv_from_cstr("float"))) input.type = VFX_FLOAT;
-            else if(sv_eq(inputType, sv_from_cstr("int"))) input.type = VFX_INT;
-            else if(sv_eq(inputType, sv_from_cstr("uint"))) input.type = VFX_UINT;
-            else if(sv_eq(inputType, sv_from_cstr("double"))) input.type = VFX_DOUBLE;
-            else if(sv_eq(inputType, sv_from_cstr("bool"))) input.type = VFX_BOOL;
-
-            else if(sv_eq(inputType, sv_from_cstr("vec2"))) input.type = VFX_VEC2;
-            else if(sv_eq(inputType, sv_from_cstr("vec3"))) input.type = VFX_VEC3;
-            else if(sv_eq(inputType, sv_from_cstr("vec4"))) input.type = VFX_VEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("bvec2"))) input.type = VFX_BVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("bvec3"))) input.type = VFX_BVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("bvec4"))) input.type = VFX_BVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("ivec2"))) input.type = VFX_IVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("ivec3"))) input.type = VFX_IVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("ivec4"))) input.type = VFX_IVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("uvec2"))) input.type = VFX_UVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("uvec3"))) input.type = VFX_UVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("uvec4"))) input.type = VFX_UVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("dvec2"))) input.type = VFX_DVEC2;
-            else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
-            else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
-
-            else if(sv_eq(inputType, sv_from_cstr("Color"))) input.type = VFX_COLOR;
-
-            if(input.type == VFX_NONE){
-                printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
-                return false;
-            }
-            
-            sb.count = 0;
-            sb_append_buf(&sb, inputName.data, inputName.count);
-            sb_append_null(&sb);
-            input.name = sa_strdup(&sa, sb.items);
-
-            da_append(&out->inputs, input);
-
-            if(inputArg.count > 0){
-                sb.count = 0;
-                sb_append_buf(&sb, inputArg.data, inputArg.count);
-                sb_append_null(&sb);
-
-                out->defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
-
-                switch (input.type)
-                {
-                case VFX_FLOAT: sscanf(sb.items,"%f",         ((float*)out->defaultPushConstantValue)); break;
-                case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1); break;
-                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2); break;
-                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
-                case VFX_COLOR: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
-                
-                default: TODO("IMPLEMENT THIS");
-                }
-            }
-        }
-        else{
-            printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
-
-            da_free(sb);
-            return false;
-        }
-        sv = sv_trim_left(sv);
-        if(sv.count == 0) {
-            printf("No metadata ending '*/' reached end of file");
-            da_free(sb);
-            return false;
-        }
-    }
-
-    da_free(sb);
-    return true;
-}
-
-bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
-    String_Builder newSB = {0};
-
-    const char* prepend = 
-                        "#version 450\n"
-                        "layout(location = 0) out vec4 outColor;\n"
-                        "layout(location = 0) in vec2 uv;\n"
-                        "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n"
-                        "vec4 hsv2rgba(vec4 c) {\n"
-                        "    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0),\n"
-                        "                            6.0) - 3.0) - 1.0,\n"
-                        "                    0.0,\n"
-                        "                    1.0);\n"
-                        "    rgb = rgb * rgb * (3.0 - 2.0 * rgb); // smoothstep-like\n"
-                        "    return vec4(c.z * mix(vec3(1.0), rgb, c.y), c.w);\n"
-                        "}\n"
-    ;
-
-    sb_append_cstr(&newSB, prepend);
-
-
-    /*
-    
-    layout (push_constant) uniform constants
-    {
-        mat4 projView;
-        SpriteDrawBuffer spriteDrawBuffer;
-    } Input;
-    
-    */
-
-
-    if(module->inputs.count > 0){
-        
-        sb_append_cstr(&newSB, "layout (push_constant) uniform constants\n{\n");
-
-        for(size_t i = 0; i < module->inputs.count; i++){
-            assert(module->inputs.items[i].type != VFX_NONE);
-            sb_append_cstr(&newSB, get_vfxInputTypeName(module->inputs.items[i].type));
-            sb_append_cstr(&newSB, " ");
-            sb_append_cstr(&newSB, module->inputs.items[i].name);
-            sb_append_cstr(&newSB, ";\n");
-        }
-
-        sb_append_cstr(&newSB, "} Input;\n");
-    }
-
-
-    sb_append_buf(&newSB,sb->items,sb->count);
-
-    da_free((*sb));
-
-    *sb = newSB;
-
-    return true;
-}
 
 Hashmap vfxModulesHashMap = {0};
 VfxInstances currentModuleInstances = {0};
@@ -794,372 +427,61 @@ int main(int argc, char** argv){
 }
 
 String_Builder sb = {0};
-VkShaderModule fragmentShader;
-
-#define EFFECT_RACK_OFFSET_BETWEEN_INSTANCES 2
-
-SpriteDrawCommands tempDrawQueue = {0};
-
-float scrollOffset = 0;
-
-float targetScrollOffset = 0;
-
-float expDecay(float a, float b, float decay, float deltaTime){
-    return b + (a - b) * expf(-decay*deltaTime);
-}
-
-void drawCurrentModuleInstances(Rect vfxContainer,float deltaTime){
-    size_t savedCurrentModuleInstancesCount = currentModuleInstances.count;
-    if(savedCurrentModuleInstancesCount > 0) beginScissor(vfxContainer.x, vfxContainer.y, vfxContainer.width, vfxContainer.height);
-
-    const float ContainerHeight = UI_FONT_SIZE * 1.5;
-    const float ContainerWidth = vfxContainer.width;
-    
-    if(targetScrollOffset > 0){
-        targetScrollOffset = expDecay(targetScrollOffset, 0, 8, deltaTime);
-    }
-    scrollOffset = expDecay(scrollOffset, targetScrollOffset, 8, deltaTime);
-
-    float offset = 0;
-
-    float lastElementSize = 0;
-
-    for(size_t i = 0; i < currentModuleInstances.count; i++){
-        VfxInstance* instance = &currentModuleInstances.items[i];
-
-        const float moduleX = vfxContainer.x;
-        const float moduleY = vfxContainer.y + offset + scrollOffset;
-
-        Rect moduleRect = (Rect){
-            .x = moduleX,
-            .y = moduleY,
-            .width = ContainerWidth,
-            .height = ContainerHeight
-        };
-
-        bool hovering = pointInsideRect(input.mouse_x, input.mouse_y, moduleRect);
-
-        if(((input.keys[KEY_CONTROL].isDown && input.scroll > 0) || input.keys[KEY_UP].justReleased) && i > 0 && hovering){
-            VfxInstance copy = *instance;
-            memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i - 1], sizeof(VfxInstance));
-            memcpy(&currentModuleInstances.items[i - 1], &copy, sizeof(VfxInstance));
-        }
-
-        if(((input.keys[KEY_CONTROL].isDown && input.scroll < 0) || input.keys[KEY_DOWN].justReleased) && i < currentModuleInstances.count-1 && hovering){
-            VfxInstance copy = *instance;
-            memcpy(&currentModuleInstances.items[i], &currentModuleInstances.items[i + 1], sizeof(VfxInstance));
-            memcpy(&currentModuleInstances.items[i + 1], &copy, sizeof(VfxInstance));
-        }
-
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){moduleX, moduleY},
-            .scale = (vec2){ContainerWidth, ContainerHeight},
-            .albedo = hovering ? hex2rgb(0xFF808080) : hex2rgb(0xFF404040)
-        });
-
-        drawText(instance->module->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-            .x = moduleX + ContainerWidth/2 - measureText(instance->module->name, UI_FONT_SIZE)/2,
-            .y = moduleY
-        });
-
-        if(instance->module->inputs.count > 0){
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){moduleX + UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
-                .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
-                .textureIDEffects = instance->opened ? getTextureID("assets/DropdownOpen.png") : getTextureID("assets/DropdownClosed.png")
-            });
-        }
-
-        Rect deleteRect = (Rect){
-            .x = moduleRect.x + moduleRect.width - UI_FONT_SIZE - UI_FONT_SIZE/8,
-            .y = moduleRect.y,
-            .width = UI_FONT_SIZE,
-            .height = UI_FONT_SIZE
-        };
-
-        bool hoverDelete = pointInsideRect(input.mouse_x, input.mouse_y, deleteRect);
-
-        drawSprite((SpriteDrawCommand){
-            .position = (vec2){moduleX + ContainerWidth - UI_FONT_SIZE - UI_FONT_SIZE/8, moduleY + ContainerHeight/2 - UI_FONT_SIZE/2},
-            .scale = (vec2){UI_FONT_SIZE, UI_FONT_SIZE},
-            .textureIDEffects = getTextureID("assets/DropdownDelete.png") | (2 << 16),
-            .albedo = hoverDelete ? hex2rgb(0xFFff3f3f) : hex2rgb(0xFFFFFFFF)
-        });
-
-        if(instance->module->inputs.count > 0){
-            if(input.keys[KEY_MOUSE_LEFT].justReleased && hovering && !hoverDelete) instance->opened = !instance->opened;
-        }
-
-        if((input.keys[KEY_MOUSE_LEFT].justReleased && hoverDelete) || (input.keys[KEY_DELETE].justReleased && hovering)) da_remove_at(&currentModuleInstances, i);
-
-        offset += ContainerHeight;
-
-        lastElementSize = ContainerHeight;
-
-        if(instance->opened && instance->module->inputs.count > 0){
-            tempDrawQueue.count = 0;
-            redirectDrawSprites(&tempDrawQueue);
-
-            float openSize = 0;
-
-            Rect openRect = (Rect){
-                .x = moduleRect.x,
-                .y = moduleRect.y + moduleRect.height,
-                .width = moduleRect.width,
-            };
-
-            size_t byteOffset = 0;
-
-            for(size_t j = 0; j < instance->module->inputs.count; j++){
-                float inputY = openRect.y + 1 + openSize;
-
-                VfxInput* inputVFX = &instance->module->inputs.items[j];
-
-                float textY = inputY;
-
-                const float inputWidth = min(openRect.width - measureText(inputVFX->name, UI_FONT_SIZE), openRect.width * 0.65);
-                const float inputHeight = UI_FONT_SIZE * 1.5;
-
-                switch (inputVFX->type)
-                {
-                case VFX_FLOAT:
-                    {
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
-                            .y = inputY,
-                            .width = inputWidth,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
-
-                        openSize += inputHeight;
-                        break;
-                    }
-                
-                case VFX_VEC2:
-                    {
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
-                            .y = inputY,
-                            .width = inputWidth/2,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth/2,
-                            .y = inputY,
-                            .width = inputWidth/2,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
-
-                        openSize += inputHeight;
-                        break;
-                    }
-
-                case VFX_VEC3:
-                    {
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
-                            .y = inputY,
-                            .width = inputWidth/3,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
-                        
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth + inputWidth/3,
-                            .y = inputY,
-                            .width = inputWidth/3,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth/3,
-                            .y = inputY,
-                            .width = inputWidth/3,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2));
-
-                        openSize += inputHeight;
-                        break;
-                    }
-
-                case VFX_VEC4:
-                    {
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
-                            .y = inputY,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset));
-                        
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth + inputWidth/4,
-                            .y = inputY,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float)));
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth + inputWidth * 2 /4,
-                            .y = inputY,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 2));
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth/4,
-                            .y = inputY,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3));
-
-                        openSize += inputHeight;
-                        break;
-                    }
-
-                case VFX_COLOR: 
-                    {
-                        vec3* hsv = (vec3*)(instance->inputPushConstants + byteOffset);
-
-                        const float padding = 10;
-
-                        float finalHeight = 0;
-                        float width = min(inputWidth - padding, 200);
-                        float height = width;
-
-                        Rect colorPicker = (Rect){
-                            .x = openRect.x + openRect.width - width - padding/2,
-                            .y = inputY + padding/2,
-                            .width = width,
-                            .height = height,
-                        };
-
-                        if(pointInsideRect(input.mouse_x, input.mouse_y, colorPicker) && input.keys[KEY_MOUSE_LEFT].isDown){
-                            hsv->y = ((float)input.mouse_x - colorPicker.x) / colorPicker.width;
-                            hsv->z = 1.0f - ((float)input.mouse_y - colorPicker.y) / colorPicker.height;
-                        }
-
-                        drawSprite((SpriteDrawCommand){
-                            .position = (vec2){colorPicker.x, colorPicker.y},
-                            .scale = (vec2){colorPicker.width, colorPicker.height},
-                            .albedo = (vec3){hsv->x},
-                            .textureIDEffects = TEXTURE_EFFECT_HSV_GRADIENT,
-                        });
-
-                        float pickerSize = 12.5;
-
-                        drawSprite((SpriteDrawCommand){
-                            .position = (vec2){
-                                colorPicker.x + hsv->y * colorPicker.width - pickerSize/2,
-                                colorPicker.y + (1.0f - hsv->z) * colorPicker.height - pickerSize/2,
-                            },
-                            .scale = (vec2){
-                                pickerSize, pickerSize
-                            },
-                            .textureIDEffects = getTextureID("assets/ColorPicker.png"),
-                        });
-
-                        finalHeight += height + padding;
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth,
-                            .y = inputY + finalHeight,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, &hsv->x);
-                        
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth + inputWidth/4,
-                            .y = inputY + finalHeight,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, &hsv->y);
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth + inputWidth * 2 /4,
-                            .y = inputY + finalHeight,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, &hsv->z);
-
-                        drawFloatBox((Rect){
-                            .x = openRect.x + openRect.width - inputWidth/4,
-                            .y = inputY + finalHeight,
-                            .width = inputWidth/4,
-                            .height = inputHeight,
-                        }, (float*)((char*)instance->inputPushConstants + byteOffset + sizeof(float) * 3));
-
-                        finalHeight += inputHeight;
-
-                        openSize += finalHeight;
-                        textY = inputY + finalHeight / 2 - UI_FONT_SIZE * 0.75;
-                        break;
-                    }
-
-                default: UNREACHABLE("Implement This!");
-                }
-
-                drawText(inputVFX->name, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-                    .x = openRect.x,
-                    .y = textY,
-                });
-
-                byteOffset += get_vfxInputTypeSize(inputVFX->type);
-            }
-
-            redirectDrawSprites(NULL);
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y},
-                .scale = (vec2){openRect.width, openSize},
-                .albedo = hex2rgb(0xFF909090)
-            });
-
-            drawSprite((SpriteDrawCommand){
-                .position = (vec2){openRect.x, openRect.y + 1},
-                .scale = (vec2){openRect.width, openSize - 1},
-                .albedo = hex2rgb(0xFF404040)
-            });
-
-            drawSprites(&tempDrawQueue);
-
-            offset += openSize;
-            lastElementSize += openSize;
-        }
-
-        offset += EFFECT_RACK_OFFSET_BETWEEN_INSTANCES;
-    }
-
-    bool largeEnough = offset > vfxContainer.height;
-
-    if(!input.keys[KEY_CONTROL].isDown && pointInsideRect(input.mouse_x, input.mouse_y, vfxContainer) && input.scroll != 0){
-        if(largeEnough){
-            targetScrollOffset += (float)input.scroll * 0.2;
-        }else if(input.scroll > 0){
-            targetScrollOffset += (float)input.scroll * 0.2;
-        }
-    }
-
-    if(largeEnough && -targetScrollOffset > offset - vfxContainer.height){
-        targetScrollOffset = expDecay(targetScrollOffset, -( offset - vfxContainer.height), 8, deltaTime);
-    }else if(!largeEnough && targetScrollOffset < 0){
-        targetScrollOffset = expDecay(targetScrollOffset, 0, 8, deltaTime);
-    }
-
-    if(savedCurrentModuleInstancesCount > 0) endScissor();
-}
 
 float effectTabSplitterOffset = 150;
 float timelineSplitterOffset = 100;
 
 #define SPLITTER_THICKNESS 4
 
-#define TOP_BAR_FONT_SIZE 16
-
 bool rendering = false;
 bool stopRendering = false;
 
 void* frameDataProcessed = NULL;
 
+void updatePreviewFrame(){
+    Frame* frame = NULL;
+
+    while ((frame = workerPeekVideoFrame()) != NULL) {
+        if (frame->frameTime > Time)
+            break;
+        frame = workerAskForVideoFrame();
+        if (frame) {
+            for (int i = 0; i < media.videoCodecContext->height; i++) {
+                memcpy(
+                    videoMapped + videoVulkanStride * i,
+                    frame->video.data + media.videoCodecContext->width * sizeof(uint32_t) * i,
+                    media.videoCodecContext->width * sizeof(uint32_t)
+                );
+            }
+            free(frame->video.data);
+            frame->video.data = NULL;
+        }
+    }
+
+    if (Time >= media.duration) {
+        if (rendering)
+            stopRendering = true;
+        Time = 0;
+        workerAskForSeek(Time);
+    }
+}
+
+bool handleDragNDrop(Rect effectsTab){
+    if(platform_drag_and_drop_available()){
+        ui_reset();
+
+        int count = -1;
+        const char** dragndrop = platform_get_drag_and_drop_files(&count);
+
+        printf("Got drag and drop mousex: %zu mousey: %zu\n", input.mouse_x, input.mouse_y);
+        if(pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
+            if(!addEffectsToRack(&currentModuleInstances, &vfxModulesHashMap, dragndrop, count)) return false;
+        }
+        
+        platform_release_drag_and_drop(dragndrop, count);
+    }
+    return true;
+}
 
 bool update(float deltaTime){
     ui_begin();
@@ -1167,34 +489,7 @@ bool update(float deltaTime){
     temp_reset();
     if(!soundEngineInitialized() && playing) Time += deltaTime;
 
-    if (playing) {
-        Frame* frame = NULL;
-
-        while ((frame = workerPeekVideoFrame()) != NULL) {
-            if (frame->frameTime > Time)
-                break;
-
-            frame = workerAskForVideoFrame();
-            if (frame) {
-                for (int i = 0; i < media.videoCodecContext->height; i++) {
-                    memcpy(
-                        videoMapped + videoVulkanStride * i,
-                        frame->video.data + media.videoCodecContext->width * sizeof(uint32_t) * i,
-                        media.videoCodecContext->width * sizeof(uint32_t)
-                    );
-                }
-                free(frame->video.data);
-                frame->video.data = NULL;
-            }
-        }
-
-        if (Time >= media.duration) {
-            if (rendering)
-                stopRendering = true;
-            Time = 0;
-            workerAskForSeek(Time);
-        }
-    }
+    if (playing) updatePreviewFrame();
 
     if(input.keys[KEY_SPACE].justPressed) playing = !playing;
 
@@ -1262,87 +557,9 @@ bool update(float deltaTime){
         previewRect.x,previewRect.y,0,1,
     };
 
-    if(platform_drag_and_drop_available()){
-        ui_reset();
-
-        int count = -1;
-        const char** dragndrop = platform_get_drag_and_drop_files(&count);
-
-        printf("Got drag and drop mousex: %zu mousey: %zu\n", input.mouse_x, input.mouse_y);
-        if(pointInsideRect(input.mouse_x, input.mouse_y, effectsTab)){
-            for(int i = 0; i < count; i++){
-    
-                HashItem* item = getFromHashMap(&vfxModulesHashMap, dragndrop[i]);
-                if(item == NULL){
-                    printf("UNREACHABLE!\n");
-                    return false;
-                }
-    
-                if(item->value.filepath == NULL){
-                    item->value = (VfxModule){0};
-                    item->value.filepath = item->key.data;
-        
-                    sb.count = 0;
-                    nob_read_entire_file(item->value.filepath,&sb);
-                    
-                    //REMOVING FOCKIN CARRIAGE RETURN!
-                    char* current_pos = sb.items;
-                    while ((current_pos = strchr(current_pos, '\r'))) {
-                        memmove(current_pos, current_pos + 1, strlen(current_pos + 1) + 1);
-                        sb.count--;
-                    }
-    
-                    if(!extractVFXModuleMetaData(sb_to_sv(sb), &item->value)) return false;
-                    if(!preprocessVFXModule(&sb, &item->value)) return false;
-                    sb_append_null(&sb);
-                    
-                    if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
-                    
-                    size_t pushContantsSize = 0;
-                    for(size_t i = 0; i < item->value.inputs.count; i++){
-                        pushContantsSize += get_vfxInputTypeSize(item->value.inputs.items[i].type);
-                    }
-                    item->value.pushContantsSize = pushContantsSize;
-    
-                    if(!createGraphicPipeline((CreateGraphicsPipelineARGS){
-                        .vertexShader = vfxVertexShader,
-                        .fragmentShader = fragmentShader,
-                        .pipelineOUT = &item->value.pipeline,
-                        .pipelineLayoutOUT = &item->value.pipelineLayout,
-                        .descriptorSetLayoutCount = 1,
-                        .descriptorSetLayouts = &vfxDescriptorSetLayout,
-                        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                        .pushConstantsSize = pushContantsSize,
-                    })) return false;
-    
-                    printf("COMPILIN!\n");
-                }
-    
-                VfxInstance instance = {0};
-                instance.module = &item->value;
-    
-                if(instance.module->pushContantsSize > 0){
-                    instance.inputPushConstants = calloc(instance.module->pushContantsSize,1);
-                    if(instance.module->defaultPushConstantValue != NULL){
-                        memcpy(instance.inputPushConstants, instance.module->defaultPushConstantValue, instance.module->pushContantsSize);
-                    }
-                }
-                
-                da_append(&currentModuleInstances, instance);
-            }
-        }
-        
-        platform_release_drag_and_drop(dragndrop, count);
-    }
+    if(!handleDragNDrop(effectsTab)) return false;
 
     // --------------------------- EFFECTS RACK --------------------------------
-    Rect effectRack = (Rect){
-        .width = effectsTab.width - SPLITTER_THICKNESS,
-        .height = effectsTab.height,
-        .x = effectsTab.x + SPLITTER_THICKNESS,
-        .y = effectsTab.y
-    };
-
     Rect effectRackSplitter = (Rect){
         .width = SPLITTER_THICKNESS,
         .height = effectsTab.height,
@@ -1350,62 +567,18 @@ bool update(float deltaTime){
         .y = effectsTab.y
     };
 
-    bool effectsSplitterHover = pointInsideRect(input.mouse_x, input.mouse_y, effectRackSplitter);
     static bool usingEffectsSplitter = false;
+    drawHorizontalSplitter(effectRackSplitter, &usingEffectsSplitter, &effectTabSplitterOffset);
 
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectRackSplitter.x, effectRackSplitter.y},
-        .scale = (vec2){effectRackSplitter.width, effectRackSplitter.height},
-        .albedo = effectsSplitterHover || usingEffectsSplitter ? hex2rgb(0xFF909090) : hex2rgb(0xFF101010),
-    });
-
-    if(effectsSplitterHover && !usingEffectsSplitter && input.keys[KEY_MOUSE_LEFT].justPressed) usingEffectsSplitter = true;
-    if(usingEffectsSplitter && input.keys[KEY_MOUSE_LEFT].justReleased) usingEffectsSplitter = false;
-    if(usingEffectsSplitter) effectTabSplitterOffset = swapchainExtent.width - input.mouse_x;
-
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectRack.x, effectRack.y},
-        .scale = (vec2){effectRack.width, effectRack.height},
-        .albedo = hex2rgb(0xFF252525),
-    });
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectRack.x, effectRack.y},
-        .scale = (vec2){effectRack.width, UI_FONT_SIZE * 1.5},
-        .albedo = hex2rgb(0xFF454545)
-    });
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){effectRack.x, effectRack.y},
-        .scale = (vec2){effectRack.width, UI_FONT_SIZE * 1.5 - 1},
-        .albedo = hex2rgb(0xFF181818)
-    });
-
-    char* effectsRackStr = "Effects Rack";
-
-    drawText(effectsRackStr, 0xFFFFFFFF, UI_FONT_SIZE, (Rect){
-        .x = effectRack.x + effectRack.width/2 - measureText(effectsRackStr, UI_FONT_SIZE)/2,
-        .y = effectRack.y + UI_FONT_SIZE*1.5/2 - UI_FONT_SIZE * 0.75,
-    });
-
-    Rect vfxContainer = (Rect){
-        .x = effectRack.x,
-        .y = effectRack.y + UI_FONT_SIZE * 1.5 + 2,
-        .width = effectRack.width,
-        .height = effectRack.height - UI_FONT_SIZE * 1.5
+    Rect effectRack = (Rect){
+        .width = effectsTab.width - SPLITTER_THICKNESS,
+        .height = effectsTab.height,
+        .x = effectsTab.x + SPLITTER_THICKNESS,
+        .y = effectsTab.y
     };
-
-    drawCurrentModuleInstances(vfxContainer, deltaTime);
+    drawEffectsRack(deltaTime, &currentModuleInstances, effectRack);
 
     // --------------------------- Timeline --------------------------------
-
-    Rect timelineContainer = (Rect){
-        .width = timelineRect.width,
-        .height = timelineRect.height - SPLITTER_THICKNESS,
-        .x = timelineRect.x,
-        .y = timelineRect.y + SPLITTER_THICKNESS
-    };
 
     Rect timelineSplitter = (Rect){
         .width = timelineRect.width,
@@ -1414,66 +587,20 @@ bool update(float deltaTime){
         .y = timelineRect.y
     };
 
-    bool timelineSplitterHover = pointInsideRect(input.mouse_x, input.mouse_y, timelineSplitter);
     static bool usingTimelineSplitter = false;
+    drawVerticalSplitter(timelineSplitter, &usingTimelineSplitter, &timelineSplitterOffset);
 
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){timelineSplitter.x, timelineSplitter.y},
-        .scale = (vec2){timelineSplitter.width, timelineSplitter.height},
-        .albedo = timelineSplitterHover || usingTimelineSplitter ? hex2rgb(0xFF909090) : hex2rgb(0xFF101010),
-    });
+    Rect timelineContainer = (Rect){
+        .width = timelineRect.width,
+        .height = timelineRect.height - SPLITTER_THICKNESS,
+        .x = timelineRect.x,
+        .y = timelineRect.y + SPLITTER_THICKNESS
+    };
 
-    if(timelineSplitterHover && !usingTimelineSplitter && input.keys[KEY_MOUSE_LEFT].justPressed) usingTimelineSplitter = true;
-    if(usingTimelineSplitter && input.keys[KEY_MOUSE_LEFT].justReleased) usingTimelineSplitter = false;
-    if(usingTimelineSplitter) timelineSplitterOffset = swapchainExtent.height - input.mouse_y;
-
-    float percent = Time / media.duration;
-
-    float cursorWidth = 1;
-
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){timelineContainer.x, timelineContainer.y},
-        .scale = (vec2){timelineContainer.width, timelineContainer.height},
-        .albedo = hex2rgb(0xFF181818),
-    });
-    
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){floor(timelineContainer.x+percent*timelineContainer.width+cursorWidth/2),timelineContainer.y},
-        .scale = (vec2){cursorWidth, timelineContainer.height},
-        .albedo = hex2rgb(0xFFFF0000),
-    });
-
-    if(pointInsideRect(input.mouse_x, input.mouse_y, timelineContainer) && input.keys[KEY_MOUSE_LEFT].justPressed){
-        Time = ((float)input.mouse_x - timelineContainer.x) * media.duration / timelineContainer.width;
-        workerAskForSeek(Time);
-        //TODO: add back drawing pr3eview during not playing
-    }
+    drawTimeline(timelineContainer, &Time, &media);
 
     // -------------------------------- top bar ---------------------------------------
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){topBarRect.x, topBarRect.y},
-        .scale = (vec2){topBarRect.width, topBarRect.height},
-        .albedo = hex2rgb(0xFF454545),
-    });
-    drawSprite((SpriteDrawCommand){
-        .position = (vec2){topBarRect.x, topBarRect.y},
-        .scale = (vec2){topBarRect.width, topBarRect.height - 1},
-        .albedo = hex2rgb(0xFF181818),
-    });
-
-    drawText(rendering ? "FVFX RENDERING!" : "FVFX", 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
-        .x = 10,
-        .y = 3,
-    });
-
-    char text[256];
-
-    sprintf(text, "%.2fs/%.2fs", Time, media.duration);
-
-    drawText(text, 0xFFFFFF, TOP_BAR_FONT_SIZE, (Rect){
-        .x = swapchainExtent.width / 2 - measureText(text,TOP_BAR_FONT_SIZE) / 2,
-        .y = 3,
-    });
+    drawTopBar(topBarRect);
 
     ui_end();
 
