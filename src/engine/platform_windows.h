@@ -165,6 +165,11 @@ HINSTANCE hInstance;
 HWND hwnd;
 
 void platform_create_window(const char* title, size_t width, size_t height){
+    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+    } else {
+        SetProcessDPIAware(); 
+    }
+
     RECT wr;
     wr.left = 100;
     wr.right = width + wr.left;
