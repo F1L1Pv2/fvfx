@@ -19,134 +19,78 @@ typedef struct{
     size_t capacity;
 } Slices;
 
-bool parseArgument(String_View* name, String_View* value, char* file_content, char* end_file_content, char** out_file_content){
-    name->data = file_content;
-    name->count = 0;
-    while(file_content[0] != ':' && file_content < end_file_content) {
-        name->count++;
-        file_content++;
-    }
-
-    if(file_content >= end_file_content){
-        fprintf(stderr, "expected : after parameter name\n");
-        return false;
-    }
-
-    file_content++;
-    value->data = file_content;
-    value->count = 0;
-    while(file_content[0] != '\n' && file_content < end_file_content) {
-        value->count++;
-        file_content++;
-    }
-
-    if(file_content >= end_file_content){
-        fprintf(stderr, "expected new line after parameter value\n");
-        return false;
-    }
-    file_content++;
-
-    *name = sv_trim_left(*name);
-    *name = sv_trim(*name);
-    *value = sv_trim(*value);
-    *value = sv_trim_left(*value);
-
-    *out_file_content = file_content;
-    return true;
+static char* str_dup_range(const char* start, size_t len) {
+    char* s = malloc(len + 1);
+    if (!s) return NULL;
+    memcpy(s, start, len);
+    s[len] = '\0';
+    return s;
 }
 
-bool parseHeader(char** outputFilename, char** filename, char* file_content, char* end_file_content, char** out_file_content){
-    if(end_file_content - file_content < 3) {
-        fprintf(stderr, "too small file!\n");
-        return false;
-    }
+/**
+ * Parse slices text buffer.
+ * - buf/size: input text buffer
+ * - out_slices: dynamic array to fill
+ * - out_media: pointer to char* (caller frees)
+ * - out_output: pointer to char* (caller frees)
+ */
+int parse_slices(const char* buf, size_t size,
+                 Slices* out_slices,
+                 char** out_media,
+                 char** out_output)
+{
+    *out_media = NULL;
+    *out_output = NULL;
 
-    if(!(file_content[0] == '/' && file_content[1] == '*')) {
-        fprintf(stderr, "header needs to start with /* and end with */\n");
-        return false;
-    }
+    const char* end = buf + size;
+    const char* line = buf;
 
-    file_content += 2;
+    while (line < end) {
+        const char* next = memchr(line, '\n', (size_t)(end - line));
+        size_t line_len = next ? (size_t)(next - line) : (size_t)(end - line);
 
-    while(file_content[0] == '\n' && end_file_content - file_content > 0) file_content++;
-
-    String_View parameter_name = {0};
-    String_View parameter_value = {0};
-
-    while(file_content+1 < end_file_content && file_content[0] != '*' && end_file_content[1] != '/'){
-        if(!parseArgument(&parameter_name, &parameter_value, file_content, end_file_content, &file_content)) return false;
-        assert(parameter_name.count > 0);
-        assert(parameter_value.count > 0);
-
-        if(sv_eq(parameter_name, sv_from_cstr("output"))){
-            *outputFilename = calloc(parameter_value.count+1,sizeof(char));
-            memcpy(*outputFilename, parameter_value.data, parameter_value.count);
-            continue;
+        if (line_len > 0 && line[line_len - 1] == '\r') {
+            line_len--;
         }
-        if(sv_eq(parameter_name, sv_from_cstr("media"))){
-            *filename = calloc(parameter_value.count+1,sizeof(char));
-            memcpy(*filename, parameter_value.data, parameter_value.count);
-            continue;
+
+        const char* p = line;
+        while (p < line + line_len && isspace((unsigned char)*p)) p++;
+
+        if (p < line + line_len) {
+            if (strncmp(p, "output:", 7) == 0) {
+                p += 7;
+                while (p < line + line_len && isspace((unsigned char)*p)) p++;
+                *out_output = str_dup_range(p, (size_t)(line + line_len - p));
+            } else if (strncmp(p, "media:", 6) == 0) {
+                p += 6;
+                while (p < line + line_len && isspace((unsigned char)*p)) p++;
+                *out_media = str_dup_range(p, (size_t)(line + line_len - p));
+            } else if (isdigit((unsigned char)*p)) {
+                int h = 0, m = 0, s = 0, ms = 0;
+                double duration = 0.0;
+
+                int parsed = sscanf(p, "%d:%d:%d:%d %lf", &h, &m, &s, &ms, &duration);
+                if (parsed == 5) {
+                    double offset = (double)h * 3600.0 +
+                                    (double)m * 60.0 +
+                                    (double)s +
+                                    (double)ms / 1000.0;
+
+                    Slice slice = { offset, duration };
+                    da_append(out_slices, slice);
+                } else {
+                    fprintf(stderr, "Warning: could not parse line: %.*s\n",
+                            (int)line_len, line);
+                }
+            }
         }
+
+        line = next ? next + 1 : end;
     }
 
-    file_content += 2;
-
-    *out_file_content = file_content;
-    return true;
+    return 0;
 }
 
-bool parseSlice(Slice* slice, char* file_content, char* end_file_content, char** out_file_content){
-    size_t hour;
-    size_t minute;
-    size_t second;
-    size_t milisecond;
-
-    double duration;
-
-    char* slice_ptr = file_content;
-    while(end_file_content - file_content > 0 && file_content[0] != '\n') file_content++;
-    if(end_file_content - file_content <= 0) {
-        slice->offset = -1;
-        return true;
-    }
-    size_t slice_size = file_content - slice_ptr;
-
-    char* buff = calloc(slice_size+1, sizeof(char));
-    memcpy(buff, slice_ptr, slice_size);
-
-    if(sscanf(buff, "%zu:%zu:%zu:%zu %lf", &hour, &minute, &second, &milisecond, &duration) != 5){
-        printf("failed to parse slice!\n");
-        free(buff);
-        return false;
-    }
-
-    free(buff);
-
-    slice->duration = duration;
-    slice->offset = 0;
-    slice->offset += hour*60*60;
-    slice->offset += minute*60;
-    slice->offset += second;
-    slice->offset += (double)milisecond / 1000;
-
-    *out_file_content = file_content;
-    return true;
-}
-
-bool parseProjectFile(char** outputFilename, char** filename, Slices* slices, char* file_content, size_t file_size){
-    char* end_file_content = file_content + file_size;
-    if(!parseHeader(outputFilename, filename, file_content, end_file_content, &file_content)) return false;
-    Slice slice = {0};
-    while(end_file_content - file_content > 0){
-        while(file_content[0] == '\n'  && end_file_content - file_content > 0) file_content++;
-
-        if(!parseSlice(&slice, file_content, end_file_content, &file_content)) return false;
-        if(slice.offset != -1) da_append(slices, slice);
-    }
-
-    return true;
-}
 
 void remove_carriage_return_from_str(char* data){
     char* current_pos = data;
@@ -173,7 +117,7 @@ int main(int argc, char** argv){
 
     remove_carriage_return_from_str(sb.items);
 
-    if(!parseProjectFile(&outputFilename, &filename, &slices, sb.items, strlen(sb.items))) return 1;
+    if(parse_slices(sb.items, sb.count, &slices, &filename, &outputFilename) != 0) return 1;
 
     printf("%s:%s\n", filename, outputFilename);
 
@@ -187,7 +131,7 @@ int main(int argc, char** argv){
 
     Media media = {0};
     if(!ffmpegMediaInit(filename, &media)){
-        fprintf(stderr, "Couldn't initialize ffmpeg media!\n");
+        fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", filename);
         return 1;
     }
     MediaRenderContext renderContext = {0};

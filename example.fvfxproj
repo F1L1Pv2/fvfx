@@ -1,10 +1,10 @@
 /*
 output: output.mp4
-media: C:\Users\mlodz\Videos\czarek.mp4
+media: D:\videos\tester.mp4
 */
 
 0:0:20:0 10.0
 0:0:30:0 5
 0:0:10:0 2
 0:0:0:0 1
-0:0:15:0 -1
+0:0:15:0 5
