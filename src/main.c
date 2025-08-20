@@ -178,7 +178,7 @@ bool applyShadersOnFrame(   Frame* frameIn,
 
     vkCmdBeginRenderingEX(cmd,
         .colorAttachment = colorAttachment,
-        .clearColor = COL_BLACK,
+        .clearColor = COL_EMPTY,
         .renderArea = (
             (VkExtent2D){.width = frame->width, .height= frame->height}
         )
