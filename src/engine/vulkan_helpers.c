@@ -65,7 +65,7 @@ void vkCmdBeginRenderingEX_opt(VkCommandBuffer commandBuffer, BeginRenderingEX a
         colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         colorAttachment.imageView = args.colorAttachment;
         colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = args.clearColor.a == 0.0 ? 0 : VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.loadOp = args.clearBackground ? VK_ATTACHMENT_LOAD_OP_CLEAR : 0;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.clearValue.color.float32[0] = args.clearColor.r;
         colorAttachment.clearValue.color.float32[1] = args.clearColor.g;

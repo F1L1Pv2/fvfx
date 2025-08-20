@@ -19,14 +19,16 @@ typedef struct {
 typedef struct{
     VkImageView colorAttachment;
     Color clearColor;
+    bool clearBackground;
     VkImageView depthAttachment;
     VkExtent2D renderArea;
 } BeginRenderingEX;
 
 #define COL_BLACK ((Color){0.0,0.0,0.0,1.0})
+#define COL_EMPTY ((Color){0.0,0.0,0.0,0.0})
 
 void vkCmdBeginRenderingEX_opt(VkCommandBuffer commandBuffer, BeginRenderingEX args);
 
-#define vkCmdBeginRenderingEX(cmd, ...) vkCmdBeginRenderingEX_opt(cmd, (BeginRenderingEX){__VA_ARGS__})
+#define vkCmdBeginRenderingEX(cmd, ...) vkCmdBeginRenderingEX_opt(cmd, (BeginRenderingEX){.clearBackground = true,__VA_ARGS__})
 
 #endif
