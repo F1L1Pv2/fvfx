@@ -26,6 +26,6 @@ typedef struct{
 
 bool Vulkanizer_init(Vulkanizer* vulkanizer);
 bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height);
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frame);
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, Frame* frameOut);
 
 #endif

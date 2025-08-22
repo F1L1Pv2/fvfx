@@ -126,7 +126,7 @@ int main(){
         frame.frameTime = timeBase + localTime;
 
         if(frame.type == FRAME_TYPE_VIDEO){
-            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame)) break;
+            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, &frame)) break;
         }
 
         ffmpegMediaRenderPassFrame(&renderContext, &frame);
