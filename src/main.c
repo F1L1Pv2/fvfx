@@ -20,102 +20,61 @@ typedef struct{
     size_t capacity;
 } Slices;
 
-static char* str_dup_range(const char* start, size_t len) {
-    char* s = malloc(len + 1);
-    if (!s) return NULL;
-    memcpy(s, start, len);
-    s[len] = '\0';
-    return s;
-}
+typedef struct{
+    const char* filename;
+    Slices slices;
+} MediaInstance;
 
-/**
- * Parse slices text buffer.
- * - buf/size: input text buffer
- * - out_slices: dynamic array to fill
- * - out_media: pointer to char* (caller frees)
- * - out_output: pointer to char* (caller frees)
- */
-int parse_slices(const char* buf, size_t size,
-                 Slices* out_slices,
-                 char** out_media,
-                 char** out_output)
-{
-    *out_media = NULL;
-    *out_output = NULL;
+typedef struct{
+    MediaInstance* items;
+    size_t count;
+    size_t capacity;
+} MediaInstances;
 
-    const char* end = buf + size;
-    const char* line = buf;
+typedef struct{
+    const char* outputFilename;
+    size_t width;
+    size_t height;
+    float fps;
+    float bitrate;
+    float sampleRate;
+    bool hasAudio;
+    bool stereo;
+    MediaInstances mediaInstances;
+} Project;
 
-    while (line < end) {
-        const char* next = memchr(line, '\n', (size_t)(end - line));
-        size_t line_len = next ? (size_t)(next - line) : (size_t)(end - line);
+int main(){
+    Project project = {0};
+    project.outputFilename = "output.mp4";
+    project.width = 1920;
+    project.height = 1920;
+    project.fps = 60.0f;
+    project.bitrate = 0;
+    project.sampleRate = 48000;
+    project.hasAudio = true;
+    project.stereo = true;
 
-        if (line_len > 0 && line[line_len - 1] == '\r') {
-            line_len--;
-        }
+    {
+        #define SLICER(offsetIN,durationIN) da_append(&slices,((Slice){.offset = (offsetIN), .duration = (durationIN)}))
+        Slices slices = {0};
+        SLICER(20.0, 2);
+        SLICER(30.0, 5);
+        SLICER(10.0, 2);
+        SLICER(15.0, .5);
+        SLICER(20.0, 2);
+        SLICER(30.0, 5);
+        SLICER(0.0, 1);
+        SLICER(10.0, 2);
+        SLICER(0.0, 1);
+        SLICER(15.0, 5);
+        #undef SLICER
 
-        const char* p = line;
-        while (p < line + line_len && isspace((unsigned char)*p)) p++;
+        MediaInstance instance = {
+            .filename = "D:\\videos\\tester.mp4",
+            .slices = slices
+        };
 
-        if (p < line + line_len) {
-            if (strncmp(p, "output:", 7) == 0) {
-                p += 7;
-                while (p < line + line_len && isspace((unsigned char)*p)) p++;
-                *out_output = str_dup_range(p, (size_t)(line + line_len - p));
-            } else if (strncmp(p, "media:", 6) == 0) {
-                p += 6;
-                while (p < line + line_len && isspace((unsigned char)*p)) p++;
-                *out_media = str_dup_range(p, (size_t)(line + line_len - p));
-            } else if (isdigit((unsigned char)*p)) {
-                int h = 0, m = 0, s = 0, ms = 0;
-                double duration = 0.0;
-
-                int parsed = sscanf(p, "%d:%d:%d:%d %lf", &h, &m, &s, &ms, &duration);
-                if (parsed == 5) {
-                    double offset = (double)h * 3600.0 +
-                                    (double)m * 60.0 +
-                                    (double)s +
-                                    (double)ms / 1000.0;
-
-                    Slice slice = { offset, duration };
-                    da_append(out_slices, slice);
-                } else {
-                    fprintf(stderr, "Warning: could not parse line: %.*s\n",
-                            (int)line_len, line);
-                }
-            }
-        }
-
-        line = next ? next + 1 : end;
-    }
-
-    return 0;
-}
-
-int main(int argc, char** argv){
-    if(argc < 2){
-        fprintf(stderr, "Provide filename!\n");
-        return 1;
-    }
-
-    char* filename = NULL;
-    char* outputFilename = "output.mp4";
-    Slices slices = {0};
-
-    String_Builder sb = {0};
-    if(!read_entire_file(argv[1], &sb)){
-        fprintf(stderr, "Couldn't open project file!\n");
-        return 1;
-    }
-
-    if(parse_slices(sb.items, sb.count, &slices, &filename, &outputFilename) != 0) return 1;
-
-    printf("%s:%s\n", filename, outputFilename);
-
-    printf("Slices %zu:\n", slices.count);
-    for(size_t i = 0; i < slices.count; i++){
-        Slice* slice = &slices.items[i];
-        printf("%lf:%lf\n", slice->offset, slice->duration);
+        da_append(&project.mediaInstances, instance);
     }
 
     Vulkanizer vulkanizer = {0};
@@ -123,48 +82,47 @@ int main(int argc, char** argv){
 
     // ffmpeg init
     Media media = {0};
-    if(!ffmpegMediaInit(filename, &media)){
-        fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", filename);
+    //for now for simplicity im just hardcoding using one media
+    Slices* slices = &project.mediaInstances.items[0].slices;
+    if(!ffmpegMediaInit(project.mediaInstances.items[0].filename, &media)){
+        fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[0].filename);
         return 1;
     }
 
     if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height)) return 1;
 
-    // initializing render context
-
+    //init renderer
     MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(&media, outputFilename, &renderContext)){
+    if(!ffmpegMediaRenderInit(&media, project.outputFilename, &renderContext)){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
-
+    
     double duration = ffmpegMediaDuration(&media);
     size_t currentSlice = 0;
 
-    double checkDuration = slices.items[currentSlice].duration;
-    if(checkDuration == -1) checkDuration = duration - slices.items[currentSlice].offset;
+    double checkDuration = slices->items[currentSlice].duration;
+    if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
 
     double localTime = 0;
     double timeBase = 0;
     Frame frame = {0};
 
-    ffmpegMediaSeek(&media, &frame, slices.items[currentSlice].offset);
-
-
+    ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
 
     while(true){
         if(localTime >= checkDuration){
             currentSlice++;
-            if(currentSlice >= slices.count) break;
+            if(currentSlice >= slices->count) break;
             localTime = 0;
             timeBase+=checkDuration;
-            checkDuration = slices.items[currentSlice].duration;
-            if(checkDuration == -1) checkDuration = duration - slices.items[currentSlice].offset;
-            ffmpegMediaSeek(&media, &frame, slices.items[currentSlice].offset);
+            checkDuration = slices->items[currentSlice].duration;
+            if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
+            ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
         }
 
         if(!ffmpegMediaGetFrame(&media, &frame)) break;
-        localTime = frame.frameTime - slices.items[currentSlice].offset;
+        localTime = frame.frameTime - slices->items[currentSlice].offset;
         frame.frameTime = timeBase + localTime;
 
         if(frame.type == FRAME_TYPE_VIDEO){
