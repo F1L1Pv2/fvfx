@@ -51,30 +51,31 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                     bool is_planar = av_sample_fmt_is_planar(src_fmt);
                     int total_size = nb_samples * channels * bytes_per_sample;
 
-                    if (frame->audio.data == NULL || frame->audio.size < nb_samples) {
-                        free(frame->audio.data);
-                        frame->audio.data = malloc(total_size);
-                        frame->audio.size = nb_samples;
-                        frame->audio.bytes_per_sample = bytes_per_sample;
+                    if (media->tempFrame.audio.data == NULL || media->tempFrame.audio.size < nb_samples) {
+                        free(media->tempFrame.audio.data);
+                        media->tempFrame.audio.data = malloc(total_size);
+                        media->tempFrame.audio.size = nb_samples;
+                        media->tempFrame.audio.bytes_per_sample = bytes_per_sample;
                     }
 
                     if (is_planar) {
                         for (int s = 0; s < nb_samples; s++) {
                             for (int ch = 0; ch < channels; ch++) {
                                 memcpy(
-                                    frame->audio.data + (s * channels + ch) * bytes_per_sample,
+                                    media->tempFrame.audio.data + (s * channels + ch) * bytes_per_sample,
                                     media->audioFrame->data[ch] + s * bytes_per_sample,
                                     bytes_per_sample
                                 );
                             }
                         }
                     } else {
-                        memcpy(frame->audio.data, media->audioFrame->data[0], total_size);
+                        memcpy(media->tempFrame.audio.data, media->audioFrame->data[0], total_size);
                     }
 
-                    frame->audio.channels = channels;
-                    frame->audio.sampleRate = media->audioCodecContext->sample_rate;
+                    media->tempFrame.audio.channels = channels;
+                    media->tempFrame.audio.sampleRate = media->audioCodecContext->sample_rate;
 
+                    frame->audio = media->tempFrame.audio;
                     return true;
                 }
             }
@@ -101,19 +102,8 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
     
             frame->type = FRAME_TYPE_VIDEO;
     
-            if(frame->video.width == 0 && frame->video.height == 0 && frame->video.data == NULL){
-                media->swsContext = sws_getContext(
-                    media->videoFrame->width, media->videoFrame->height, media->videoCodecContext->pix_fmt,
-                    media->videoFrame->width, media->videoFrame->height, AV_PIX_FMT_RGBA,
-                    SWS_FAST_BILINEAR, NULL, NULL, NULL
-                );
-                frame->video.width = media->videoFrame->width;
-                frame->video.height = media->videoFrame->height;
-                frame->video.data = malloc(frame->video.width*frame->video.height*sizeof(uint32_t));
-            }
-    
             // Convert frame to RGB
-            uint8_t* dest[4] = {(uint8_t*)frame->video.data, NULL, NULL, NULL};
+            uint8_t* dest[4] = {(uint8_t*)media->tempFrame.video.data, NULL, NULL, NULL};
             int dest_linesize[4] = {media->videoFrame->width * sizeof(uint32_t), 0, 0, 0};
             sws_scale(media->swsContext, 
                     (const uint8_t* const*)media->videoFrame->data, 
@@ -122,6 +112,8 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                     media->videoFrame->height, 
                     dest, 
                     dest_linesize);
+
+            frame->video = media->tempFrame.video;
     
             frame->frameTime = (double)media->videoFrame->pts * 
                 av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
@@ -238,6 +230,14 @@ static bool initializeDecoder(Media* media) {
     
     media->videoFrame = av_frame_alloc();
     media->packet = av_packet_alloc();
+    media->swsContext = sws_getContext(
+        media->videoCodecContext->width, media->videoCodecContext->height, media->videoCodecContext->pix_fmt,
+        media->videoCodecContext->width, media->videoCodecContext->height, AV_PIX_FMT_RGBA,
+        SWS_FAST_BILINEAR, NULL, NULL, NULL
+    );
+    media->tempFrame.video.width = media->videoCodecContext->width;
+    media->tempFrame.video.height = media->videoCodecContext->height;
+    media->tempFrame.video.data = malloc(media->tempFrame.video.width*media->tempFrame.video.height*sizeof(uint32_t));
     return media->videoFrame && media->packet;
 }
 
