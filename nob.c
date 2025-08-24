@@ -30,7 +30,7 @@ const char* vulkanSDKPathINC;
                               "-Wno-deprecated-declarations", "-LC:/ffmpeg/lib", "-LC:/freetype/lib",
 #else
 #define PLATFORM_COMPILER_ARGS "-I/usr/include/freetype2", "-I/usr/include/libpng16", "-I/usr/local/include",
-#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm", "-L/usr/local/ffmpeg/lib", 
+#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm", 
 #endif
 
 #ifdef _WIN32
