@@ -25,7 +25,7 @@ typedef struct{
 } Vulkanizer;
 
 bool Vulkanizer_init(Vulkanizer* vulkanizer);
-bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height);
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, Frame* frameOut);
+bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height, size_t outWidth, size_t outHeight);
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, void* outData, size_t outWidth, size_t outHeight);
 
 #endif

@@ -25,8 +25,21 @@ typedef struct {
     AVPacket* audioPacket;
 } MediaRenderContext;
 
+typedef enum {
+    RENDER_FRAME_TYPE_NONE = 0,
+    RENDER_FRAME_TYPE_VIDEO,
+    RENDER_FRAME_TYPE_AUDIO
+} RenderFrameType;
+
+typedef struct {
+    RenderFrameType type;
+    void* data;
+    size_t size;
+    double frameTime;
+} RenderFrame;
+
 bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, MediaRenderContext* render);
-bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame);
+bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* frame);
 void ffmpegMediaRenderFinish(MediaRenderContext* render);
 
 #endif

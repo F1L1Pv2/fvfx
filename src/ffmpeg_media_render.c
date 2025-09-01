@@ -110,8 +110,8 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, Media
     return true;
 }
 
-bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) {
-    if (frame->type == FRAME_TYPE_AUDIO) {
+bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* frame) {
+    if (frame->type == RENDER_FRAME_TYPE_AUDIO) {
         av_frame_make_writable(render->audioFrame);
 
         int channels = render->audioCodecContext->ch_layout.nb_channels;
@@ -125,13 +125,13 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) 
                 for (int ch = 0; ch < channels; ch++) {
                     memcpy(
                         render->audioFrame->data[ch] + s * bytes_per_sample,
-                        frame->audio.data + (s * channels + ch) * bytes_per_sample,
+                        frame->data + (s * channels + ch) * bytes_per_sample,
                         bytes_per_sample
                     );
                 }
             }
         } else {
-            memcpy(render->audioFrame->data[0], frame->audio.data, 
+            memcpy(render->audioFrame->data[0], frame->data, 
                 render->audioFrame->nb_samples * channels * bytes_per_sample);
         }
 
@@ -152,11 +152,11 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const Frame* frame) 
         return true;
     }
 
-    if(frame->type == FRAME_TYPE_VIDEO){
+    if(frame->type == RENDER_FRAME_TYPE_VIDEO){
         int width = render->videoCodecContext->width;
         int height = render->videoCodecContext->height;
     
-        const uint8_t* srcSlice[4] = {(uint8_t*)frame->video.data, NULL, NULL, NULL};
+        const uint8_t* srcSlice[4] = {(uint8_t*)frame->data, NULL, NULL, NULL};
         int srcStride[4] = { (int)(width * sizeof(uint32_t)), 0, 0, 0 };
 
         av_frame_make_writable(render->videoFrame);

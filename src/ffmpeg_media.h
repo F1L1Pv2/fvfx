@@ -14,7 +14,7 @@ typedef enum {
 } FrameType;
 
 typedef struct {
-    void *data;
+    uint32_t *data;
     size_t width;
     size_t height;
 } VideoFrame;

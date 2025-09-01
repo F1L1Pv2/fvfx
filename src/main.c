@@ -89,7 +89,7 @@ int main(){
         return 1;
     }
 
-    if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height)) return 1;
+    if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height, media.videoCodecContext->width, media.videoCodecContext->height)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
@@ -110,6 +110,7 @@ int main(){
 
     ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
 
+    RenderFrame renderFrame = {0};
     while(true){
         if(localTime >= checkDuration){
             currentSlice++;
@@ -123,13 +124,20 @@ int main(){
 
         if(!ffmpegMediaGetFrame(&media, &frame)) break;
         localTime = frame.frameTime - slices->items[currentSlice].offset;
-        frame.frameTime = timeBase + localTime;
+        renderFrame.frameTime = timeBase + localTime;
 
         if(frame.type == FRAME_TYPE_VIDEO){
-            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, &frame)) break;
+            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, frame.video.data, frame.video.width, frame.video.height)) break;
+            renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
+            renderFrame.data = frame.video.data;
+            renderFrame.size = frame.video.width * frame.video.height * sizeof(frame.video.data[0]);
+        }else{
+            renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
+            renderFrame.data = frame.audio.data;
+            renderFrame.size = frame.audio.size;
         }
 
-        ffmpegMediaRenderPassFrame(&renderContext, &frame);
+        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
     }
 
     ffmpegMediaRenderFinish(&renderContext);

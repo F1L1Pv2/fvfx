@@ -19,7 +19,10 @@
 #include "vulkanizer.h"
 
 bool applyShadersOnFrame(   Frame* frameIn,
-                            Frame* frameOut,
+
+                            void* outData,
+                            size_t outWidth,
+                            size_t outHeight,
 
                             void* frameInData,
                             size_t frameInStride,
@@ -36,7 +39,6 @@ bool applyShadersOnFrame(   Frame* frameIn,
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
 
     VideoFrame* frame = &frameIn->video;
-    VideoFrame* frameOutput = &frameOut->video;
 
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &inFlightFence);
@@ -128,11 +130,11 @@ bool applyShadersOnFrame(   Frame* frameIn,
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
     vkQueueWaitIdle(graphicsQueue);
 
-    for(size_t i = 0; i < frameOutput->height; i++) {
+    for(size_t i = 0; i < outHeight; i++) {
         memcpy(
-            (uint8_t*)frameOutput->data + i * frameOutput->width * sizeof(uint32_t),
+            (uint8_t*)outData + i * outWidth * sizeof(uint32_t),
             (uint8_t*)colorData + i * colorStride,
-            frameOutput->width * sizeof(uint32_t)
+            outWidth * sizeof(uint32_t)
         );
     }
 
@@ -261,7 +263,7 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     return true;
 }
 
-bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height){
+bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height, size_t outWidth, size_t outHeight){
     if(!createMyImage(&vulkanizer->videoInImage,
         width, 
         height, 
@@ -292,8 +294,8 @@ bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height)
     vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
 
     if(!createMyImage(&vulkanizer->videoOutImage,
-        width, 
-        height, 
+        outWidth, 
+        outHeight, 
         &vulkanizer->videoOutImageMemory, &vulkanizer->videoOutImageView, 
         &vulkanizer->videoOutImageStride, 
         &vulkanizer->videoOutImageMapped,
@@ -305,10 +307,13 @@ bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height)
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, Frame* frameOut){
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, void* outData, size_t outWidth, size_t outHeight){
     return applyShadersOnFrame(
                 frameIn,
-                frameOut,
+                outData,
+                outWidth,
+                outHeight,
+
                 vulkanizer->videoInImageMapped,
                 vulkanizer->videoInImageStride,
 
