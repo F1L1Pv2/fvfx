@@ -5,7 +5,7 @@
 
 #include "ffmpeg_media_render.h"
 
-bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, MediaRenderContext* render) {
+bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, MediaRenderContext* render) {
     memset(render, 0, sizeof(MediaRenderContext));
 
     AVStream* videoStream = sourceVideo->formatContext->streams[sourceVideo->videoStreamIndex];
@@ -25,8 +25,8 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, Media
     render->videoCodecContext->codec_id = sourceVideo->videoCodecContext->codec_id;
     render->videoCodecContext->codec_type = AVMEDIA_TYPE_VIDEO;
     render->videoCodecContext->pix_fmt = sourceVideo->videoCodecContext->pix_fmt;
-    render->videoCodecContext->width = sourceVideo->videoCodecContext->width;
-    render->videoCodecContext->height = sourceVideo->videoCodecContext->height;
+    render->videoCodecContext->width = width;
+    render->videoCodecContext->height = height;
 
     render->videoCodecContext->framerate = videoStream->avg_frame_rate; 
     render->videoStream->avg_frame_rate = videoStream->avg_frame_rate;

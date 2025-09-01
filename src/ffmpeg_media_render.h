@@ -38,7 +38,7 @@ typedef struct {
     double frameTime;
 } RenderFrame;
 
-bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, MediaRenderContext* render);
+bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, MediaRenderContext* render);
 bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* frame);
 void ffmpegMediaRenderFinish(MediaRenderContext* render);
 

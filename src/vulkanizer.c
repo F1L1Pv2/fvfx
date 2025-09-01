@@ -87,17 +87,17 @@ bool applyShadersOnFrame(   Frame* frameIn,
         .colorAttachment = colorAttachment,
         .clearColor = COL_EMPTY,
         .renderArea = (
-            (VkExtent2D){.width = frame->width, .height= frame->height}
+            (VkExtent2D){.width = outWidth, .height= outHeight}
         )
     );
 
     vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-        .width = frame->width,
-        .height = frame->height
+        .width = outWidth,
+        .height = outHeight
     });
         
     vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent = (VkExtent2D){.width = frame->width, .height = frame->height},
+        .extent = (VkExtent2D){.width = outWidth, .height = outHeight},
     });
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);

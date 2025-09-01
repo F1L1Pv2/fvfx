@@ -47,7 +47,7 @@ int main(){
     Project project = {0};
     project.outputFilename = "output.mp4";
     project.width = 1920;
-    project.height = 1920;
+    project.height = 1080;
     project.fps = 60.0f;
     project.bitrate = 0;
     project.sampleRate = 48000;
@@ -89,11 +89,11 @@ int main(){
         return 1;
     }
 
-    if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height, media.videoCodecContext->width, media.videoCodecContext->height)) return 1;
+    if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height, project.width, project.height)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(&media, project.outputFilename, &renderContext)){
+    if(!ffmpegMediaRenderInit(&media, project.outputFilename, project.width, project.height, &renderContext)){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
@@ -111,6 +111,7 @@ int main(){
     ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
 
     RenderFrame renderFrame = {0};
+    uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
     while(true){
         if(localTime >= checkDuration){
             currentSlice++;
@@ -127,10 +128,10 @@ int main(){
         renderFrame.frameTime = timeBase + localTime;
 
         if(frame.type == FRAME_TYPE_VIDEO){
-            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, frame.video.data, frame.video.width, frame.video.height)) break;
+            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) break;
             renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-            renderFrame.data = frame.video.data;
-            renderFrame.size = frame.video.width * frame.video.height * sizeof(frame.video.data[0]);
+            renderFrame.data = outVideoFrame;
+            renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
         }else{
             renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
             renderFrame.data = frame.audio.data;
