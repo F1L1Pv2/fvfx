@@ -105,40 +105,36 @@ int main(){
     if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
 
     double localTime = 0;
-    double timeBase = 0;
     Frame frame = {0};
-
     ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
 
     RenderFrame renderFrame = {0};
     uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
     while(true){
-        if(localTime >= checkDuration){
-            currentSlice++;
-            if(currentSlice >= slices->count) break;
-            localTime = 0;
-            timeBase+=checkDuration;
-            checkDuration = slices->items[currentSlice].duration;
-            if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
-            ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
+        while(localTime < checkDuration){
+            if(!ffmpegMediaGetFrame(&media, &frame)) break;
+            localTime = frame.frameTime - slices->items[currentSlice].offset;
+    
+            if(frame.type == FRAME_TYPE_VIDEO){
+                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) break;
+                renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
+                renderFrame.data = outVideoFrame;
+                renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
+            }else{
+                renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
+                renderFrame.data = frame.audio.data;
+                renderFrame.size = frame.audio.size;
+            }
+    
+            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
 
-        if(!ffmpegMediaGetFrame(&media, &frame)) break;
-        localTime = frame.frameTime - slices->items[currentSlice].offset;
-        renderFrame.frameTime = timeBase + localTime;
-
-        if(frame.type == FRAME_TYPE_VIDEO){
-            if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) break;
-            renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-            renderFrame.data = outVideoFrame;
-            renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
-        }else{
-            renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-            renderFrame.data = frame.audio.data;
-            renderFrame.size = frame.audio.size;
-        }
-
-        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+        currentSlice++;
+        if(currentSlice >= slices->count) break;
+        localTime = 0;
+        checkDuration = slices->items[currentSlice].duration;
+        if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
+        ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
     }
 
     ffmpegMediaRenderFinish(&renderContext);

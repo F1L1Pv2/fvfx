@@ -135,7 +135,8 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* f
                 render->audioFrame->nb_samples * channels * bytes_per_sample);
         }
 
-        render->audioFrame->pts = frame->frameTime * render->audioCodecContext->sample_rate;
+        render->audioFrame->pts = render->audioFrameCount;
+        render->audioFrameCount += frame->size;
 
         if (avcodec_send_frame(render->audioCodecContext, render->audioFrame) < 0)
             return false;
@@ -161,8 +162,10 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* f
 
         av_frame_make_writable(render->videoFrame);
         sws_scale(render->swsContext, srcSlice, srcStride, 0, height, render->videoFrame->data, render->videoFrame->linesize);
-    
-        render->videoFrame->pts = frame->frameTime * (double)render->videoCodecContext->time_base.den / (double)render->videoCodecContext->time_base.num;
+
+        render->videoFrame->pts = av_rescale_q(render->videoFrameCount++,
+                                       av_inv_q(render->videoCodecContext->framerate),
+                                       render->videoCodecContext->time_base);
     
         if (avcodec_send_frame(render->videoCodecContext, render->videoFrame) < 0) return false;
     

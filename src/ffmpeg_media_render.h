@@ -23,6 +23,9 @@ typedef struct {
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
+
+    size_t videoFrameCount;
+    size_t audioFrameCount;
 } MediaRenderContext;
 
 typedef enum {
@@ -35,7 +38,6 @@ typedef struct {
     RenderFrameType type;
     void* data;
     size_t size;
-    double frameTime;
 } RenderFrame;
 
 bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, MediaRenderContext* render);
