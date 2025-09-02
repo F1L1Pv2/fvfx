@@ -28,10 +28,10 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
     render->videoCodecContext->width = width;
     render->videoCodecContext->height = height;
 
-    render->videoCodecContext->framerate = videoStream->avg_frame_rate; 
-    render->videoStream->avg_frame_rate = videoStream->avg_frame_rate;
-    render->videoCodecContext->time_base = videoStream->time_base;
-    render->videoStream->time_base = videoStream->time_base;
+    render->videoCodecContext->framerate = videoStream->avg_frame_rate;
+    render->videoStream->avg_frame_rate = render->videoCodecContext->framerate;
+    render->videoCodecContext->time_base = AV_TIME_BASE_Q;
+    render->videoStream->time_base = render->videoCodecContext->time_base;
 
     render->videoCodecContext->bit_rate = sourceVideo->videoCodecContext->bit_rate;
     render->videoCodecContext->gop_size = sourceVideo->videoCodecContext->gop_size;
