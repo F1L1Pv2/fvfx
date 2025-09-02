@@ -116,7 +116,7 @@ int main(){
             localTime = frame.frameTime - slices->items[currentSlice].offset;
     
             if(frame.type == FRAME_TYPE_VIDEO){
-                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) break;
+                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) goto end;
                 renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
                 renderFrame.data = outVideoFrame;
                 renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
@@ -137,6 +137,7 @@ int main(){
         ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
     }
 
+end:
     ffmpegMediaRenderFinish(&renderContext);
 
     printf("Finished rendering!\n");
