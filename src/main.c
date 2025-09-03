@@ -10,6 +10,7 @@
 #include "nob.h"
 
 typedef struct{
+    size_t media_index;
     double offset;
     double duration;
 } Slice;
@@ -22,7 +23,6 @@ typedef struct{
 
 typedef struct{
     const char* filename;
-    Slices slices;
 } MediaInstance;
 
 typedef struct{
@@ -40,9 +40,37 @@ typedef struct{
     bool hasAudio;
     bool stereo;
     MediaInstances mediaInstances;
+    Slices slices;
 } Project;
 
+typedef struct{
+    Media media;
+    VkImage mediaImage;
+    VkDeviceMemory mediaImageMemory;
+    VkImageView mediaImageView;
+    size_t mediaImageStride;
+    void* mediaImageData;
+    double duration;
+} MyMedia;
+
+typedef struct{
+    MyMedia* items;
+    size_t count;
+    size_t capacity;
+} MyMedias;
+
+static inline bool updateSlice(Frame* frame, MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
+    *currentMediaIndex = slices->items[currentSlice].media_index;
+    MyMedia* media = &medias->items[*currentMediaIndex];
+    *checkDuration = slices->items[currentSlice].duration;
+    if(*checkDuration == -1) *checkDuration = media->duration - slices->items[currentSlice].offset;
+    ffmpegMediaSeek(&media->media, frame, slices->items[currentSlice].offset);
+    return true;
+}
+
 int main(){
+    // ------------------------------ project config code --------------------------------
+
     Project project = {0};
     project.outputFilename = "output.mp4";
     project.width = 1920;
@@ -52,6 +80,28 @@ int main(){
     project.hasAudio = true;
     project.stereo = true;
 
+    {
+        #define MEDIER(filenameIN) da_append(&project.mediaInstances, ((MediaInstance){.filename = filenameIN}))
+        MEDIER("D:\\videos\\tester.mp4");
+        MEDIER("D:\\videos\\IMG_3590.mp4");
+        #undef MEDIER
+
+        #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&project.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
+        SLICER(0, 20.0, 2);
+        SLICER(0, 30.0, 5);
+        SLICER(1, 10.0, 2);
+        SLICER(1, 15.0, .5);
+        SLICER(1, 20.0, 2);
+        SLICER(1, 30.0, 5);
+        SLICER(0, 0.0, 1);
+        SLICER(0, 10.0, 2);
+        SLICER(0, 0.0, 1);
+        SLICER(0, 15.0, 5);
+        #undef SLICER
+    }
+
+    // ------------------------------------------- editor code -----------------------------------------------------
+
     //init renderer
     MediaRenderContext renderContext = {0};
     if(!ffmpegMediaRenderInit(project.outputFilename, project.width, project.height, project.fps, project.sampleRate, project.stereo, project.hasAudio, &renderContext)){
@@ -59,72 +109,48 @@ int main(){
         return 1;
     }
 
-    {
-        #define SLICER(offsetIN,durationIN) da_append(&slices,((Slice){.offset = (offsetIN), .duration = (durationIN)}))
-        Slices slices = {0};
-        SLICER(20.0, 2);
-        SLICER(30.0, 5);
-        SLICER(10.0, 2);
-        SLICER(15.0, .5);
-        SLICER(20.0, 2);
-        SLICER(30.0, 5);
-        SLICER(0.0, 1);
-        SLICER(10.0, 2);
-        SLICER(0.0, 1);
-        SLICER(15.0, 5);
-        #undef SLICER
-
-        MediaInstance instance = {
-            .filename = "D:\\videos\\tester.mp4",
-            // .filename = "D:\\videos\\IMG_3590.mp4",
-            .slices = slices
-        };
-
-        da_append(&project.mediaInstances, instance);
-    }
-
     Vulkanizer vulkanizer = {0};
     if(!Vulkanizer_init(&vulkanizer)) return 1;
     if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
-    // ffmpeg init
-    Media media = {0};
-    //for now for simplicity im just hardcoding using one media
-    Slices* slices = &project.mediaInstances.items[0].slices;
-    if(!ffmpegMediaInit(project.mediaInstances.items[0].filename, &media)){
-        fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[0].filename);
-        return 1;
+    MyMedias myMedias = {0};
+
+    for(size_t i = 0; i < project.mediaInstances.count; i++){
+        MyMedia myMedia = {0};
+
+        // ffmpeg init
+        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, &myMedia.media)){
+            fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[i].filename);
+            return 1;
+        }
+
+        myMedia.duration = ffmpegMediaDuration(&myMedia.media);
+        
+        if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
+        da_append(&myMedias, myMedia);
     }
-
-    VkImage mediaImage;
-    VkDeviceMemory mediaImageMemory;
-    VkImageView mediaImageView;
-    size_t mediaImageStride;
-    void* mediaImageData;
-    if(!Vulkanizer_init_image_for_media(media.videoCodecContext->width, media.videoCodecContext->height, &mediaImage, &mediaImageMemory, &mediaImageView, &mediaImageStride, &mediaImageData)) return 1;
     
-    double duration = ffmpegMediaDuration(&media);
-    size_t currentSlice = 0;
-
-    double checkDuration = slices->items[currentSlice].duration;
-    if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
-
-    double localTime = 0;
     Frame frame = {0};
-    ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
+
+    size_t currentMediaIndex = -1;
+    size_t currentSlice = 0;
+    double localTime = 0;
+    double checkDuration = 0;
+    if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
 
     RenderFrame renderFrame = {0};
     uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
     while(true){
+        MyMedia* myMedia = &myMedias.items[currentMediaIndex];
         while(localTime < checkDuration){
-            if(!ffmpegMediaGetFrame(&media, &frame)) break;
-            localTime = frame.frameTime - slices->items[currentSlice].offset;
+            if(!ffmpegMediaGetFrame(&myMedia->media, &frame)) break;
+            localTime = frame.frameTime - project.slices.items[currentSlice].offset;
     
             if(frame.type == FRAME_TYPE_VIDEO){
-                size_t times_to_catch_up_target_framerate = (size_t)(project.fps/((double)media.formatContext->streams[media.videoStreamIndex]->avg_frame_rate.num/(double)media.formatContext->streams[media.videoStreamIndex]->avg_frame_rate.den));
+                size_t times_to_catch_up_target_framerate = (size_t)(project.fps/((double)myMedia->media.formatContext->streams[myMedia->media.videoStreamIndex]->avg_frame_rate.num/(double)myMedia->media.formatContext->streams[myMedia->media.videoStreamIndex]->avg_frame_rate.den));
                 times_to_catch_up_target_framerate = times_to_catch_up_target_framerate > 0 ? times_to_catch_up_target_framerate : 1;
                 for(size_t i = 0; i < times_to_catch_up_target_framerate; i++){
-                    if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, mediaImageView, mediaImageData, mediaImageStride, &frame, outVideoFrame)) goto end;
+                    if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, &frame, outVideoFrame)) goto end;
                     renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
                     renderFrame.data = outVideoFrame;
                     renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
@@ -139,11 +165,9 @@ int main(){
         }
 
         currentSlice++;
-        if(currentSlice >= slices->count) break;
+        if(currentSlice >= project.slices.count) break;
         localTime = 0;
-        checkDuration = slices->items[currentSlice].duration;
-        if(checkDuration == -1) checkDuration = duration - slices->items[currentSlice].offset;
-        ffmpegMediaSeek(&media, &frame, slices->items[currentSlice].offset);
+        if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
     }
 
 end:
