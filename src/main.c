@@ -51,6 +51,7 @@ typedef struct{
     size_t mediaImageStride;
     void* mediaImageData;
     double duration;
+    double framerate;
 } MyMedia;
 
 typedef struct{
@@ -86,15 +87,17 @@ int main(){
         #define MEDIER(filenameIN) da_append(&project.mediaInstances, ((MediaInstance){.filename = filenameIN}))
         MEDIER("D:\\videos\\tester.mp4");
         MEDIER("D:\\videos\\IMG_3590.mp4");
+        MEDIER("D:\\videos\\IMG_3594.mp4");
         #undef MEDIER
 
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&project.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
         SLICER(0, 20.0, 2);
-        SLICER(0, 30.0, 5);
-        SLICER(1, 10.0, 2);
+        SLICER(1, 30.0, 5);
+        SLICER(0, 10.0, 2);
         SLICER(1, 15.0, .5);
         SLICER(1, 20.0, 2);
-        SLICER(1, 30.0, 5);
+        SLICER(2,0,-1);
+        SLICER(0, 30.0, 5);
         SLICER(0, 0.0, 1);
         SLICER(0, 10.0, 2);
         SLICER(0, 0.0, 1);
@@ -127,6 +130,7 @@ int main(){
         }
 
         myMedia.duration = ffmpegMediaDuration(&myMedia.media);
+        myMedia.framerate = (double)myMedia.media.formatContext->streams[myMedia.media.videoStreamIndex]->avg_frame_rate.num/(double)myMedia.media.formatContext->streams[myMedia.media.videoStreamIndex]->avg_frame_rate.den;
         
         if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
         da_append(&myMedias, myMedia);
@@ -138,6 +142,7 @@ int main(){
     size_t currentSlice = 0;
     double localTime = 0;
     double checkDuration = 0;
+    size_t video_skip_count = 0;
     if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
 
     RenderFrame renderFrame = {0};
@@ -149,8 +154,19 @@ int main(){
             localTime = frame.frameTime - project.slices.items[currentSlice].offset;
     
             if(frame.type == FRAME_TYPE_VIDEO){
-                size_t times_to_catch_up_target_framerate = (size_t)(project.fps/((double)myMedia->media.formatContext->streams[myMedia->media.videoStreamIndex]->avg_frame_rate.num/(double)myMedia->media.formatContext->streams[myMedia->media.videoStreamIndex]->avg_frame_rate.den));
-                times_to_catch_up_target_framerate = times_to_catch_up_target_framerate > 0 ? times_to_catch_up_target_framerate : 1;
+                if(video_skip_count > 0){
+                    video_skip_count--;
+                    continue;
+                }
+
+                size_t times_to_catch_up_target_framerate = 1;
+                if(myMedia->framerate < project.fps){
+                    times_to_catch_up_target_framerate = (size_t)(project.fps/myMedia->framerate);
+                    if(times_to_catch_up_target_framerate == 0) times_to_catch_up_target_framerate = 1;
+                }else if(myMedia->framerate > project.fps){
+                    video_skip_count = (size_t)(myMedia->framerate / project.fps);
+                }
+
                 for(size_t i = 0; i < times_to_catch_up_target_framerate; i++){
                     if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, &frame, outVideoFrame)) goto end;
                     renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
@@ -169,6 +185,7 @@ int main(){
         currentSlice++;
         if(currentSlice >= project.slices.count) break;
         localTime = 0;
+        video_skip_count = 0;
         if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
     }
 
