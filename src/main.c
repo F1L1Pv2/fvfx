@@ -48,9 +48,16 @@ int main(){
     project.width = 1920;
     project.height = 1080;
     project.fps = 60.0f;
-    project.sampleRate = 48000;
+    project.sampleRate = 44100;
     project.hasAudio = true;
     project.stereo = true;
+
+    //init renderer
+    MediaRenderContext renderContext = {0};
+    if(!ffmpegMediaRenderInit(project.outputFilename, project.width, project.height, project.fps, project.sampleRate, project.stereo, project.hasAudio, &renderContext)){
+        fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
+        return 1;
+    }
 
     {
         #define SLICER(offsetIN,durationIN) da_append(&slices,((Slice){.offset = (offsetIN), .duration = (durationIN)}))
@@ -95,13 +102,6 @@ int main(){
     size_t mediaImageStride;
     void* mediaImageData;
     if(!Vulkanizer_init_image_for_media(media.videoCodecContext->width, media.videoCodecContext->height, &mediaImage, &mediaImageMemory, &mediaImageView, &mediaImageStride, &mediaImageData)) return 1;
-
-    //init renderer
-    MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(&media, project.outputFilename, project.width, project.height, project.fps, &renderContext)){
-        fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
-        return 1;
-    }
     
     double duration = ffmpegMediaDuration(&media);
     size_t currentSlice = 0;

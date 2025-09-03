@@ -5,15 +5,13 @@
 
 #include "ffmpeg_media_render.h"
 
-bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, double fps, MediaRenderContext* render) {
+bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, double fps, size_t sampleRate, bool stereo, bool hasAudio, MediaRenderContext* render){
     memset(render, 0, sizeof(MediaRenderContext));
-
-    AVStream* videoStream = sourceVideo->formatContext->streams[sourceVideo->videoStreamIndex];
 
     avformat_alloc_output_context2(&render->formatContext, NULL, NULL, filename);
     if (!render->formatContext) return false;
 
-    const AVCodec* codec = avcodec_find_encoder(sourceVideo->videoCodecContext->codec_id);
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (!codec) return false;
 
     render->videoStream = avformat_new_stream(render->formatContext, NULL);
@@ -22,15 +20,15 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
     render->videoCodecContext = avcodec_alloc_context3(codec);
     if (!render->videoCodecContext) return false;
 
-    render->videoCodecContext->codec_id = sourceVideo->videoCodecContext->codec_id;
+    render->videoCodecContext->codec_id = AV_CODEC_ID_H264;
     render->videoCodecContext->codec_type = AVMEDIA_TYPE_VIDEO;
-    render->videoCodecContext->pix_fmt = sourceVideo->videoCodecContext->pix_fmt;
+    render->videoCodecContext->pix_fmt = AV_PIX_FMT_YUV420P;
     render->videoCodecContext->width = width;
     render->videoCodecContext->height = height;
 
     render->videoCodecContext->framerate = (AVRational){fps,1};
     render->videoStream->avg_frame_rate = render->videoCodecContext->framerate;
-    render->videoCodecContext->time_base = AV_TIME_BASE_Q;
+    render->videoCodecContext->time_base = (AVRational){1,(int)fps};
     render->videoStream->time_base = render->videoCodecContext->time_base;
 
     if (render->formatContext->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -53,8 +51,8 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
         SWS_BICUBIC, NULL, NULL, NULL
     );
 
-    if (sourceVideo->audioCodecContext) {
-        const AVCodec* audioCodec = avcodec_find_encoder(sourceVideo->audioCodecContext->codec_id);
+    if (hasAudio) {
+        const AVCodec* audioCodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
         if (!audioCodec) return false;
 
         render->audioStream = avformat_new_stream(render->formatContext, NULL);
@@ -63,10 +61,10 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
         render->audioCodecContext = avcodec_alloc_context3(audioCodec);
         if (!render->audioCodecContext) return false;
 
-        render->audioCodecContext->sample_rate = sourceVideo->audioCodecContext->sample_rate;
-        render->audioCodecContext->ch_layout = sourceVideo->audioCodecContext->ch_layout;
+        render->audioCodecContext->sample_rate = sampleRate;
+        av_channel_layout_default(&render->audioCodecContext->ch_layout, stereo ? 2 : 1);
         render->audioCodecContext->sample_fmt = audioCodec->sample_fmts[0];
-        render->audioCodecContext->time_base = (AVRational){1, sourceVideo->audioCodecContext->sample_rate};
+        render->audioCodecContext->time_base = (AVRational){1, (int)sampleRate};
 
         render->audioStream->time_base = render->audioCodecContext->time_base;
 

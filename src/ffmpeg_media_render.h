@@ -7,8 +7,6 @@
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
-#include "ffmpeg_media.h"
-
 typedef struct {
     AVFormatContext* formatContext;
     AVPacket* packet;
@@ -40,7 +38,7 @@ typedef struct {
     size_t size;
 } RenderFrame;
 
-bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, double fps, MediaRenderContext* render);
+bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, double fps, size_t sampleRate, bool stereo, bool hasAudio, MediaRenderContext* render);
 bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* frame);
 void ffmpegMediaRenderFinish(MediaRenderContext* render);
 
