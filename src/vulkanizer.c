@@ -18,7 +18,31 @@
 
 #include "vulkanizer.h"
 
-bool applyShadersOnFrame(   Frame* frameIn,
+static VkImageView currentViewInDescriptor = NULL;
+static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
+    if(newView == currentViewInDescriptor) return;
+
+    // --------------------- updating descriptor set -------------------------
+    VkDescriptorImageInfo descriptorImageInfo = {0};
+    VkWriteDescriptorSet writeDescriptorSet = {0};
+
+    descriptorImageInfo.sampler = samplerLinear;
+    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptorImageInfo.imageView = newView;
+
+    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet.descriptorCount = 1;
+    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSet.dstSet = vulkanizer->outDescriptorSet;
+    writeDescriptorSet.dstBinding = 0;
+    writeDescriptorSet.dstArrayElement = 0;
+    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+    currentViewInDescriptor = newView;
+}
+
+static bool applyShadersOnFrame(   Frame* frameIn,
 
                             void* outData,
                             size_t outWidth,
@@ -102,6 +126,11 @@ bool applyShadersOnFrame(   Frame* frameIn,
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,descriptorSet,0,NULL);
+    float constants[4] = {
+        outWidth, outHeight,
+        frame->width, frame->height
+    };
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(constants), constants);
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
 
@@ -211,16 +240,32 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
 
     if(!compileShader(vertexShaderSrc, shaderc_vertex_shader, &vertexShader)) return false;
 
-    const char* fragmentShaderSrc = 
+    const char* fragmentShaderSrc =
         "#version 450\n"
         "layout(location = 0) out vec4 outColor;\n"
         "layout(location = 0) in vec2 uv;\n"
-
-        "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n"
-
-        "void main() {"
-            "outColor = texture(imageIN, uv) * vec4(uv,1,1);"
-        "}";
+        "layout(push_constant) uniform PushConsts {\n"
+            "vec2 renderArea;\n"
+            "vec2 mediaArea;\n"
+        "} pc;\n"
+        "layout(set = 0, binding = 0) uniform sampler2D imageIN;\n"
+        "void main() {\n"
+            "float renderAspect = pc.renderArea.x / pc.renderArea.y;\n"
+            "float mediaAspect  = pc.mediaArea.x  / pc.mediaArea.y;\n"
+            "vec2 centeredUV = uv * 2.0 - 1.0;\n"
+            "if (mediaAspect > renderAspect) {\n"
+                "float scale = pc.renderArea.x / pc.mediaArea.x;\n"
+                "centeredUV.y /= (pc.mediaArea.y * scale / pc.renderArea.y);\n"
+            "} else {\n"
+                "float scale = pc.renderArea.y / pc.mediaArea.y;\n"
+                "centeredUV.x /= (pc.mediaArea.x * scale / pc.renderArea.x);\n"
+            "}\n"
+            "vec2 mediaUV = (centeredUV + 1.0) * 0.5;\n"
+            "if (any(lessThan(mediaUV, vec2(0.0))) || any(greaterThan(mediaUV, vec2(1.0)))) {\n"
+                "discard;\n"
+            "}\n"
+            "outColor = texture(imageIN, mediaUV);\n"
+        "}\n";
 
     VkShaderModule fragmentShader;
     if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
@@ -255,6 +300,7 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
         vertexShader,fragmentShader, 
         &vulkanizer->pipeline, 
         &vulkanizer->pipelineLayout,
+        .pushConstantsSize = sizeof(float)*4,
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
         .outColorFormat = &colorFormat
@@ -263,36 +309,21 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     return true;
 }
 
-bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height, size_t outWidth, size_t outHeight){
-    if(!createMyImage(&vulkanizer->videoInImage,
+bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, void* imageDataOut){
+    if(!createMyImage(imageOut,
         width, 
         height, 
-        &vulkanizer->videoInImageMemory, &vulkanizer->videoInImageView, 
-        &vulkanizer->videoInImageStride, 
-        &vulkanizer->videoInImageMapped,
+        imageMemoryOut, imageViewOut, 
+        imageStrideOut, 
+        imageDataOut,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
-    transitionMyImage(vulkanizer->videoInImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    transitionMyImage(*imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    return true;
+}
 
-    // --------------------- updating descriptor set -------------------------
-    VkDescriptorImageInfo descriptorImageInfo = {0};
-    VkWriteDescriptorSet writeDescriptorSet = {0};
-
-    descriptorImageInfo.sampler = samplerLinear;
-    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    descriptorImageInfo.imageView = vulkanizer->videoInImageView;
-
-    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSet.descriptorCount = 1;
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSet.dstSet = vulkanizer->outDescriptorSet;
-    writeDescriptorSet.dstBinding = 0;
-    writeDescriptorSet.dstArrayElement = 0;
-    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
-
-    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
-
+bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_t outHeight){
     if(!createMyImage(&vulkanizer->videoOutImage,
         outWidth, 
         outHeight, 
@@ -303,19 +334,22 @@ bool Vulkanizer_init_images(Vulkanizer* vulkanizer, size_t width, size_t height,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
     transitionMyImage(vulkanizer->videoOutImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
+    vulkanizer->videoOutWidth = outWidth;
+    vulkanizer->videoOutHeight = outHeight;
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, Frame* frameIn, void* outData, size_t outWidth, size_t outHeight){
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
+    updateDescriptorIfNeeded(vulkanizer, videoInView);
+
     return applyShadersOnFrame(
                 frameIn,
                 outData,
-                outWidth,
-                outHeight,
+                vulkanizer->videoOutWidth,
+                vulkanizer->videoOutHeight,
 
-                vulkanizer->videoInImageMapped,
-                vulkanizer->videoInImageStride,
+                videoInData,
+                videoInStride,
 
                 vulkanizer->videoOutImage, 
                 vulkanizer->videoOutImageView, 

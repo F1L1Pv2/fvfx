@@ -70,7 +70,8 @@ int main(){
         #undef SLICER
 
         MediaInstance instance = {
-            .filename = "D:\\videos\\tester.mp4",
+            // .filename = "D:\\videos\\tester.mp4",
+            .filename = "D:\\videos\\IMG_3590.mp4",
             .slices = slices
         };
 
@@ -79,6 +80,7 @@ int main(){
 
     Vulkanizer vulkanizer = {0};
     if(!Vulkanizer_init(&vulkanizer)) return 1;
+    if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
     // ffmpeg init
     Media media = {0};
@@ -89,7 +91,12 @@ int main(){
         return 1;
     }
 
-    if(!Vulkanizer_init_images(&vulkanizer, media.videoCodecContext->width, media.videoCodecContext->height, project.width, project.height)) return 1;
+    VkImage mediaImage;
+    VkDeviceMemory mediaImageMemory;
+    VkImageView mediaImageView;
+    size_t mediaImageStride;
+    void* mediaImageData;
+    if(!Vulkanizer_init_image_for_media(media.videoCodecContext->width, media.videoCodecContext->height, &mediaImage, &mediaImageMemory, &mediaImageView, &mediaImageStride, &mediaImageData)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
@@ -116,7 +123,7 @@ int main(){
             localTime = frame.frameTime - slices->items[currentSlice].offset;
     
             if(frame.type == FRAME_TYPE_VIDEO){
-                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, &frame, outVideoFrame, project.width, project.height)) goto end;
+                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, mediaImageView, mediaImageData, mediaImageStride, &frame, outVideoFrame)) goto end;
                 renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
                 renderFrame.data = outVideoFrame;
                 renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
