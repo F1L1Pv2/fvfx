@@ -5,7 +5,7 @@
 
 #include "ffmpeg_media_render.h"
 
-bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, MediaRenderContext* render) {
+bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_t width, size_t height, double fps, MediaRenderContext* render) {
     memset(render, 0, sizeof(MediaRenderContext));
 
     AVStream* videoStream = sourceVideo->formatContext->streams[sourceVideo->videoStreamIndex];
@@ -28,18 +28,10 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
     render->videoCodecContext->width = width;
     render->videoCodecContext->height = height;
 
-    render->videoCodecContext->framerate = videoStream->avg_frame_rate;
+    render->videoCodecContext->framerate = (AVRational){fps,1};
     render->videoStream->avg_frame_rate = render->videoCodecContext->framerate;
     render->videoCodecContext->time_base = AV_TIME_BASE_Q;
     render->videoStream->time_base = render->videoCodecContext->time_base;
-
-    render->videoCodecContext->bit_rate = sourceVideo->videoCodecContext->bit_rate;
-    render->videoCodecContext->gop_size = sourceVideo->videoCodecContext->gop_size;
-    render->videoCodecContext->max_b_frames = sourceVideo->videoCodecContext->max_b_frames;
-    render->videoCodecContext->profile = sourceVideo->videoCodecContext->profile;
-    render->videoCodecContext->level = sourceVideo->videoCodecContext->level;
-    render->videoCodecContext->colorspace = sourceVideo->videoCodecContext->colorspace;
-    render->videoCodecContext->color_range = sourceVideo->videoCodecContext->color_range;
 
     if (render->formatContext->oformat->flags & AVFMT_GLOBALHEADER) {
         render->videoCodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -74,7 +66,6 @@ bool ffmpegMediaRenderInit(const Media* sourceVideo, const char* filename, size_
         render->audioCodecContext->sample_rate = sourceVideo->audioCodecContext->sample_rate;
         render->audioCodecContext->ch_layout = sourceVideo->audioCodecContext->ch_layout;
         render->audioCodecContext->sample_fmt = audioCodec->sample_fmts[0];
-        render->audioCodecContext->bit_rate = sourceVideo->audioCodecContext->bit_rate;
         render->audioCodecContext->time_base = (AVRational){1, sourceVideo->audioCodecContext->sample_rate};
 
         render->audioStream->time_base = render->audioCodecContext->time_base;

@@ -36,7 +36,6 @@ typedef struct{
     size_t width;
     size_t height;
     float fps;
-    float bitrate;
     float sampleRate;
     bool hasAudio;
     bool stereo;
@@ -49,7 +48,6 @@ int main(){
     project.width = 1920;
     project.height = 1080;
     project.fps = 60.0f;
-    project.bitrate = 0;
     project.sampleRate = 48000;
     project.hasAudio = true;
     project.stereo = true;
@@ -70,8 +68,8 @@ int main(){
         #undef SLICER
 
         MediaInstance instance = {
-            // .filename = "D:\\videos\\tester.mp4",
-            .filename = "D:\\videos\\IMG_3590.mp4",
+            .filename = "D:\\videos\\tester.mp4",
+            // .filename = "D:\\videos\\IMG_3590.mp4",
             .slices = slices
         };
 
@@ -100,7 +98,7 @@ int main(){
 
     //init renderer
     MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(&media, project.outputFilename, project.width, project.height, &renderContext)){
+    if(!ffmpegMediaRenderInit(&media, project.outputFilename, project.width, project.height, project.fps, &renderContext)){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
@@ -123,17 +121,21 @@ int main(){
             localTime = frame.frameTime - slices->items[currentSlice].offset;
     
             if(frame.type == FRAME_TYPE_VIDEO){
-                if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, mediaImageView, mediaImageData, mediaImageStride, &frame, outVideoFrame)) goto end;
-                renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-                renderFrame.data = outVideoFrame;
-                renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
+                size_t times_to_catch_up_target_framerate = (size_t)(project.fps/((double)media.formatContext->streams[media.videoStreamIndex]->avg_frame_rate.num/(double)media.formatContext->streams[media.videoStreamIndex]->avg_frame_rate.den));
+                times_to_catch_up_target_framerate = times_to_catch_up_target_framerate > 0 ? times_to_catch_up_target_framerate : 1;
+                for(size_t i = 0; i < times_to_catch_up_target_framerate; i++){
+                    if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, mediaImageView, mediaImageData, mediaImageStride, &frame, outVideoFrame)) goto end;
+                    renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
+                    renderFrame.data = outVideoFrame;
+                    renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
+                    ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+                }
             }else{
                 renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
                 renderFrame.data = frame.audio.data;
                 renderFrame.size = frame.audio.size;
+                ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
             }
-    
-            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
 
         currentSlice++;
