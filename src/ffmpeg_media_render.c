@@ -89,32 +89,6 @@ bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, do
             return false;
         }
 
-        render->swrContext = swr_alloc();
-        if(!render->swrContext){
-            fprintf(stderr, "Couldn't allocate resampler\n");
-            return false;
-        }
-
-        if(swr_alloc_set_opts2(&render->swrContext,
-            &render->audioCodecContext->ch_layout,
-            render->audioCodecContext->sample_fmt,
-            render->audioCodecContext->sample_rate,
-            stereo ? &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO
-                          : &(AVChannelLayout)AV_CHANNEL_LAYOUT_MONO,
-            AV_SAMPLE_FMT_FLT,
-            sampleRate,
-            0,
-            NULL
-        ) < 0) {
-            fprintf(stderr, "Couldn't set ops for resampler\n");
-            return false;
-        }
-
-        if(swr_init(render->swrContext) < 0) {
-            fprintf(stderr, "Couldn't initialize resampler\n");
-            return false;
-        }
-
         render->audioFifo = av_audio_fifo_alloc(
             render->audioCodecContext->sample_fmt,
             render->audioCodecContext->ch_layout.nb_channels,
@@ -124,14 +98,6 @@ bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, do
             fprintf(stderr, "Couldn't create audio FIFO\n");
             return false;
         }
-
-        render->convertedFrame = av_frame_alloc();
-        render->convertedFrame->nb_samples = render->audioCodecContext->sample_rate / 4;
-        render->convertedFrame->format = render->audioCodecContext->sample_fmt;
-        render->convertedFrame->ch_layout = render->audioCodecContext->ch_layout;
-        render->convertedFrame->sample_rate = render->audioCodecContext->sample_rate;
-        av_frame_get_buffer(render->convertedFrame, 0);
-
     }
 
     if (!(render->formatContext->oformat->flags & AVFMT_NOFILE)) {
@@ -145,11 +111,7 @@ bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, do
 
 bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* frame) {
     if (frame->type == RENDER_FRAME_TYPE_AUDIO) {
-        int nb_samples = swr_convert(render->swrContext,
-            render->convertedFrame->data, frame->size,
-            (const uint8_t* const*)&frame->data, frame->size);
-
-        if (av_audio_fifo_write(render->audioFifo, (void**)render->convertedFrame->data, nb_samples) < nb_samples) {
+        if (av_audio_fifo_write(render->audioFifo, (void**)frame->data, frame->size) < frame->size) {
             fprintf(stderr, "Couldn't write to FIFO\n");
             return false;
         }
@@ -208,12 +170,64 @@ bool ffmpegMediaRenderPassFrame(MediaRenderContext* render, const RenderFrame* f
 }
 
 void ffmpegMediaRenderFinish(MediaRenderContext* render) {
+    int ret;
+
     avcodec_send_frame(render->videoCodecContext, NULL);
-    while (avcodec_receive_packet(render->videoCodecContext, render->packet) == 0) {
+    while ((ret = avcodec_receive_packet(render->videoCodecContext, render->packet)) == 0) {
         render->packet->stream_index = render->videoStream->index;
-        av_packet_rescale_ts(render->packet, render->videoCodecContext->time_base, render->videoStream->time_base);
+        av_packet_rescale_ts(render->packet,
+                             render->videoCodecContext->time_base,
+                             render->videoStream->time_base);
         av_interleaved_write_frame(render->formatContext, render->packet);
         av_packet_unref(render->packet);
+    }
+
+    if (render->audioCodecContext) {
+        while (av_audio_fifo_size(render->audioFifo) > 0) {
+            av_frame_make_writable(render->audioFrame);
+
+            int nb_samples = FFMIN(av_audio_fifo_size(render->audioFifo),
+                                   render->audioCodecContext->frame_size);
+
+            render->audioFrame->nb_samples = nb_samples;
+
+            int read = av_audio_fifo_read(render->audioFifo,
+                                          (void**)render->audioFrame->data,
+                                          nb_samples);
+            if (read <= 0) {
+                break;
+            }
+            assert(read == nb_samples);
+
+            render->audioFrame->pts = render->audioFrameCount;
+            render->audioFrameCount += read;
+
+            ret = avcodec_send_frame(render->audioCodecContext, render->audioFrame);
+            if (ret < 0) {
+                break;
+            }
+
+            while ((ret = avcodec_receive_packet(render->audioCodecContext, render->audioPacket)) == 0) {
+                render->audioPacket->stream_index = render->audioStream->index;
+                av_packet_rescale_ts(render->audioPacket,
+                                     render->audioCodecContext->time_base,
+                                     render->audioStream->time_base);
+                av_interleaved_write_frame(render->formatContext, render->audioPacket);
+                av_packet_unref(render->audioPacket);
+            }
+        }
+
+        avcodec_send_frame(render->audioCodecContext, NULL);
+        while ((ret = avcodec_receive_packet(render->audioCodecContext, render->audioPacket)) == 0) {
+            render->audioPacket->stream_index = render->audioStream->index;
+            av_packet_rescale_ts(render->audioPacket,
+                                 render->audioCodecContext->time_base,
+                                 render->audioStream->time_base);
+            av_interleaved_write_frame(render->formatContext, render->audioPacket);
+            av_packet_unref(render->audioPacket);
+        }
+
+        av_audio_fifo_free(render->audioFifo);
     }
 
     av_write_trailer(render->formatContext);
@@ -222,44 +236,15 @@ void ffmpegMediaRenderFinish(MediaRenderContext* render) {
         avio_closep(&render->formatContext->pb);
     }
 
-    if (render->audioCodecContext) {
-        while (av_audio_fifo_size(render->audioFifo) > 0) {
-            av_frame_make_writable(render->audioFrame);
-
-            int nb_samples = FFMIN(av_audio_fifo_size(render->audioFifo), render->audioCodecContext->frame_size);
-            int read = av_audio_fifo_read(render->audioFifo, (void**)render->audioFrame->data, nb_samples);
-            assert(read == nb_samples);
-
-            render->audioFrame->pts = render->audioFrameCount;
-            render->audioFrameCount += read;
-
-            if (avcodec_send_frame(render->audioCodecContext, render->audioFrame) < 0)
-                break;
-
-            while (avcodec_receive_packet(render->audioCodecContext, render->audioPacket) == 0) {
-                render->audioPacket->stream_index = render->audioStream->index;
-                av_packet_rescale_ts(render->audioPacket,
-                                    render->audioCodecContext->time_base,
-                                    render->audioStream->time_base);
-                av_interleaved_write_frame(render->formatContext, render->audioPacket);
-                av_packet_unref(render->audioPacket);
-            }
-        }
-
-        av_audio_fifo_free(render->audioFifo);
-    }
-
     avcodec_free_context(&render->videoCodecContext);
     av_frame_free(&render->videoFrame);
     av_packet_free(&render->packet);
     sws_freeContext(render->swsContext);
-    swr_free(&render->swrContext);
     avformat_free_context(render->formatContext);
 
     if (render->audioCodecContext) avcodec_free_context(&render->audioCodecContext);
     if (render->audioFrame) av_frame_free(&render->audioFrame);
     if (render->audioPacket) av_packet_free(&render->audioPacket);
-    if (render->convertedFrame) av_frame_free(&render->convertedFrame);
-    
+
     memset(render, 0, sizeof(MediaRenderContext));
 }

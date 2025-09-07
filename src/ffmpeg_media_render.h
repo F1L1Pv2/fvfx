@@ -23,9 +23,7 @@ typedef struct {
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
-    struct SwrContext* swrContext;
     AVAudioFifo* audioFifo;
-    AVFrame* convertedFrame;
 
     size_t videoFrameCount;
     size_t audioFrameCount;

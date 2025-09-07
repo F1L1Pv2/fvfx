@@ -21,7 +21,7 @@ typedef struct {
 } VideoFrame;
 
 typedef struct {
-    uint8_t* data;
+    uint8_t** data;
     size_t nb_samples;
     int capacity;
     size_t count;
@@ -50,7 +50,7 @@ typedef struct {
     struct SwrContext* swrContext;
 } Media;
 
-bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desiredStereo, Media* media);
+bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desiredStereo, enum AVSampleFormat desiredFormat, Media* media);
 void ffmpegMediaUninit(Media* media);
 bool ffmpegMediaGetFrame(Media* media, Frame* frame);
 bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds);

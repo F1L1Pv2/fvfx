@@ -127,7 +127,7 @@ int main(){
         MyMedia myMedia = {0};
 
         // ffmpeg init
-        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, project.sampleRate, project.stereo, &myMedia.media)){
+        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, project.sampleRate, project.stereo, renderContext.audioCodecContext->sample_fmt, &myMedia.media)){
             fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[i].filename);
             return 1;
         }
