@@ -6,7 +6,6 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
-#include <libswresample/swresample.h>
 #include <libavutil/audio_fifo.h>
 
 typedef struct {
