@@ -71,9 +71,6 @@ static inline bool updateSlice(Frame* frame, MyMedias* medias, Slices* slices, s
 
 int main(){
     // ------------------------------ project config code --------------------------------
-
-    // TODO: currently my code relies on medias having exact same audio format FIX IT (change them into one common or idk do smth else just satisfy it)
-
     Project project = {0};
     project.outputFilename = "output.mp4";
     project.width = 1920;
