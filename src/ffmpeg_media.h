@@ -6,6 +6,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 
 typedef enum {
     FRAME_TYPE_NONE = 0,
@@ -21,11 +22,9 @@ typedef struct {
 
 typedef struct {
     uint8_t* data;
-    size_t size;
-    int nb_samples;
-    int channels;
-    int sampleRate;
-    int bytes_per_sample;   // Bytes per sample
+    size_t nb_samples;
+    int capacity;
+    size_t count;
 } AudioFrame;
 
 typedef struct{
@@ -48,9 +47,10 @@ typedef struct {
     int audioStreamIndex;
     AVCodecContext* audioCodecContext;
     AVFrame* audioFrame;
+    struct SwrContext* swrContext;
 } Media;
 
-bool ffmpegMediaInit(const char* filename, Media* media);
+bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desiredStereo, Media* media);
 void ffmpegMediaUninit(Media* media);
 bool ffmpegMediaGetFrame(Media* media, Frame* frame);
 bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds);

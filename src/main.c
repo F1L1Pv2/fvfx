@@ -79,7 +79,7 @@ int main(){
     project.width = 1920;
     project.height = 1080;
     project.fps = 60.0f;
-    project.sampleRate = 44100;
+    project.sampleRate = 48000;
     project.hasAudio = true;
     project.stereo = true;
 
@@ -88,20 +88,23 @@ int main(){
         MEDIER("D:\\videos\\tester.mp4");
         MEDIER("D:\\videos\\IMG_3590.mp4");
         MEDIER("D:\\videos\\IMG_3594.mp4");
+        MEDIER("D:\\videos\\gato.mp4");
+        MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
+        MEDIER("D:\\videos\\IMG_2754.MOV");
         #undef MEDIER
 
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&project.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
         SLICER(0, 20.0, 2);
         SLICER(1, 30.0, 5);
-        SLICER(0, 10.0, 2);
+        SLICER(3, 0.0, 1);
         SLICER(1, 15.0, .5);
         SLICER(1, 20.0, 2);
         SLICER(2,0,-1);
         SLICER(0, 30.0, 5);
         SLICER(0, 0.0, 1);
-        SLICER(0, 10.0, 2);
+        SLICER(4, 60.0, 5);
         SLICER(0, 0.0, 1);
-        SLICER(0, 15.0, 5);
+        SLICER(5, 0.0, -1);
         #undef SLICER
     }
 
@@ -124,7 +127,7 @@ int main(){
         MyMedia myMedia = {0};
 
         // ffmpeg init
-        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, &myMedia.media)){
+        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, project.sampleRate, project.stereo, &myMedia.media)){
             fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[i].filename);
             return 1;
         }
@@ -177,7 +180,7 @@ int main(){
             }else{
                 renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
                 renderFrame.data = frame.audio.data;
-                renderFrame.size = frame.audio.size;
+                renderFrame.size = frame.audio.nb_samples;
                 ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
             }
         }

@@ -6,6 +6,8 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include <libavutil/audio_fifo.h>
 
 typedef struct {
     AVFormatContext* formatContext;
@@ -21,6 +23,9 @@ typedef struct {
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
+    struct SwrContext* swrContext;
+    AVAudioFifo* audioFifo;
+    AVFrame* convertedFrame;
 
     size_t videoFrameCount;
     size_t audioFrameCount;
@@ -35,7 +40,7 @@ typedef enum {
 typedef struct {
     RenderFrameType type;
     void* data;
-    size_t size;
+    size_t size; // in case of audio it means number of samples
 } RenderFrame;
 
 bool ffmpegMediaRenderInit(const char* filename, size_t width, size_t height, double fps, size_t sampleRate, bool stereo, bool hasAudio, MediaRenderContext* render);

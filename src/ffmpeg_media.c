@@ -6,22 +6,14 @@
 #include "ffmpeg_media.h"
 
 static bool initializeMediaContext(Media* media, const char* filename);
-static bool initializeDecoder(Media* media);
+static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desiredStereo);
 
-bool ffmpegMediaInit(const char* filename, Media* media) 
+bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desiredStereo, Media* media) 
 {
     memset(media, 0, sizeof(Media));
     
     if (!initializeMediaContext(media, filename)) goto error;
-    if (!initializeDecoder(media)) goto error;
-
-    // media->duration = (double)media->formatContext->streams[media->videoStreamIndex]->duration * 
-    //        av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
-    
-    // media->videoFrameRate = av_q2d(media->formatContext->streams[media->videoStreamIndex]->avg_frame_rate);
-    // if (media->videoFrameRate <= 0.0) {
-    //     media->videoFrameRate = av_q2d(media->formatContext->streams[media->videoStreamIndex]->r_frame_rate);
-    // }
+    if (!initializeDecoder(media, desiredSampleRate, desiredStereo)) goto error;
 
     return true;
 
@@ -44,37 +36,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                     frame->frameTime = (double)media->audioFrame->pts * 
                         av_q2d(media->formatContext->streams[media->audioStreamIndex]->time_base);
 
-                    int channels = media->audioCodecContext->ch_layout.nb_channels;
-                    int nb_samples = media->audioFrame->nb_samples;
-                    enum AVSampleFormat src_fmt = media->audioCodecContext->sample_fmt;
-                    int bytes_per_sample = av_get_bytes_per_sample(src_fmt);
-                    bool is_planar = av_sample_fmt_is_planar(src_fmt);
-                    int total_size = nb_samples * channels * bytes_per_sample;
-
-                    if (media->tempFrame.audio.data == NULL || media->tempFrame.audio.size < nb_samples) {
-                        free(media->tempFrame.audio.data);
-                        media->tempFrame.audio.data = malloc(total_size);
-                        media->tempFrame.audio.size = nb_samples;
-                        media->tempFrame.audio.bytes_per_sample = bytes_per_sample;
-                    }
-
-                    if (is_planar) {
-                        for (int s = 0; s < nb_samples; s++) {
-                            for (int ch = 0; ch < channels; ch++) {
-                                memcpy(
-                                    media->tempFrame.audio.data + (s * channels + ch) * bytes_per_sample,
-                                    media->audioFrame->data[ch] + s * bytes_per_sample,
-                                    bytes_per_sample
-                                );
-                            }
-                        }
-                    } else {
-                        memcpy(media->tempFrame.audio.data, media->audioFrame->data[0], total_size);
-                    }
-
-                    media->tempFrame.audio.channels = channels;
-                    media->tempFrame.audio.sampleRate = media->audioCodecContext->sample_rate;
-
+                    media->tempFrame.audio.nb_samples = swr_convert(media->swrContext, &media->tempFrame.audio.data, media->tempFrame.audio.count, (const uint8_t* const *)media->audioFrame->data, media->audioFrame->nb_samples);
                     frame->audio = media->tempFrame.audio;
                     return true;
                 }
@@ -140,12 +102,29 @@ bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
 
     avcodec_flush_buffers(media->videoCodecContext);
     avcodec_flush_buffers(media->audioCodecContext);
- 
-    do {
-        if (!ffmpegMediaGetFrame(media, frame)) break;
-    } while(frame->frameTime < time_seconds);
 
-    return true;
+    av_frame_unref(media->videoFrame);
+    av_packet_unref(media->packet);
+
+    while (av_read_frame(media->formatContext, media->packet) >= 0) {
+        if (media->packet->stream_index == media->videoStreamIndex) {
+            ret = avcodec_send_packet(media->videoCodecContext, media->packet);
+            av_packet_unref(media->packet);
+            if (ret < 0) continue;
+
+            ret = avcodec_receive_frame(media->videoCodecContext, media->videoFrame);
+            if (ret == 0) {
+                double pts_time = (double)media->videoFrame->pts *
+                    av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
+
+                if (pts_time >= time_seconds) return true;
+            }
+        } else {
+            av_packet_unref(media->packet);
+        }
+    }
+
+    return false;
 }
 
 void ffmpegMediaUninit(Media* media) {
@@ -159,6 +138,7 @@ void ffmpegMediaUninit(Media* media) {
         avformat_close_input(&media->formatContext);
         avformat_free_context(media->formatContext);
     }
+    if(media->swrContext) swr_free(&media->swrContext);
     
     memset(media, 0, sizeof(Media));
 }
@@ -177,7 +157,7 @@ static bool initializeMediaContext(Media* media, const char* filename) {
     return true;
 }
 
-static bool initializeDecoder(Media* media) {
+static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desiredStereo) {
     media->videoStreamIndex = -1;
     for (int i = 0; i < media->formatContext->nb_streams; i++) {
         AVStream* stream = media->formatContext->streams[i];
@@ -226,7 +206,43 @@ static bool initializeDecoder(Media* media) {
         }
     }
 
-    if(media->audioStreamIndex != -1) media->audioFrame = av_frame_alloc();
+    if(media->audioStreamIndex != -1) {
+        media->audioFrame = av_frame_alloc();
+
+        media->swrContext = swr_alloc();
+        if(!media->swrContext){
+            fprintf(stderr, "Couldn't allocate resampler\n");
+            return false;
+        }
+
+        if(swr_alloc_set_opts2(&media->swrContext,
+            desiredStereo ? &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO
+                          : &(AVChannelLayout)AV_CHANNEL_LAYOUT_MONO,
+            AV_SAMPLE_FMT_FLT,
+            desiredSampleRate,
+            &media->audioCodecContext->ch_layout,
+            media->audioCodecContext->sample_fmt,
+            media->audioCodecContext->sample_rate,
+            0,
+            NULL
+        ) < 0) {
+            fprintf(stderr, "Couldn't set ops for resampler\n");
+            return false;
+        }
+
+        if(swr_init(media->swrContext) < 0) {
+            fprintf(stderr, "Couldn't initialize resampler\n");
+            return false;
+        }
+
+        media->tempFrame.audio.nb_samples = 0;
+        media->tempFrame.audio.count = desiredSampleRate/4;
+        if(av_samples_alloc(&media->tempFrame.audio.data,&media->tempFrame.audio.capacity,desiredStereo ? 2 : 1, media->tempFrame.audio.count, AV_SAMPLE_FMT_FLT, 1) < 0){
+            fprintf(stderr, "Couldn't alloc space for audio sample\n");
+            return false;
+        }
+        memset(media->tempFrame.audio.data, 0, media->tempFrame.audio.capacity);
+    }
     
     media->videoFrame = av_frame_alloc();
     media->packet = av_packet_alloc();
