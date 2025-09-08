@@ -62,12 +62,12 @@ typedef struct{
     size_t capacity;
 } MyMedias;
 
-static inline bool updateSlice(Frame* frame, MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
+static inline bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
     MyMedia* media = &medias->items[*currentMediaIndex];
     *checkDuration = slices->items[currentSlice].duration;
     if(*checkDuration == -1) *checkDuration = media->duration - slices->items[currentSlice].offset;
-    ffmpegMediaSeek(&media->media, frame, slices->items[currentSlice].offset);
+    ffmpegMediaSeek(&media->media, slices->items[currentSlice].offset);
     return true;
 }
 
@@ -146,8 +146,10 @@ int main(){
     double localTime = 0;
     double checkDuration = 0;
     size_t video_skip_count = 0;
-    if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
-    int64_t lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
+    if(!updateSlice(&myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
+    int64_t lastVideoPts;
+    if(myMedias.items[currentMediaIndex].hasVideo) lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
+
 
     RenderFrame renderFrame = {0};
     uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
@@ -155,7 +157,15 @@ int main(){
     while(true){
         MyMedia* myMedia = &myMedias.items[currentMediaIndex];
         assert(myMedia->hasAudio && "Not Implemented yet!");
-        assert(myMedia->hasVideo && "Not Implemented yet!");
+        if(!myMedia->hasVideo){
+            renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
+            renderFrame.data = outVideoFrame;
+            renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
+            memset(outVideoFrame, 0, renderFrame.size);
+
+            size_t count = project.slices.items[currentSlice].duration / (1.0 / project.fps);
+            for(size_t i = 0; i < count; i++) ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+        }
         while(localTime < checkDuration){
             if(!ffmpegMediaGetFrame(&myMedia->media, &frame)) break;
             
@@ -198,8 +208,8 @@ int main(){
         printf("Processing Slice %zu/%zu!\n", currentSlice+1, project.slices.count);
         localTime = 0;
         video_skip_count = 0;
-        if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
-        lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
+        if(!updateSlice(&myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
+        if(myMedias.items[currentMediaIndex].hasVideo) lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
     }
 
 end:
