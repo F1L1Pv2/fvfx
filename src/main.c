@@ -45,6 +45,9 @@ typedef struct{
 
 typedef struct{
     Media media;
+    bool hasAudio;
+    bool hasVideo;
+
     VkImage mediaImage;
     VkDeviceMemory mediaImageMemory;
     VkImageView mediaImageView;
@@ -127,8 +130,12 @@ int main(){
         }
 
         myMedia.duration = ffmpegMediaDuration(&myMedia.media);
+        myMedia.hasAudio = myMedia.media.audioStream != NULL;
+        myMedia.hasVideo = myMedia.media.videoStream != NULL;
         
-        if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
+        if(myMedia.hasVideo){
+            if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
+        }
         da_append(&myMedias, myMedia);
     }
     
@@ -147,6 +154,8 @@ int main(){
     printf("Processing Slice 1/%zu!\n", project.slices.count);
     while(true){
         MyMedia* myMedia = &myMedias.items[currentMediaIndex];
+        assert(myMedia->hasAudio && "Not Implemented yet!");
+        assert(myMedia->hasVideo && "Not Implemented yet!");
         while(localTime < checkDuration){
             if(!ffmpegMediaGetFrame(&myMedia->media, &frame)) break;
             

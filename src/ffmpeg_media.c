@@ -27,7 +27,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
     av_packet_unref(media->packet);
     int response;
     while (av_read_frame(media->formatContext, media->packet) >= 0) {
-        if (media->packet->stream_index == media->audioStream->index) {
+        if (media->audioStream && media->packet->stream_index == media->audioStream->index) {
             response = avcodec_send_packet(media->audioCodecContext, media->packet);
             if (response >= 0) {
                 response = avcodec_receive_frame(media->audioCodecContext, media->audioFrame);
@@ -44,7 +44,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
             continue;
         }
 
-        if (media->packet->stream_index == media->videoStream->index) {
+        if (media->videoStream && media->packet->stream_index == media->videoStream->index) {
             response = avcodec_send_packet(media->videoCodecContext, media->packet);
             if (response < 0) {
                 av_packet_unref(media->packet);
@@ -177,7 +177,20 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
         }
     }
     
-    if (media->videoStream == NULL) return false;
+    if (media->videoStream != NULL) {
+        media->videoFrame = av_frame_alloc();
+        if(!media->videoFrame) return false;
+        media->swsContext = sws_getContext(
+            media->videoCodecContext->width, media->videoCodecContext->height, media->videoCodecContext->pix_fmt,
+            media->videoCodecContext->width, media->videoCodecContext->height, AV_PIX_FMT_RGBA,
+            SWS_FAST_BILINEAR, NULL, NULL, NULL
+        );
+        if(!media->swsContext) return false;
+        media->tempFrame.video.width = media->videoCodecContext->width;
+        media->tempFrame.video.height = media->videoCodecContext->height;
+        media->tempFrame.video.data = malloc(media->tempFrame.video.width*media->tempFrame.video.height*sizeof(uint32_t));
+        if(!media->tempFrame.video.data) return false;
+    }
 
     media->audioStream = NULL;
     for (int i = 0; i < media->formatContext->nb_streams; i++) {
@@ -241,17 +254,8 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
         }
     }
     
-    media->videoFrame = av_frame_alloc();
     media->packet = av_packet_alloc();
-    media->swsContext = sws_getContext(
-        media->videoCodecContext->width, media->videoCodecContext->height, media->videoCodecContext->pix_fmt,
-        media->videoCodecContext->width, media->videoCodecContext->height, AV_PIX_FMT_RGBA,
-        SWS_FAST_BILINEAR, NULL, NULL, NULL
-    );
-    media->tempFrame.video.width = media->videoCodecContext->width;
-    media->tempFrame.video.height = media->videoCodecContext->height;
-    media->tempFrame.video.data = malloc(media->tempFrame.video.width*media->tempFrame.video.height*sizeof(uint32_t));
-    return media->videoFrame && media->packet;
+    return media->packet;
 }
 
 double ffmpegMediaDuration(Media* media){
