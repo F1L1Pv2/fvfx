@@ -51,7 +51,6 @@ typedef struct{
     size_t mediaImageStride;
     void* mediaImageData;
     double duration;
-    double framerate;
 } MyMedia;
 
 typedef struct{
@@ -87,7 +86,6 @@ int main(){
         MEDIER("D:\\videos\\IMG_3594.mp4");
         MEDIER("D:\\videos\\gato.mp4");
         MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
-        MEDIER("D:\\videos\\IMG_2754.MOV");
         #undef MEDIER
 
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&project.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
@@ -101,7 +99,6 @@ int main(){
         SLICER(0, 0.0, 1);
         SLICER(4, 60.0, 5);
         SLICER(0, 0.0, 1);
-        SLICER(5, 0.0, -1);
         #undef SLICER
     }
 
@@ -130,7 +127,6 @@ int main(){
         }
 
         myMedia.duration = ffmpegMediaDuration(&myMedia.media);
-        myMedia.framerate = (double)myMedia.media.videoStream->avg_frame_rate.num/(double)myMedia.media.videoStream->avg_frame_rate.den;
         
         if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
         da_append(&myMedias, myMedia);
@@ -144,27 +140,32 @@ int main(){
     double checkDuration = 0;
     size_t video_skip_count = 0;
     if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
+    int64_t lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
 
     RenderFrame renderFrame = {0};
     uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
+    printf("Processing Slice 1/%zu!\n", project.slices.count);
     while(true){
         MyMedia* myMedia = &myMedias.items[currentMediaIndex];
         while(localTime < checkDuration){
             if(!ffmpegMediaGetFrame(&myMedia->media, &frame)) break;
-            localTime = frame.frameTime - project.slices.items[currentSlice].offset;
-    
+            
             if(frame.type == FRAME_TYPE_VIDEO){
+                localTime = frame.pts * av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base)  - project.slices.items[currentSlice].offset;
                 if(video_skip_count > 0){
                     video_skip_count--;
                     continue;
                 }
 
+                double framerate = 1.0 / ((double)(frame.pts - lastVideoPts) * av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base));
+                lastVideoPts = frame.pts;
+
                 size_t times_to_catch_up_target_framerate = 1;
-                if(myMedia->framerate < project.fps){
-                    times_to_catch_up_target_framerate = (size_t)(project.fps/myMedia->framerate);
+                if(framerate < project.fps){
+                    times_to_catch_up_target_framerate = (size_t)(project.fps/framerate);
                     if(times_to_catch_up_target_framerate == 0) times_to_catch_up_target_framerate = 1;
-                }else if(myMedia->framerate > project.fps){
-                    video_skip_count = (size_t)(myMedia->framerate / project.fps);
+                }else if(framerate > project.fps){
+                    video_skip_count = (size_t)(framerate / project.fps);
                 }
 
                 for(size_t i = 0; i < times_to_catch_up_target_framerate; i++){
@@ -175,6 +176,7 @@ int main(){
                     ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
                 }
             }else{
+                localTime = frame.pts * av_q2d(myMedias.items[currentMediaIndex].media.audioStream->time_base)  - project.slices.items[currentSlice].offset;
                 renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
                 renderFrame.data = frame.audio.data;
                 renderFrame.size = frame.audio.nb_samples;
@@ -184,9 +186,11 @@ int main(){
 
         currentSlice++;
         if(currentSlice >= project.slices.count) break;
+        printf("Processing Slice %zu/%zu!\n", currentSlice+1, project.slices.count);
         localTime = 0;
         video_skip_count = 0;
         if(!updateSlice(&frame, &myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
+        lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
     }
 
 end:

@@ -29,7 +29,7 @@ typedef struct {
 
 typedef struct{
     FrameType type;
-    double frameTime;
+    int64_t pts;
     VideoFrame video;
     AudioFrame audio;
 } Frame;

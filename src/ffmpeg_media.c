@@ -33,8 +33,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                 response = avcodec_receive_frame(media->audioCodecContext, media->audioFrame);
                 if (response >= 0) {
                     frame->type = FRAME_TYPE_AUDIO;
-                    frame->frameTime = (double)media->audioFrame->pts * 
-                        av_q2d(media->audioStream->time_base);
+                    frame->pts = media->audioFrame->pts;
 
                     media->tempFrame.audio.nb_samples = swr_convert(media->swrContext, media->tempFrame.audio.data, media->tempFrame.audio.count, (const uint8_t* const *)media->audioFrame->data, media->audioFrame->nb_samples);
                     frame->audio = media->tempFrame.audio;
@@ -77,8 +76,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
 
             frame->video = media->tempFrame.video;
     
-            frame->frameTime = (double)media->videoFrame->pts * 
-                av_q2d(media->videoStream->time_base);
+            frame->pts = media->videoFrame->pts;
                 
             return true;
         }
