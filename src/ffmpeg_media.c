@@ -27,14 +27,14 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
     av_packet_unref(media->packet);
     int response;
     while (av_read_frame(media->formatContext, media->packet) >= 0) {
-        if (media->packet->stream_index == media->audioStreamIndex) {
+        if (media->packet->stream_index == media->audioStream->index) {
             response = avcodec_send_packet(media->audioCodecContext, media->packet);
             if (response >= 0) {
                 response = avcodec_receive_frame(media->audioCodecContext, media->audioFrame);
                 if (response >= 0) {
                     frame->type = FRAME_TYPE_AUDIO;
                     frame->frameTime = (double)media->audioFrame->pts * 
-                        av_q2d(media->formatContext->streams[media->audioStreamIndex]->time_base);
+                        av_q2d(media->audioStream->time_base);
 
                     media->tempFrame.audio.nb_samples = swr_convert(media->swrContext, media->tempFrame.audio.data, media->tempFrame.audio.count, (const uint8_t* const *)media->audioFrame->data, media->audioFrame->nb_samples);
                     frame->audio = media->tempFrame.audio;
@@ -45,7 +45,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
             continue;
         }
 
-        if (media->packet->stream_index == media->videoStreamIndex) {
+        if (media->packet->stream_index == media->videoStream->index) {
             response = avcodec_send_packet(media->videoCodecContext, media->packet);
             if (response < 0) {
                 av_packet_unref(media->packet);
@@ -78,7 +78,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
             frame->video = media->tempFrame.video;
     
             frame->frameTime = (double)media->videoFrame->pts * 
-                av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
+                av_q2d(media->videoStream->time_base);
                 
             return true;
         }
@@ -89,12 +89,12 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
 }
 
 bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
-    int64_t target_pts = time_seconds / av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
+    int64_t target_pts = time_seconds / av_q2d(media->videoStream->time_base);
 
     avcodec_flush_buffers(media->videoCodecContext);
     avcodec_flush_buffers(media->audioCodecContext);
 
-    int ret = av_seek_frame(media->formatContext, media->videoStreamIndex, target_pts, AVSEEK_FLAG_BACKWARD);
+    int ret = av_seek_frame(media->formatContext, media->videoStream->index, target_pts, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
         printf("Seek failed: %s\n", av_err2str(ret));
         return false;
@@ -107,7 +107,7 @@ bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
     av_packet_unref(media->packet);
 
     while (av_read_frame(media->formatContext, media->packet) >= 0) {
-        if (media->packet->stream_index == media->videoStreamIndex) {
+        if (media->packet->stream_index == media->videoStream->index) {
             ret = avcodec_send_packet(media->videoCodecContext, media->packet);
             av_packet_unref(media->packet);
             if (ret < 0) continue;
@@ -115,7 +115,7 @@ bool ffmpegMediaSeek(Media* media, Frame* frame, double time_seconds) {
             ret = avcodec_receive_frame(media->videoCodecContext, media->videoFrame);
             if (ret == 0) {
                 double pts_time = (double)media->videoFrame->pts *
-                    av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
+                    av_q2d(media->videoStream->time_base);
 
                 if (pts_time >= time_seconds) return true;
             }
@@ -158,11 +158,11 @@ static bool initializeMediaContext(Media* media, const char* filename) {
 }
 
 static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desiredStereo, enum AVSampleFormat desiredFormat) {
-    media->videoStreamIndex = -1;
+    media->videoStream = NULL;
     for (int i = 0; i < media->formatContext->nb_streams; i++) {
         AVStream* stream = media->formatContext->streams[i];
-        if (media->videoStreamIndex == -1 && stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            media->videoStreamIndex = i;
+        if (media->videoStream == NULL && stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            media->videoStream = stream;
             AVCodecParameters* codecParameters = stream->codecpar;
 
             const AVCodec* codec = avcodec_find_decoder(codecParameters->codec_id);
@@ -179,13 +179,13 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
         }
     }
     
-    if (media->videoStreamIndex == -1) return false;
+    if (media->videoStream == NULL) return false;
 
-    media->audioStreamIndex = -1;
+    media->audioStream = NULL;
     for (int i = 0; i < media->formatContext->nb_streams; i++) {
         AVStream* stream = media->formatContext->streams[i];
-        if (media->audioStreamIndex == -1 && stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-            media->audioStreamIndex = i;
+        if (media->audioStream == NULL && stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            media->audioStream = stream;
             AVCodecParameters* codecParameters = stream->codecpar;
 
             const AVCodec* codec = avcodec_find_decoder(codecParameters->codec_id);
@@ -206,7 +206,7 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
         }
     }
 
-    if(media->audioStreamIndex != -1) {
+    if(media->audioStream != NULL) {
         media->audioFrame = av_frame_alloc();
 
         media->swrContext = swr_alloc();
@@ -257,6 +257,6 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
 }
 
 double ffmpegMediaDuration(Media* media){
-    return (double)media->formatContext->streams[media->videoStreamIndex]->duration * 
-            av_q2d(media->formatContext->streams[media->videoStreamIndex]->time_base);
+    return (double)media->videoStream->duration * 
+            av_q2d(media->videoStream->time_base);
 }

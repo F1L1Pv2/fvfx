@@ -130,7 +130,7 @@ int main(){
         }
 
         myMedia.duration = ffmpegMediaDuration(&myMedia.media);
-        myMedia.framerate = (double)myMedia.media.formatContext->streams[myMedia.media.videoStreamIndex]->avg_frame_rate.num/(double)myMedia.media.formatContext->streams[myMedia.media.videoStreamIndex]->avg_frame_rate.den;
+        myMedia.framerate = (double)myMedia.media.videoStream->avg_frame_rate.num/(double)myMedia.media.videoStream->avg_frame_rate.den;
         
         if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
         da_append(&myMedias, myMedia);

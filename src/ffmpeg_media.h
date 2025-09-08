@@ -39,12 +39,12 @@ typedef struct {
     AVPacket* packet;
     Frame tempFrame;
 
-    int videoStreamIndex;
+    AVStream* videoStream;
     AVCodecContext* videoCodecContext;
     AVFrame* videoFrame;
     struct SwsContext* swsContext;
 
-    int audioStreamIndex;
+    AVStream* audioStream;
     AVCodecContext* audioCodecContext;
     AVFrame* audioFrame;
     struct SwrContext* swrContext;
