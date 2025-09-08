@@ -157,6 +157,7 @@ int main(){
     while(true){
         MyMedia* myMedia = &myMedias.items[currentMediaIndex];
         assert(myMedia->hasAudio && "Not Implemented yet!");
+        //TODO remove this once we have propper layers
         if(!myMedia->hasVideo){
             renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
             renderFrame.data = outVideoFrame;
