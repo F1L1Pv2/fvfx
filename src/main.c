@@ -5,6 +5,7 @@
 #include "vulkanizer.h"
 #include "ffmpeg_media.h"
 #include "ffmpeg_media_render.h"
+#include "ffmpeg_helper.h"
 
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -32,6 +33,17 @@ typedef struct{
 } MediaInstances;
 
 typedef struct{
+    MediaInstances mediaInstances;
+    Slices slices;
+} Layer;
+
+typedef struct{
+    Layer* items;
+    size_t count;
+    size_t capacity;
+} Layers;
+
+typedef struct{
     const char* outputFilename;
     size_t width;
     size_t height;
@@ -39,8 +51,7 @@ typedef struct{
     float sampleRate;
     bool hasAudio;
     bool stereo;
-    MediaInstances mediaInstances;
-    Slices slices;
+    Layers layers;
 } Project;
 
 typedef struct{
@@ -87,16 +98,30 @@ typedef struct{
     int64_t lastVideoPts;
 } GetVideoFrameArgs;
 
-int getVideoFrame(Vulkanizer* vulkanizer, Project* project, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+typedef struct{
+    MyMedias myMedias;
+    AVAudioFifo* audioFifo;
+    Frame frame;
+    GetVideoFrameArgs args;
+    bool finished;
+} MyLayer;
+
+typedef struct{
+    MyLayer* items;
+    size_t count;
+    size_t capacity;
+} MyLayers;
+
+int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
     while(true){
         if(args->localTime >= args->checkDuration){
             args->currentSlice++;
-            if(args->currentSlice >= project->slices.count) return -GET_VIDEO_FRAME_FINISHED;
-            printf("Processing Slice %zu/%zu!\n", args->currentSlice+1, project->slices.count);
+            if(args->currentSlice >= slices->count) return -GET_VIDEO_FRAME_FINISHED;
+            printf("Processing Slice(0x%p) %zu/%zu!\n", args,args->currentSlice+1, slices->count);
             args->localTime = 0;
             args->video_skip_count = 0;
-            if(!updateSlice(myMedias,&project->slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_VIDEO_FRAME_FINISHED;
-            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = project->slices.items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+            if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_VIDEO_FRAME_ERR;
+            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
         }
     
         MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
@@ -112,7 +137,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, MyMedias* myMedias, 
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_VIDEO_FRAME_SKIP;};
         
         if(frame->type == FRAME_TYPE_VIDEO){
-            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - project->slices.items[args->currentSlice].offset;
+            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - slices->items[args->currentSlice].offset;
             if(args->video_skip_count > 0){
                 args->video_skip_count--;
                 return -GET_VIDEO_FRAME_SKIP;
@@ -133,12 +158,44 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, MyMedias* myMedias, 
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
-            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - project->slices.items[args->currentSlice].offset;
-            av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
+            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
+            if(audioFifo) av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
         }
     }
 
     return -GET_VIDEO_FRAME_ERR;
+}
+
+inline uint8_t blend_channel(uint8_t s, uint8_t d, uint8_t sa) {
+    uint32_t t = s * sa + d * (255 - sa);
+    return (t + 128) * 257 >> 16;
+}
+
+inline void composeImageBuffers(uint32_t* srcBuff, uint32_t* dstBuff, size_t width, size_t height){
+    for (size_t j = 0; j < width * height; j++) {
+        uint32_t src = srcBuff[j];
+        uint32_t dst = dstBuff[j];
+
+        uint8_t sr = (src >> 0)  & 0xFF;
+        uint8_t sg = (src >> 8)  & 0xFF;
+        uint8_t sb = (src >> 16) & 0xFF;
+        uint8_t sa = (src >> 24) & 0xFF;
+
+        uint8_t dr = (dst >> 0)  & 0xFF;
+        uint8_t dg = (dst >> 8)  & 0xFF;
+        uint8_t db = (dst >> 16) & 0xFF;
+        uint8_t da = (dst >> 24) & 0xFF;
+
+        uint8_t or_ = blend_channel(sr, dr, sa);
+        uint8_t og  = blend_channel(sg, dg, sa);
+        uint8_t ob  = blend_channel(sb, db, sa);
+
+        uint32_t at = sa + da * (255 - sa);
+        uint8_t oa = (at + 128) * 257 >> 16;
+
+        dstBuff[j] =
+            (oa << 24) | (ob << 16) | (og << 8) | (or_);
+    }
 }
 
 int main(){
@@ -153,26 +210,20 @@ int main(){
     project.stereo = true;
 
     {
-        #define MEDIER(filenameIN) da_append(&project.mediaInstances, ((MediaInstance){.filename = filenameIN}))
-        MEDIER("D:\\videos\\tester.mp4");
-        MEDIER("D:\\videos\\IMG_3590.mp4");
-        MEDIER("D:\\videos\\IMG_3594.mp4");
-        MEDIER("D:\\videos\\gato.mp4");
-        MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
-        #undef MEDIER
+        Layer layer = {0};
+        #define LAYERO() do {da_append(&project.layers, layer); layer = (Layer){0};} while(0)
+        #define MEDIER(filenameIN) da_append(&layer.mediaInstances, ((MediaInstance){.filename = filenameIN}))
+        #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&layer.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
 
-        #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&project.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
-        SLICER(0, 20.0, 2);
-        SLICER(1, 30.0, 5);
-        SLICER(3, 0.0, 1);
-        SLICER(1, 15.0, .5);
-        SLICER(1, 20.0, 2);
-        SLICER(2,0,-1);
+        MEDIER("D:\\videos\\gato.mp4");
+        MEDIER("D:\\videos\\IMG_3590.mp4");
+        SLICER(0, 0.0, -1);
+        SLICER(1, 0.0, 5);
+        LAYERO();
+
+        MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
         SLICER(0, 30.0, 5);
-        SLICER(0, 0.0, 1);
-        SLICER(4, 60.0, 5);
-        SLICER(0, 0.0, 1);
-        #undef SLICER
+        LAYERO();
     }
 
     // ------------------------------------------- editor code -----------------------------------------------------
@@ -188,67 +239,140 @@ int main(){
     if(!Vulkanizer_init(&vulkanizer)) return 1;
     if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
-    MyMedias myMedias = {0};
+    MyLayers myLayers = {0};
 
-    for(size_t i = 0; i < project.mediaInstances.count; i++){
-        MyMedia myMedia = {0};
-
-        // ffmpeg init
-        if(!ffmpegMediaInit(project.mediaInstances.items[i].filename, project.sampleRate, project.stereo, renderContext.audioCodecContext->sample_fmt, &myMedia.media)){
-            fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", project.mediaInstances.items[i].filename);
-            return 1;
+    for(size_t j = 0; j < project.layers.count; j++){
+        Layer* layer = &project.layers.items[j];
+        MyLayer myLayer = {0};
+        bool hasAudio = false;
+        for(size_t i = 0; i < layer->mediaInstances.count; i++){
+            MyMedia myMedia = {0};
+    
+            // ffmpeg init
+            if(!ffmpegMediaInit(layer->mediaInstances.items[i].filename, project.sampleRate, project.stereo, renderContext.audioCodecContext->sample_fmt, &myMedia.media)){
+                fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", layer->mediaInstances.items[i].filename);
+                return 1;
+            }
+    
+            myMedia.duration = ffmpegMediaDuration(&myMedia.media);
+            myMedia.hasAudio = myMedia.media.audioStream != NULL;
+            myMedia.hasVideo = myMedia.media.videoStream != NULL;
+            if(myMedia.hasAudio) hasAudio = true;
+            
+            if(myMedia.hasVideo){
+                if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
+            }
+            da_append(&myLayer.myMedias, myMedia);
         }
-
-        myMedia.duration = ffmpegMediaDuration(&myMedia.media);
-        myMedia.hasAudio = myMedia.media.audioStream != NULL;
-        myMedia.hasVideo = myMedia.media.videoStream != NULL;
-        
-        if(myMedia.hasVideo){
-            if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
-        }
-        da_append(&myMedias, myMedia);
+        if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(renderContext.audioCodecContext->sample_fmt, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size);;
+        da_append(&myLayers, myLayer);
     }
     
-    Frame frame = {0};
-    AVAudioFifo* audioFifo = av_audio_fifo_alloc(renderContext.audioCodecContext->sample_fmt, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size);
     RenderFrame renderFrame = {0};
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
     av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
 
-    uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
-    printf("Processing Slice 1/%zu!\n", project.slices.count);
+    uint8_t** composedAudioBuf;
+    int composedAudioBufLineSize;
+    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
 
-    GetVideoFrameArgs args = {0};
-    if(!updateSlice(&myMedias,&project.slices, args.currentSlice, &args.currentMediaIndex, &args.checkDuration)) return 1;
-    if(myMedias.items[args.currentMediaIndex].hasVideo) args.lastVideoPts = project.slices.items[args.currentSlice].offset / av_q2d(myMedias.items[args.currentMediaIndex].media.videoStream->time_base);
+    uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
+    uint32_t* outComposedVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
+
+    for(size_t i = 0; i < myLayers.count; i++){
+        MyLayer* myLayer = &myLayers.items[i];
+        Layer* layer = &project.layers.items[i];
+        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return 1;
+        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
+        printf("Processing Slice(0x%p) Slice 1/%zu!\n", &myLayer->args, layer->slices.count);
+    }
 
     while(true){
-        int e = getVideoFrame(&vulkanizer, &project, &myMedias, &frame, audioFifo, &args, outVideoFrame);
-        if(e == -GET_VIDEO_FRAME_ERR) return 1;
-        if(e == -GET_VIDEO_FRAME_FINISHED) break;
-        if(e != -GET_VIDEO_FRAME_SKIP){
-            renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-            renderFrame.data = outVideoFrame;
-            renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
-            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+        memset(outComposedVideoFrame, 0, project.width*project.height*sizeof(uint32_t));
+        bool allFinished = true;
+        bool enoughSamples = true;
+        for(size_t i = 0; i < myLayers.count; i++){
+            MyLayer* myLayer = &myLayers.items[i];
+            if(myLayer->finished) continue;
+            if(!myLayer->finished) allFinished = false;
+            Layer* layer = &project.layers.items[i];
+
+            int e = getVideoFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
+            if(av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
+            if(e == -GET_VIDEO_FRAME_ERR) return 1;
+            if(e == -GET_VIDEO_FRAME_FINISHED) {printf("0x%p finished\n", &myLayer->args);myLayer->finished = true; continue;}
+            if(e == -GET_VIDEO_FRAME_SKIP) continue;
+            composeImageBuffers(outVideoFrame, outComposedVideoFrame, project.width, project.height);
         }
-        
-        while(av_audio_fifo_size(audioFifo) >= renderContext.audioCodecContext->frame_size){
-            int read = av_audio_fifo_read(audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
-            assert(read == renderContext.audioCodecContext->frame_size && "You fucked up smth my bruvskiers");
+        if(allFinished) break;
+
+        renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
+        renderFrame.data = outComposedVideoFrame;
+        renderFrame.size = project.width * project.height * sizeof(outComposedVideoFrame[0]);
+        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+
+        if(enoughSamples){
+            av_samples_set_silence(composedAudioBuf, 0, renderContext.audioCodecContext->frame_size, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+            for(size_t i = 0; i < myLayers.count; i++){
+                MyLayer* myLayer = &myLayers.items[i];
+                int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
+                if(myLayer->finished && read > 0){
+                    mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+                    continue;
+                }else if(myLayer->finished && read == 0) continue;
+                
+                assert(read == renderContext.audioCodecContext->frame_size && "You fucked up smth my bruvskiers");
+                mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+            }
             renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-            renderFrame.data = tempAudioBuf;
+            renderFrame.data = composedAudioBuf;
             renderFrame.size = renderContext.audioCodecContext->frame_size;
             ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
     }
 
-    while(av_audio_fifo_size(audioFifo) > 0){
-        int read = av_audio_fifo_read(audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
+    printf("Draining leftover audio\n");
+    bool audioLeft = true;
+    while (audioLeft) {
+        audioLeft = false;
+        for (size_t i = 0; i < myLayers.count; i++) {
+            MyLayer* myLayer = &myLayers.items[i];
+            if (av_audio_fifo_size(myLayer->audioFifo) > 0) {
+                audioLeft = true;
+                break;
+            }
+        }
+        if (!audioLeft) break;
+        av_samples_set_silence(
+            composedAudioBuf,
+            0,
+            renderContext.audioCodecContext->frame_size,
+            project.stereo ? 2 : 1,
+            renderContext.audioCodecContext->sample_fmt
+        );
+        for (size_t i = 0; i < myLayers.count; i++) {
+            MyLayer* myLayer = &myLayers.items[i];
+            int available = av_audio_fifo_size(myLayer->audioFifo);
+            if (available <= 0) continue;
+
+            int toRead = FFMIN(available, renderContext.audioCodecContext->frame_size);
+            int read = av_audio_fifo_read(
+                myLayer->audioFifo,
+                (void**)tempAudioBuf,
+                toRead
+            );
+            mix_audio(
+                composedAudioBuf,
+                tempAudioBuf,
+                read,
+                project.stereo ? 2 : 1,
+                renderContext.audioCodecContext->sample_fmt
+            );
+        }
         renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-        renderFrame.data = tempAudioBuf;
+        renderFrame.data = composedAudioBuf;
         renderFrame.size = renderContext.audioCodecContext->frame_size;
         ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
     }
