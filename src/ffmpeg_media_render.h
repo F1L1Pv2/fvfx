@@ -1,6 +1,7 @@
 #ifndef FVFX_FFMPEG_MEDIA_RENDER
 #define FVFX_FFMPEG_MEDIA_RENDER
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <libavformat/avformat.h>
@@ -22,7 +23,6 @@ typedef struct {
     AVStream* audioStream;
     AVFrame* audioFrame;
     AVPacket* audioPacket;
-    AVAudioFifo* audioFifo;
 
     size_t videoFrameCount;
     size_t audioFrameCount;

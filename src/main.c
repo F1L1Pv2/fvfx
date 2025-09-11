@@ -71,6 +71,76 @@ static inline bool updateSlice(MyMedias* medias, Slices* slices, size_t currentS
     return true;
 }
 
+enum {
+    GET_VIDEO_FRAME_ERR = 1,
+    GET_VIDEO_FRAME_FINISHED,
+    GET_VIDEO_FRAME_SKIP
+};
+
+typedef struct{
+    double localTime;
+    double checkDuration;
+    size_t currentSlice;
+    size_t currentMediaIndex;
+    size_t video_skip_count;
+    size_t times_to_catch_up_target_framerate;
+    int64_t lastVideoPts;
+} GetVideoFrameArgs;
+
+int getVideoFrame(Vulkanizer* vulkanizer, Project* project, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+    while(true){
+        if(args->localTime >= args->checkDuration){
+            args->currentSlice++;
+            if(args->currentSlice >= project->slices.count) return -GET_VIDEO_FRAME_FINISHED;
+            printf("Processing Slice %zu/%zu!\n", args->currentSlice+1, project->slices.count);
+            args->localTime = 0;
+            args->video_skip_count = 0;
+            if(!updateSlice(myMedias,&project->slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_VIDEO_FRAME_FINISHED;
+            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = project->slices.items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+        }
+    
+        MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+        assert(myMedia->hasAudio && "Not Implemented yet!");
+        assert(myMedia->hasVideo && "Not Implemented yet!");
+        
+        if(args->times_to_catch_up_target_framerate > 0){
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_VIDEO_FRAME_ERR;
+            args->times_to_catch_up_target_framerate--;
+            return 0;
+        }
+
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_VIDEO_FRAME_SKIP;};
+        
+        if(frame->type == FRAME_TYPE_VIDEO){
+            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - project->slices.items[args->currentSlice].offset;
+            if(args->video_skip_count > 0){
+                args->video_skip_count--;
+                return -GET_VIDEO_FRAME_SKIP;
+            }
+    
+            double framerate = 1.0 / ((double)(frame->pts - args->lastVideoPts) * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base));
+            args->lastVideoPts = frame->pts;
+    
+            args->times_to_catch_up_target_framerate = 1;
+            if(framerate < project->fps){
+                args->times_to_catch_up_target_framerate = (size_t)(project->fps/framerate);
+                if(args->times_to_catch_up_target_framerate == 0) args->times_to_catch_up_target_framerate = 1;
+            }else if(framerate > project->fps){
+                args->video_skip_count = (size_t)(framerate / project->fps);
+            }
+    
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_VIDEO_FRAME_ERR;
+            args->times_to_catch_up_target_framerate--;
+            return 0;
+        }else{
+            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - project->slices.items[args->currentSlice].offset;
+            av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
+        }
+    }
+
+    return -GET_VIDEO_FRAME_ERR;
+}
+
 int main(){
     // ------------------------------ project config code --------------------------------
     Project project = {0};
@@ -140,82 +210,50 @@ int main(){
     }
     
     Frame frame = {0};
-
-    size_t currentMediaIndex = -1;
-    size_t currentSlice = 0;
-    double localTime = 0;
-    double checkDuration = 0;
-    size_t video_skip_count = 0;
-    if(!updateSlice(&myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) return 1;
-    int64_t lastVideoPts;
-    if(myMedias.items[currentMediaIndex].hasVideo) lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
-
-
+    AVAudioFifo* audioFifo = av_audio_fifo_alloc(renderContext.audioCodecContext->sample_fmt, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size);
     RenderFrame renderFrame = {0};
+
+    uint8_t** tempAudioBuf;
+    int tempAudioBufLineSize;
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
+
     uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
     printf("Processing Slice 1/%zu!\n", project.slices.count);
+
+    GetVideoFrameArgs args = {0};
+    if(!updateSlice(&myMedias,&project.slices, args.currentSlice, &args.currentMediaIndex, &args.checkDuration)) return 1;
+    if(myMedias.items[args.currentMediaIndex].hasVideo) args.lastVideoPts = project.slices.items[args.currentSlice].offset / av_q2d(myMedias.items[args.currentMediaIndex].media.videoStream->time_base);
+
     while(true){
-        MyMedia* myMedia = &myMedias.items[currentMediaIndex];
-        assert(myMedia->hasAudio && "Not Implemented yet!");
-        //TODO remove this once we have propper layers
-        if(!myMedia->hasVideo){
+        int e = getVideoFrame(&vulkanizer, &project, &myMedias, &frame, audioFifo, &args, outVideoFrame);
+        if(e == -GET_VIDEO_FRAME_ERR) return 1;
+        if(e == -GET_VIDEO_FRAME_FINISHED) break;
+        if(e != -GET_VIDEO_FRAME_SKIP){
             renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
             renderFrame.data = outVideoFrame;
             renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
-            memset(outVideoFrame, 0, renderFrame.size);
-
-            size_t count = project.slices.items[currentSlice].duration / (1.0 / project.fps);
-            for(size_t i = 0; i < count; i++) ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
-        while(localTime < checkDuration){
-            if(!ffmpegMediaGetFrame(&myMedia->media, &frame)) break;
-            
-            if(frame.type == FRAME_TYPE_VIDEO){
-                localTime = frame.pts * av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base)  - project.slices.items[currentSlice].offset;
-                if(video_skip_count > 0){
-                    video_skip_count--;
-                    continue;
-                }
-
-                double framerate = 1.0 / ((double)(frame.pts - lastVideoPts) * av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base));
-                lastVideoPts = frame.pts;
-
-                size_t times_to_catch_up_target_framerate = 1;
-                if(framerate < project.fps){
-                    times_to_catch_up_target_framerate = (size_t)(project.fps/framerate);
-                    if(times_to_catch_up_target_framerate == 0) times_to_catch_up_target_framerate = 1;
-                }else if(framerate > project.fps){
-                    video_skip_count = (size_t)(framerate / project.fps);
-                }
-
-                for(size_t i = 0; i < times_to_catch_up_target_framerate; i++){
-                    if(!Vulkanizer_apply_vfx_on_frame(&vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, &frame, outVideoFrame)) goto end;
-                    renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-                    renderFrame.data = outVideoFrame;
-                    renderFrame.size = project.width * project.height * sizeof(outVideoFrame[0]);
-                    ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
-                }
-            }else{
-                localTime = frame.pts * av_q2d(myMedias.items[currentMediaIndex].media.audioStream->time_base)  - project.slices.items[currentSlice].offset;
-                renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-                renderFrame.data = frame.audio.data;
-                renderFrame.size = frame.audio.nb_samples;
-                ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
-            }
+        
+        while(av_audio_fifo_size(audioFifo) >= renderContext.audioCodecContext->frame_size){
+            int read = av_audio_fifo_read(audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
+            assert(read == renderContext.audioCodecContext->frame_size && "You fucked up smth my bruvskiers");
+            renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
+            renderFrame.data = tempAudioBuf;
+            renderFrame.size = renderContext.audioCodecContext->frame_size;
+            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
-
-        currentSlice++;
-        if(currentSlice >= project.slices.count) break;
-        printf("Processing Slice %zu/%zu!\n", currentSlice+1, project.slices.count);
-        localTime = 0;
-        video_skip_count = 0;
-        if(!updateSlice(&myMedias,&project.slices, currentSlice, &currentMediaIndex, &checkDuration)) goto end;
-        if(myMedias.items[currentMediaIndex].hasVideo) lastVideoPts = project.slices.items[currentSlice].offset / av_q2d(myMedias.items[currentMediaIndex].media.videoStream->time_base);
     }
 
-end:
-    ffmpegMediaRenderFinish(&renderContext);
+    while(av_audio_fifo_size(audioFifo) > 0){
+        int read = av_audio_fifo_read(audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
+        renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
+        renderFrame.data = tempAudioBuf;
+        renderFrame.size = renderContext.audioCodecContext->frame_size;
+        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+    }
 
+    ffmpegMediaRenderFinish(&renderContext);
     printf("Finished rendering!\n");
 
     return 0;

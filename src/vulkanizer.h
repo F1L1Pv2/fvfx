@@ -3,6 +3,7 @@
 
 #include "ffmpeg_media.h"
 #include "vulkan/vulkan.h"
+#include <stddef.h>
 
 typedef struct{
     VkDescriptorSetLayout vfxDescriptorSetLayout;

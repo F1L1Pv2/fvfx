@@ -1,6 +1,7 @@
 #ifndef FVFX_FFMPEG_MEDIA
 #define FVFX_FFMPEG_MEDIA
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <libavcodec/avcodec.h>
