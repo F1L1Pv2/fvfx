@@ -7,6 +7,9 @@
 #include "ffmpeg_media_render.h"
 #include "ffmpeg_helper.h"
 
+#define HUMAN_READABLE_POINTERS_IMPLEMENTATION
+#include "human_readable_pointers.h"
+
 #define NOB_STRIP_PREFIX
 #include "nob.h"
 
@@ -117,7 +120,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         if(args->localTime >= args->checkDuration){
             args->currentSlice++;
             if(args->currentSlice >= slices->count) return -GET_VIDEO_FRAME_FINISHED;
-            printf("Processing Slice(0x%p) %zu/%zu!\n", args,args->currentSlice+1, slices->count);
+            printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
             args->localTime = 0;
             args->video_skip_count = 0;
             if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_VIDEO_FRAME_ERR;
@@ -286,7 +289,7 @@ int main(){
         Layer* layer = &project.layers.items[i];
         if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return 1;
         if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
-        printf("Processing Slice(0x%p) Slice 1/%zu!\n", &myLayer->args, layer->slices.count);
+        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
     }
 
     while(true){
@@ -302,7 +305,7 @@ int main(){
             int e = getVideoFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
             if(av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
             if(e == -GET_VIDEO_FRAME_ERR) return 1;
-            if(e == -GET_VIDEO_FRAME_FINISHED) {printf("0x%p finished\n", &myLayer->args);myLayer->finished = true; continue;}
+            if(e == -GET_VIDEO_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; continue;}
             if(e == -GET_VIDEO_FRAME_SKIP) continue;
             composeImageBuffers(outVideoFrame, outComposedVideoFrame, project.width, project.height);
         }
@@ -333,7 +336,7 @@ int main(){
         }
     }
 
-    printf("Draining leftover audio\n");
+    printf("[FVFX] Draining leftover audio\n");
     bool audioLeft = true;
     while (audioLeft) {
         audioLeft = false;
@@ -378,7 +381,7 @@ int main(){
     }
 
     ffmpegMediaRenderFinish(&renderContext);
-    printf("Finished rendering!\n");
+    printf("[FVFX] Finished rendering!\n");
 
     return 0;
 }
