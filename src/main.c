@@ -291,6 +291,7 @@ int main(){
     project.hasAudio = true;
     project.stereo = true;
 
+    //TODO: add support for images
     {
         Layer layer = {0};
         #define LAYERO() do {da_append(&project.layers, layer); layer = (Layer){0};} while(0)
