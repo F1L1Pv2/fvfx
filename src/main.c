@@ -57,6 +57,8 @@ typedef struct{
     Layers layers;
 } Project;
 
+#define EMPTY_MEDIA (-1)
+
 typedef struct{
     Media media;
     bool hasAudio;
@@ -78,17 +80,19 @@ typedef struct{
 
 static inline bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
-    MyMedia* media = &medias->items[*currentMediaIndex];
     *checkDuration = slices->items[currentSlice].duration;
+    if(*currentMediaIndex == EMPTY_MEDIA) return true;
+    MyMedia* media = &medias->items[*currentMediaIndex];
     if(*checkDuration == -1) *checkDuration = media->duration - slices->items[currentSlice].offset;
     ffmpegMediaSeek(&media->media, slices->items[currentSlice].offset);
     return true;
 }
 
 enum {
-    GET_VIDEO_FRAME_ERR = 1,
-    GET_VIDEO_FRAME_FINISHED,
-    GET_VIDEO_FRAME_SKIP
+    GET_FRAME_ERR = 1,
+    GET_FRAME_FINISHED,
+    GET_FRAME_SKIP,
+    GET_FRAME_NEXT_MEDIA,
 };
 
 typedef struct{
@@ -116,34 +120,36 @@ typedef struct{
 } MyLayers;
 
 int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+    assert(audioFifo);
+    MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+    assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
         if(args->localTime >= args->checkDuration){
             args->currentSlice++;
-            if(args->currentSlice >= slices->count) return -GET_VIDEO_FRAME_FINISHED;
+            if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
             printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
             args->localTime = 0;
             args->video_skip_count = 0;
-            if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_VIDEO_FRAME_ERR;
+            args->times_to_catch_up_target_framerate = 0;
+            if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
             if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+            return -GET_FRAME_NEXT_MEDIA;
         }
     
-        MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
-        assert(myMedia->hasAudio && "Not Implemented yet!");
-        assert(myMedia->hasVideo && "Not Implemented yet!");
         
         if(args->times_to_catch_up_target_framerate > 0){
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_VIDEO_FRAME_ERR;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }
 
-        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_VIDEO_FRAME_SKIP;};
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_SKIP;};
         
         if(frame->type == FRAME_TYPE_VIDEO){
             args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - slices->items[args->currentSlice].offset;
             if(args->video_skip_count > 0){
                 args->video_skip_count--;
-                return -GET_VIDEO_FRAME_SKIP;
+                return -GET_FRAME_SKIP;
             }
     
             double framerate = 1.0 / ((double)(frame->pts - args->lastVideoPts) * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base));
@@ -157,16 +163,89 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_VIDEO_FRAME_ERR;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
             args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
-            if(audioFifo) av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
+            av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
         }
     }
 
-    return -GET_VIDEO_FRAME_ERR;
+    return -GET_FRAME_ERR;
+}
+
+int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args){
+    assert(audioFifo);
+    MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+    assert(myMedia->hasAudio && "You used wrong function!");
+    assert(!myMedia->hasVideo && "You used wrong function!");
+    size_t initialSize = av_audio_fifo_size(audioFifo);
+
+    if(args->localTime < args->checkDuration){
+        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+    }
+    while(args->localTime < args->checkDuration){    
+
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_SKIP;};
+        assert(frame->type == FRAME_TYPE_AUDIO && "You fucked up");
+        
+        args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
+        av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
+    }
+
+    if(args->times_to_catch_up_target_framerate > 0){
+        args->times_to_catch_up_target_framerate--;
+        return -GET_FRAME_SKIP;
+    }
+
+    args->currentSlice++;
+    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
+    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
+    args->localTime = 0;
+    args->video_skip_count = 0;
+    args->times_to_catch_up_target_framerate = 0;
+    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
+    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+    return -GET_FRAME_NEXT_MEDIA;
+}
+
+int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, GetVideoFrameArgs* args){
+    if(args->localTime < args->checkDuration){
+        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+        args->localTime = args->checkDuration;
+    }
+
+    if(args->times_to_catch_up_target_framerate > 0){
+        args->times_to_catch_up_target_framerate--;
+        return -GET_FRAME_SKIP;
+    }
+
+    args->currentSlice++;
+    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
+    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
+    args->localTime = 0;
+    args->video_skip_count = 0;
+    args->times_to_catch_up_target_framerate = 0;
+    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
+    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+    return -GET_FRAME_NEXT_MEDIA;
+}
+
+int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+    int e;
+    while(true){
+        if(args->currentMediaIndex == EMPTY_MEDIA){
+            e = getEmptyFrame(vulkanizer,project,slices,myMedias,args);
+        }else{
+            MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+            if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,frame,audioFifo,args,outVideoFrame);
+            else if(myMedia->hasAudio && !myMedia->hasVideo) e = getAudioFrame(vulkanizer,project,slices,myMedias,frame, audioFifo, args);
+            else assert(false && "Unreachable");
+        }
+
+        if(e != -GET_FRAME_NEXT_MEDIA) return e;
+    }
 }
 
 inline uint8_t blend_channel(uint8_t s, uint8_t d, uint8_t sa) {
@@ -217,15 +296,21 @@ int main(){
         #define LAYERO() do {da_append(&project.layers, layer); layer = (Layer){0};} while(0)
         #define MEDIER(filenameIN) da_append(&layer.mediaInstances, ((MediaInstance){.filename = filenameIN}))
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&layer.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
+        #define EMPIER(durationIN) da_append(&layer.slices,((Slice){.media_index = EMPTY_MEDIA, .duration = (durationIN)}))
 
         MEDIER("D:\\videos\\gato.mp4");
-        MEDIER("D:\\videos\\IMG_3590.mp4");
+        MEDIER("D:\\videos\\tester.mp4");
         SLICER(0, 0.0, -1);
-        SLICER(1, 0.0, 5);
+        EMPIER(1.5);
+        SLICER(1, 0.0, 10);
         LAYERO();
 
         MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
+        MEDIER("D:\\sprzedam.flac");
+        MEDIER("C:\\Users\\mlodz\\Downloads\\hop-on-minecraft(1).mp4");
+        SLICER(1, 30.0, 4);
         SLICER(0, 30.0, 5);
+        SLICER(2, 0.0, -1);
         LAYERO();
     }
 
@@ -302,11 +387,11 @@ int main(){
             if(!myLayer->finished) allFinished = false;
             Layer* layer = &project.layers.items[i];
 
-            int e = getVideoFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
-            if(av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
-            if(e == -GET_VIDEO_FRAME_ERR) return 1;
-            if(e == -GET_VIDEO_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; continue;}
-            if(e == -GET_VIDEO_FRAME_SKIP) continue;
+            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
+            if(myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
+            if(e == -GET_FRAME_ERR) return 1;
+            if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; continue;}
+            if(e == -GET_FRAME_SKIP) continue;
             composeImageBuffers(outVideoFrame, outComposedVideoFrame, project.width, project.height);
         }
         if(allFinished) break;
@@ -321,10 +406,11 @@ int main(){
             for(size_t i = 0; i < myLayers.count; i++){
                 MyLayer* myLayer = &myLayers.items[i];
                 int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
-                if(myLayer->finished && read > 0){
+                bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
+                if(conditionalMix && read > 0){
                     mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
                     continue;
-                }else if(myLayer->finished && read == 0) continue;
+                }else if(conditionalMix && read == 0) continue;
                 
                 assert(read == renderContext.audioCodecContext->frame_size && "You fucked up smth my bruvskiers");
                 mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
