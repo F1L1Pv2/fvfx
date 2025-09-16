@@ -120,7 +120,6 @@ typedef struct{
 } MyLayers;
 
 int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
-    assert(audioFifo);
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
@@ -275,12 +274,12 @@ int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias*
     }
 }
 
-inline uint8_t blend_channel(uint8_t s, uint8_t d, uint8_t sa) {
+uint8_t blend_channel(uint8_t s, uint8_t d, uint8_t sa) {
     uint32_t t = s * sa + d * (255 - sa);
     return (t + 128) * 257 >> 16;
 }
 
-inline void composeImageBuffers(uint32_t* srcBuff, uint32_t* dstBuff, size_t width, size_t height){
+void composeImageBuffers(uint32_t* srcBuff, uint32_t* dstBuff, size_t width, size_t height){
     for (size_t j = 0; j < width * height; j++) {
         uint32_t src = srcBuff[j];
         uint32_t dst = dstBuff[j];
@@ -418,7 +417,12 @@ int main(){
             Layer* layer = &project.layers.items[i];
 
             int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
-            if(myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
+            
+            if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
+                av_audio_fifo_add_silence(myLayer->audioFifo, renderContext.audioCodecContext->sample_fmt, &renderContext.audioCodecContext->ch_layout, project.sampleRate / project.fps);
+            }
+
+            if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
             if(e == -GET_FRAME_ERR) return 1;
             if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; continue;}
             if(e == -GET_FRAME_SKIP) continue;
@@ -435,6 +439,7 @@ int main(){
             av_samples_set_silence(composedAudioBuf, 0, renderContext.audioCodecContext->frame_size, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
             for(size_t i = 0; i < myLayers.count; i++){
                 MyLayer* myLayer = &myLayers.items[i];
+                if(!myLayer->audioFifo) continue;
                 int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
                 bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
                 if(conditionalMix && read > 0){
@@ -458,6 +463,7 @@ int main(){
         audioLeft = false;
         for (size_t i = 0; i < myLayers.count; i++) {
             MyLayer* myLayer = &myLayers.items[i];
+            if(!myLayer->audioFifo) continue;
             if (av_audio_fifo_size(myLayer->audioFifo) > 0) {
                 audioLeft = true;
                 break;
@@ -473,6 +479,7 @@ int main(){
         );
         for (size_t i = 0; i < myLayers.count; i++) {
             MyLayer* myLayer = &myLayers.items[i];
+            if(!myLayer->audioFifo) continue;
             int available = av_audio_fifo_size(myLayer->audioFifo);
             if (available <= 0) continue;
 

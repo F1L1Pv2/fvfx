@@ -24,3 +24,41 @@ void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_ch
         }
     }
 }
+
+int av_audio_fifo_add_silence(AVAudioFifo *af,
+                              enum AVSampleFormat sample_fmt,
+                              const AVChannelLayout *ch_layout,
+                              int nb_samples)
+{
+    if (!af || !ch_layout || nb_samples <= 0)
+        return AVERROR(EINVAL);
+
+    int nb_channels = ch_layout->nb_channels;
+    int ret;
+
+    uint8_t **data = NULL;
+    ret = av_samples_alloc_array_and_samples(&data, NULL,
+                                             nb_channels,
+                                             nb_samples,
+                                             sample_fmt,
+                                             0);
+    if (ret < 0)
+        return ret;
+
+    ret = av_samples_set_silence(data,
+                                 0,
+                                 nb_samples,
+                                 nb_channels,
+                                 sample_fmt);
+    if (ret < 0) {
+        av_freep(&data[0]);
+        av_freep(&data);
+        return ret;
+    }
+
+    ret = av_audio_fifo_write(af, (void **)data, nb_samples);
+
+    av_freep(&data[0]);
+    av_freep(&data);
+    return ret;
+}
