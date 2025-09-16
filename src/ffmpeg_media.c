@@ -4,9 +4,17 @@
 #include <math.h>
 #include <malloc.h>
 #include "ffmpeg_media.h"
+#include <assert.h>
 
 static bool initializeMediaContext(Media* media, const char* filename);
 static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desiredStereo, enum AVSampleFormat desiredFormat);
+
+static inline bool mediaIsAnImage(Media* media){
+    if(media->audioCodecContext) return false;
+    if(media->videoStream->nb_frames > 1) return false;
+    if(media->videoStream->duration > 1) return false;
+    return true;
+}
 
 bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desiredStereo, enum AVSampleFormat desiredFormat, Media* media) 
 {
@@ -14,6 +22,14 @@ bool ffmpegMediaInit(const char* filename, size_t desiredSampleRate, bool desire
     
     if (!initializeMediaContext(media, filename)) goto error;
     if (!initializeDecoder(media, desiredSampleRate, desiredStereo, desiredFormat)) goto error;
+
+    bool isImage = mediaIsAnImage(media);
+    if(isImage) {
+        assert(ffmpegMediaGetFrame(media,NULL));
+        av_frame_unref(media->videoFrame);
+        av_packet_unref(media->packet);
+        media->isImage = true;
+    }
 
     return true;
 
@@ -23,6 +39,11 @@ error:
 }
 
 bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
+    if(media->isImage){
+        frame->type = FRAME_TYPE_VIDEO;
+        frame->video = media->tempFrame.video;
+        return true;
+    }
     av_frame_unref(media->videoFrame);
     av_packet_unref(media->packet);
     int response;
@@ -32,11 +53,13 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
             if (response >= 0) {
                 response = avcodec_receive_frame(media->audioCodecContext, media->audioFrame);
                 if (response >= 0) {
-                    frame->type = FRAME_TYPE_AUDIO;
-                    frame->pts = media->audioFrame->pts;
-
                     media->tempFrame.audio.nb_samples = swr_convert(media->swrContext, media->tempFrame.audio.data, media->tempFrame.audio.count, (const uint8_t* const *)media->audioFrame->data, media->audioFrame->nb_samples);
-                    frame->audio = media->tempFrame.audio;
+
+                    if(frame){
+                        frame->type = FRAME_TYPE_AUDIO;
+                        frame->pts = media->audioFrame->pts;
+                        frame->audio = media->tempFrame.audio;
+                    }
                     return true;
                 }
             }
@@ -61,22 +84,22 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
                 return false;
             }
     
-            frame->type = FRAME_TYPE_VIDEO;
-    
             // Convert frame to RGB
             uint8_t* dest[4] = {(uint8_t*)media->tempFrame.video.data, NULL, NULL, NULL};
             int dest_linesize[4] = {media->videoFrame->width * sizeof(uint32_t), 0, 0, 0};
             sws_scale(media->swsContext, 
-                    (const uint8_t* const*)media->videoFrame->data, 
-                    media->videoFrame->linesize, 
-                    0, 
-                    media->videoFrame->height, 
-                    dest, 
-                    dest_linesize);
-
-            frame->video = media->tempFrame.video;
-    
-            frame->pts = media->videoFrame->pts;
+                (const uint8_t* const*)media->videoFrame->data, 
+                media->videoFrame->linesize, 
+                0, 
+                media->videoFrame->height, 
+                dest, 
+                dest_linesize);
+            
+            if(frame){
+                frame->type = FRAME_TYPE_VIDEO;
+                frame->video = media->tempFrame.video;
+                frame->pts = media->videoFrame->pts;
+            }
                 
             return true;
         }
@@ -88,6 +111,7 @@ bool ffmpegMediaGetFrame(Media* media, Frame* frame) {
 
 bool ffmpegMediaSeek(Media* media, double time_seconds) {
     if (!media || !media->formatContext) return false;
+    if(media->isImage) return true;
 
     if (media->videoCodecContext)
         avcodec_flush_buffers(media->videoCodecContext);
@@ -287,6 +311,7 @@ static bool initializeDecoder(Media* media, size_t desiredSampleRate, bool desir
 }
 
 double ffmpegMediaDuration(Media* media){
+    if(media->isImage) return 0;
     if(media->videoStream){
         return (double)media->videoStream->duration * 
                 av_q2d(media->videoStream->time_base);

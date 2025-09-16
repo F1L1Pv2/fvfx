@@ -44,6 +44,7 @@ typedef struct {
     AVCodecContext* videoCodecContext;
     AVFrame* videoFrame;
     struct SwsContext* swsContext;
+    bool isImage;
 
     AVStream* audioStream;
     AVCodecContext* audioCodecContext;

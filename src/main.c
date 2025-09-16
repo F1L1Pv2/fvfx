@@ -143,7 +143,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
             return 0;
         }
 
-        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_SKIP;};
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         
         if(frame->type == FRAME_TYPE_VIDEO){
             args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - slices->items[args->currentSlice].offset;
@@ -187,7 +187,7 @@ int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     }
     while(args->localTime < args->checkDuration){    
 
-        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_SKIP;};
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_AUDIO && "You fucked up");
         
         args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
@@ -197,6 +197,32 @@ int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     if(args->times_to_catch_up_target_framerate > 0){
         args->times_to_catch_up_target_framerate--;
         return -GET_FRAME_SKIP;
+    }
+
+    args->currentSlice++;
+    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
+    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
+    args->localTime = 0;
+    args->video_skip_count = 0;
+    args->times_to_catch_up_target_framerate = 0;
+    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
+    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+    return -GET_FRAME_NEXT_MEDIA;
+}
+
+int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+    if(args->localTime < args->checkDuration){
+        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+        args->localTime = args->checkDuration;
+    }
+
+    if(args->times_to_catch_up_target_framerate > 0){
+        MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+        args->times_to_catch_up_target_framerate--;
+        if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
+        assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
+        if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+        return 0;
     }
 
     args->currentSlice++;
@@ -239,7 +265,8 @@ int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias*
             e = getEmptyFrame(vulkanizer,project,slices,myMedias,args);
         }else{
             MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
-            if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,frame,audioFifo,args,outVideoFrame);
+            if(myMedia->media.isImage) e = getImageFrame(vulkanizer,project,slices,myMedias,frame,args,outVideoFrame);
+            else if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,frame,audioFifo,args,outVideoFrame);
             else if(myMedia->hasAudio && !myMedia->hasVideo) e = getAudioFrame(vulkanizer,project,slices,myMedias,frame, audioFifo, args);
             else assert(false && "Unreachable");
         }
@@ -309,9 +336,11 @@ int main(){
         MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
         MEDIER("D:\\sprzedam.flac");
         MEDIER("C:\\Users\\mlodz\\Downloads\\hop-on-minecraft(1).mp4");
+        MEDIER("C:\\Users\\mlodz\\Downloads\\Inside.png");
         SLICER(1, 30.0, 4);
         SLICER(0, 30.0, 5);
-        SLICER(2, 0.0, -1);
+        SLICER(2, 0.0, 2);
+        SLICER(3, 0.0, 2);
         LAYERO();
     }
 
