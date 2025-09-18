@@ -68,56 +68,26 @@ void transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayo
     );
 }
 
-static bool applyShadersOnFrame(   Frame* frameIn,
-
-                            void* outData,
+static bool applyShadersOnFrame(
+                            size_t inWidth,
+                            size_t inHeight,
                             size_t outWidth,
                             size_t outHeight,
-
-                            void* frameInData,
-                            size_t frameInStride,
+                            void* push_constants_data,
+                            size_t push_constants_size,
                             
-                            VkImage color, 
-                            VkImageView colorAttachment, 
-                            void* colorData, 
-                            size_t colorStride,
+                            VkDescriptorSet* inImageDescriptorSet,
+                            VkImageView outImageView, 
 
-                            VkPipeline pipeline, 
-                            VkPipelineLayout pipelineLayout, 
-                            VkDescriptorSet* descriptorSet
+                            VulkanizerVfx* vfx
                         ){
-    if(frameIn->type != FRAME_TYPE_VIDEO) return false;
-
-    VideoFrame* frame = &frameIn->video;
-
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &inFlightFence);
-    vkResetCommandBuffer(cmd, 0);
-
-    for(int i = 0; i < frame->height; i++){
-        memcpy(
-            (uint8_t*)frameInData + frameInStride*i,
-            (uint8_t*)frame->data + frame->width*sizeof(uint32_t)*i,
-            frame->width *sizeof(uint32_t)
-        );
+    if(push_constants_size != vfx->module.pushContantsSize){
+        fprintf(stderr, "Expected push contants to have %zu bytes but got %zu bytes!\n", vfx->module.pushContantsSize, push_constants_size);
+        return false;
     }
 
-    VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
-    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    commandBufferBeginInfo.pNext = NULL;
-    commandBufferBeginInfo.flags = 0;
-    commandBufferBeginInfo.pInheritanceInfo = NULL;
-    vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
-
-    transitionMyImage_inner(cmd, color, 
-        VK_IMAGE_LAYOUT_GENERAL, 
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-        VK_PIPELINE_STAGE_TRANSFER_BIT, 
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-    );
-
     vkCmdBeginRenderingEX(cmd,
-        .colorAttachment = colorAttachment,
+        .colorAttachment = outImageView,
         .clearColor = COL_EMPTY,
         .renderArea = (
             (VkExtent2D){.width = outWidth, .height= outHeight}
@@ -133,42 +103,16 @@ static bool applyShadersOnFrame(   Frame* frameIn,
         .extent = (VkExtent2D){.width = outWidth, .height = outHeight},
     });
 
-    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayout,0,1,descriptorSet,0,NULL);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, vfx->pipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vfx->pipelineLayout,0,1,inImageDescriptorSet,0,NULL);
     float constants[4] = {
         outWidth, outHeight,
-        frame->width, frame->height
+        inWidth, inHeight
     };
-    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(constants), constants);
+    vkCmdPushConstants(cmd, vfx->pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(constants), constants);
+    if(push_constants_data != NULL && push_constants_size > 0) vkCmdPushConstants(cmd, vfx->pipelineLayout, VK_SHADER_STAGE_ALL, 0, push_constants_size, push_constants_data);
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
-
-    transitionMyImage_inner(cmd, color, 
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-        VK_IMAGE_LAYOUT_GENERAL, 
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT
-    );
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submitInfo = {0};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
-    
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
-    vkQueueWaitIdle(graphicsQueue);
-
-    for(size_t i = 0; i < outHeight; i++) {
-        memcpy(
-            (uint8_t*)outData + i * outWidth * sizeof(uint32_t),
-            (uint8_t*)colorData + i * colorStride,
-            outWidth * sizeof(uint32_t)
-        );
-    }
 
     return true;
 }
@@ -282,25 +226,76 @@ bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_
 }
 
 bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
+    if(frameIn->type != FRAME_TYPE_VIDEO) return false;
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(device, 1, &inFlightFence);
+    vkResetCommandBuffer(cmd, 0);
     updateDescriptorIfNeeded(vulkanizer, videoInView);
 
-    return applyShadersOnFrame(
-                frameIn,
-                outData,
+    for(int i = 0; i < frameIn->video.height; i++){
+        memcpy(
+            (uint8_t*)videoInData + videoInStride*i,
+            (uint8_t*)frameIn->video.data + frameIn->video.width*sizeof(uint32_t)*i,
+            frameIn->video.width *sizeof(uint32_t)
+        );
+    }
+
+    VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
+    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    commandBufferBeginInfo.pNext = NULL;
+    commandBufferBeginInfo.flags = 0;
+    commandBufferBeginInfo.pInheritanceInfo = NULL;
+    vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
+
+    transitionMyImage_inner(cmd, vulkanizer->videoOutImage, 
+        VK_IMAGE_LAYOUT_GENERAL, 
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+    );
+
+    if(!applyShadersOnFrame(
+                frameIn->video.width,
+                frameIn->video.height,
                 vulkanizer->videoOutWidth,
                 vulkanizer->videoOutHeight,
+                NULL,
+                0,
 
-                videoInData,
-                videoInStride,
-
-                vulkanizer->videoOutImage, 
+                &vulkanizer->vfxDescriptorSet,
                 vulkanizer->videoOutImageView, 
-                vulkanizer->videoOutImageMapped, 
-                vulkanizer->videoOutImageStride, 
 
-                vulkanizer->vfx.pipeline, 
-                vulkanizer->vfx.pipelineLayout, 
-                &vulkanizer->vfxDescriptorSet);
+                &vulkanizer->vfx
+            )) return false;
+
+    transitionMyImage_inner(cmd, vulkanizer->videoOutImage, 
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+        VK_IMAGE_LAYOUT_GENERAL, 
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT
+    );
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
+    
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
+    vkQueueWaitIdle(graphicsQueue);
+
+    for(size_t i = 0; i < vulkanizer->videoOutHeight; i++) {
+        memcpy(
+            (uint8_t*)outData + i * vulkanizer->videoOutWidth * sizeof(uint32_t),
+            (uint8_t*)vulkanizer->videoOutImageMapped + i * vulkanizer->videoOutImageStride,
+            vulkanizer->videoOutWidth * sizeof(uint32_t)
+        );
+    }
+
+    return true;
 }
 
 static String_Builder sb = {0};
