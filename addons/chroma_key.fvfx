@@ -1,0 +1,21 @@
+/*
+Name: Chroma Key
+Description: Removes specified color with soft edges
+Author: F1L1P
+Input: vec3 key 0,1,0
+Input: float threshold 0.3
+Input: float softness 0.1
+*/
+
+void main() {
+    vec4 color = texture(imageIN, uv);
+
+    // Difference between current pixel and key color
+    float diff = distance(color.rgb, Input.key.rgb);
+
+    // Use smoothstep for gradual transparency near threshold
+    float alpha = smoothstep(Input.threshold, Input.threshold + Input.softness, diff);
+
+    // Keep the original color but scale alpha
+    outColor = vec4(color.rgb, color.a * alpha);
+}
