@@ -281,7 +281,7 @@ bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_ref, size_t vfxs_count, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &inFlightFence);
@@ -334,8 +334,12 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_
         vkCmdEndRendering(cmd);
     }
 
-    for(size_t i = 0; i < vfxs_count; i++){
-        VulkanizerVfx* vfx = vfxs_ref[i];
+    for(size_t i = 0; i < vfxInstances->count; i++){
+        VulkanizerVfxInstance* vfx = &vfxInstances->items[i];
+        if(vfx->push_constants_data != NULL && vfx->push_constants_size != vfx->vfx->module.pushContantsSize){
+            fprintf(stderr, "%zu %s Invalid push contants size expected %zu got %zu\n", i, vfx->vfx->module.name, vfx->vfx->module.pushContantsSize, vfx->push_constants_size);
+            return false;
+        }
 
         transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
@@ -351,17 +355,24 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
         );
 
+        void* pushConstantsData = vfx->vfx->module.defaultPushConstantValue;
+        size_t pushConstantsSize = vfx->vfx->module.pushContantsSize;
+        if(vfx->push_constants_data != NULL){
+            pushConstantsData = vfx->push_constants_data;
+            pushConstantsSize = vfx->push_constants_size;
+        }
+
         if(!applyShadersOnFrame(
                 frameIn->video.width,
                 frameIn->video.height,
                 vulkanizer->videoOutWidth,
                 vulkanizer->videoOutHeight,
-                vfx->module.defaultPushConstantValue,
-                vfx->module.pushContantsSize,
+                pushConstantsData,
+                pushConstantsSize,
 
                 vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,
                 vulkanizer->currentImage == 1 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,
-                vfx
+                vfx->vfx
             )) return false;
         
         vulkanizer->currentImage = 1 - vulkanizer->currentImage;
