@@ -110,7 +110,7 @@ static bool applyShadersOnFrame(
         inWidth, inHeight
     };
     vkCmdPushConstants(cmd, vfx->pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(constants), constants);
-    if(push_constants_data != NULL && push_constants_size > 0) vkCmdPushConstants(cmd, vfx->pipelineLayout, VK_SHADER_STAGE_ALL, 0, push_constants_size, push_constants_data);
+    if(push_constants_data != NULL && push_constants_size > 0) vkCmdPushConstants(cmd, vfx->pipelineLayout, VK_SHADER_STAGE_ALL, sizeof(constants), push_constants_size, push_constants_data);
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
 
@@ -225,7 +225,7 @@ bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_ref, size_t vfxs_count, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &inFlightFence);
@@ -254,18 +254,19 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInVi
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     );
 
+    VulkanizerVfx* vfx = vfxs_ref[0];
+
     if(!applyShadersOnFrame(
                 frameIn->video.width,
                 frameIn->video.height,
                 vulkanizer->videoOutWidth,
                 vulkanizer->videoOutHeight,
-                NULL,
-                0,
+                vfx->module.defaultPushConstantValue,
+                vfx->module.pushContantsSize,
 
                 &vulkanizer->vfxDescriptorSet,
-                vulkanizer->videoOutImageView, 
-
-                &vulkanizer->vfx
+                vulkanizer->videoOutImageView,
+                vfx
             )) return false;
 
     transitionMyImage_inner(cmd, vulkanizer->videoOutImage, 

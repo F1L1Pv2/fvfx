@@ -38,7 +38,7 @@ typedef struct{
 bool Vulkanizer_init(Vulkanizer* vulkanizer);
 bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, void* imageDataOut);
 bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_t outHeight);
-bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData);
+bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_ref, size_t vfxs_count, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData);
 
 bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx);
 

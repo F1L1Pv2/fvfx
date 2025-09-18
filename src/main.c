@@ -137,7 +137,8 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     
         
         if(args->times_to_catch_up_target_framerate > 0){
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            VulkanizerVfx* vfx = &vulkanizer->vfx;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, &vfx, 1, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }
@@ -162,7 +163,8 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            VulkanizerVfx* vfx = &vulkanizer->vfx;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, &vfx, 1, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
@@ -220,7 +222,8 @@ int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
-        if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+        VulkanizerVfx* vfx = &vulkanizer->vfx;
+        if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, &vfx, 1, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
         return 0;
     }
 
