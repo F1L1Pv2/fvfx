@@ -1,5 +1,6 @@
 #include <ffmpeg_helper.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/audio_fifo.h>
 #include <stddef.h>
 #include <stdint.h>
 
