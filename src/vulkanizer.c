@@ -213,8 +213,6 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
         .outColorFormat = &colorFormat
     )) return false;
 
-    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fishEye.fvfx",&vulkanizer->vfx)) return false;
-    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fit.fvfx",&vulkanizer->vfx2)) return false;
     return true;
 }
 

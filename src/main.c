@@ -36,8 +36,21 @@ typedef struct{
 } MediaInstances;
 
 typedef struct{
+    size_t vfx_index;
+    double offset;
+    double duration;
+} VfxInstance;
+
+typedef struct{
+    VfxInstance* items;
+    size_t count;
+    size_t capacity;
+} VfxInstances;
+
+typedef struct{
     MediaInstances mediaInstances;
     Slices slices;
+    VfxInstances vfxInstances;
 } Layer;
 
 typedef struct{
@@ -45,6 +58,16 @@ typedef struct{
     size_t count;
     size_t capacity;
 } Layers;
+
+typedef struct{
+    const char* filename;
+} VfxDescriptor;
+
+typedef struct{
+    VfxDescriptor* items;
+    size_t count; 
+    size_t capacity;
+} VfxDescriptors;
 
 typedef struct{
     const char* outputFilename;
@@ -55,6 +78,7 @@ typedef struct{
     bool hasAudio;
     bool stereo;
     Layers layers;
+    VfxDescriptors vfxDescriptors;
 } Project;
 
 #define EMPTY_MEDIA (-1)
@@ -77,6 +101,18 @@ typedef struct{
     size_t count;
     size_t capacity;
 } MyMedias;
+
+typedef struct{
+    VulkanizerVfx* items;
+    size_t count;
+    size_t capacity;
+} MyVfxs;
+
+typedef struct{
+    VulkanizerVfx** items;
+    size_t count;
+    size_t capacity;
+} MyVfxsRef;
 
 static inline bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
@@ -119,7 +155,7 @@ typedef struct{
     size_t capacity;
 } MyLayers;
 
-int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, MyVfxsRef* myVfxsRef, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
@@ -137,11 +173,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     
         
         if(args->times_to_catch_up_target_framerate > 0){
-            VulkanizerVfx* vfx[] = {
-                &vulkanizer->vfx,
-                &vulkanizer->vfx2,
-            };
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vfx, sizeof(vfx)/sizeof(vfx[0]), myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myVfxsRef->items, myVfxsRef->count, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }
@@ -166,11 +198,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            VulkanizerVfx* vfx[] = {
-                &vulkanizer->vfx,
-                &vulkanizer->vfx2,
-            };
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vfx, sizeof(vfx)/sizeof(vfx[0]), myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myVfxsRef->items, myVfxsRef->count, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
@@ -217,7 +245,7 @@ int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, MyVfxsRef* myVfxsRef, Frame* frame, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
     if(args->localTime < args->checkDuration){
         args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
         args->localTime = args->checkDuration;
@@ -228,11 +256,7 @@ int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
-        VulkanizerVfx* vfx[] = {
-                &vulkanizer->vfx,
-                &vulkanizer->vfx2,
-            };
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vfx, sizeof(vfx)/sizeof(vfx[0]), myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+        if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, myVfxsRef->items, myVfxsRef->count, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
         return 0;
     }
 
@@ -269,15 +293,15 @@ int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, MyVfxsRef* myVfxsRef, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
     int e;
     while(true){
         if(args->currentMediaIndex == EMPTY_MEDIA){
             e = getEmptyFrame(vulkanizer,project,slices,myMedias,args);
         }else{
             MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
-            if(myMedia->media.isImage) e = getImageFrame(vulkanizer,project,slices,myMedias,frame,args,outVideoFrame);
-            else if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,frame,audioFifo,args,outVideoFrame);
+            if(myMedia->media.isImage) e = getImageFrame(vulkanizer,project,slices,myMedias,myVfxsRef,frame,args,outVideoFrame);
+            else if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,myVfxsRef,frame,audioFifo,args,outVideoFrame);
             else if(myMedia->hasAudio && !myMedia->hasVideo) e = getAudioFrame(vulkanizer,project,slices,myMedias,frame, audioFifo, args);
             else assert(false && "Unreachable");
         }
@@ -332,26 +356,41 @@ int main(){
     //TODO: add support for images
     {
         Layer layer = {0};
+        #define VFXO(filenameIN) da_append(&project.vfxDescriptors, ((VfxDescriptor){.filename = (filenameIN)}))
         #define LAYERO() do {da_append(&project.layers, layer); layer = (Layer){0};} while(0)
-        #define MEDIER(filenameIN) da_append(&layer.mediaInstances, ((MediaInstance){.filename = filenameIN}))
+        #define MEDIER(filenameIN) da_append(&layer.mediaInstances, ((MediaInstance){.filename = (filenameIN)}))
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&layer.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
         #define EMPIER(durationIN) da_append(&layer.slices,((Slice){.media_index = EMPTY_MEDIA, .duration = (durationIN)}))
+        #define VFXER(vfxIndex,offsetIN,durationIN) da_append(&layer.vfxInstances, ((VfxInstance){.vfx_index = (vfxIndex), .offset = (offsetIN), .duration = (durationIN)}))
 
+        //global things
+        VFXO("./addons/fit.fvfx");
+        VFXO("./addons/fishEye.fvfx");
+
+        //per layer things
         MEDIER("D:\\videos\\gato.mp4");
         MEDIER("D:\\videos\\tester.mp4");
         SLICER(0, 0.0, -1);
         EMPIER(1.5);
         SLICER(1, 0.0, 10);
+
+        VFXER(0, 0, -1);
         LAYERO();
 
         MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
-        MEDIER("D:\\sprzedam.flac");
-        MEDIER("C:\\Users\\mlodz\\Downloads\\hop-on-minecraft(1).mp4");
-        MEDIER("C:\\Users\\mlodz\\Downloads\\Inside.png");
-        SLICER(1, 30.0, 4);
+        MEDIER("C:\\Users\\mlodz\\Downloads\\whywelose.mp3");
+        MEDIER("C:\\Users\\mlodz\\Downloads\\shrek.gif");
+        MEDIER("C:\\Users\\mlodz\\Downloads\\jessie.jpg");
+        SLICER(1, 60.0 + 30, 4);
         SLICER(0, 30.0, 5);
-        SLICER(2, 0.0, 2);
+        SLICER(2, 0.0, -1);
+        SLICER(2, 0.0, -1);
+        SLICER(2, 0.0, -1);
+        SLICER(2, 0.0, -1);
         SLICER(3, 0.0, 2);
+
+        VFXER(1, 7, 5);
+        VFXER(0, 0, -1);
         LAYERO();
     }
 
@@ -396,6 +435,13 @@ int main(){
         if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(renderContext.audioCodecContext->sample_fmt, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size);;
         da_append(&myLayers, myLayer);
     }
+
+    MyVfxs myVfxs = {0};
+    for(size_t i = 0; i < project.vfxDescriptors.count; i++){
+        VulkanizerVfx vfx = {0};
+        if(!Vulkanizer_init_vfx(&vulkanizer, project.vfxDescriptors.items[i].filename, &vfx)) return 1;
+        da_append(&myVfxs, vfx);
+    }
     
     RenderFrame renderFrame = {0};
 
@@ -418,6 +464,9 @@ int main(){
         printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
     }
 
+    double projectTime = 0.0;
+    MyVfxsRef myVfxsRef = {0};
+
     while(true){
         memset(outComposedVideoFrame, 0, project.width*project.height*sizeof(uint32_t));
         bool allFinished = true;
@@ -428,7 +477,19 @@ int main(){
             if(!myLayer->finished) allFinished = false;
             Layer* layer = &project.layers.items[i];
 
-            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
+            myVfxsRef.count = 0;
+            for(size_t j = 0; j < layer->vfxInstances.count; j++){
+                VfxInstance* vfx = &layer->vfxInstances.items[j];
+                if(vfx->duration == -1){
+                    da_append(&myVfxsRef, &myVfxs.items[vfx->vfx_index]);
+                    continue;
+                }
+                if(projectTime > vfx->offset && projectTime < vfx->offset + vfx->duration){
+                    da_append(&myVfxsRef, &myVfxs.items[vfx->vfx_index]);
+                }
+            }
+
+            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &myVfxsRef, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
             
             if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
                 av_audio_fifo_add_silence(myLayer->audioFifo, renderContext.audioCodecContext->sample_fmt, &renderContext.audioCodecContext->ch_layout, project.sampleRate / project.fps);
@@ -467,6 +528,8 @@ int main(){
             renderFrame.size = renderContext.audioCodecContext->frame_size;
             ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
+
+        projectTime += 1.0 / project.fps;
     }
 
     printf("[FVFX] Draining leftover audio\n");

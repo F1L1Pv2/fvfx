@@ -28,9 +28,6 @@ typedef struct{
     VkPipeline defaultPipeline;
     VkPipelineLayout defaultPipelineLayout;
 
-    VulkanizerVfx vfx;
-    VulkanizerVfx vfx2;
-
     int currentImage;
 
     VkImage videoOut1Image;
