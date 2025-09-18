@@ -1,0 +1,10 @@
+/*
+Name: Grayscale
+Description: allows you to turn any image/video stream into grayscale
+Author: F1L1P
+*/
+
+void main() {
+    vec4 color = texture(imageIN, uv);
+    outColor = color.rrra;
+}

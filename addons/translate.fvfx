@@ -1,0 +1,16 @@
+/*
+Name: Translate
+Description: Move Video Around
+Author: F1L1P
+Input: vec2 Offset
+*/
+
+void main() {
+    vec2 newUV = uv + vec2(-Input.Offset.x,Input.Offset.y);
+    vec4 color = texture(imageIN, newUV);
+    if(newUV.x < 0 || newUV.x > 1.0 || newUV.y < 0 || newUV.y > 1.0){
+        outColor = vec4(0,0,0,0);
+        return;
+    }
+    outColor = color;
+}
