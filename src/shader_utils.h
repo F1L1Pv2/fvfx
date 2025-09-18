@@ -40,6 +40,7 @@ typedef enum {
 typedef struct{
     VfxInputType type;
     const char* name;
+    void* defaultPushConstantValue;
 } VfxInput;
 
 typedef struct{
@@ -62,5 +63,7 @@ char* get_vfxInputTypeName(VfxInputType type);
 size_t get_vfxInputTypeSize(VfxInputType type);
 bool extractVFXModuleMetaData(String_View sv, VfxModule* out);
 bool preprocessVFXModule(String_Builder* sb, VfxModule* module);
+//Assumes buff has enough size
+void vfx_fill_default_values(VfxModule* module, void* buff);
 
 #endif

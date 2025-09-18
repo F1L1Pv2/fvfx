@@ -163,26 +163,26 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
             sb_append_null(&sb);
             input.name = sa_strdup(&sa, sb.items);
 
-            da_append(&out->inputs, input);
-
             if(inputArg.count > 0){
                 sb.count = 0;
                 sb_append_buf(&sb, inputArg.data, inputArg.count);
                 sb_append_null(&sb);
 
-                out->defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
+                input.defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
 
                 switch (input.type)
                 {
-                case VFX_FLOAT: sscanf(sb.items,"%f",         ((float*)out->defaultPushConstantValue)); break;
-                case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1); break;
-                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2); break;
-                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
-                case VFX_COLOR: sscanf(sb.items,"%f,%f,%f,%f", ((float*)out->defaultPushConstantValue), ((float*)out->defaultPushConstantValue) + 1, ((float*)out->defaultPushConstantValue) + 2, ((float*)out->defaultPushConstantValue) + 3); break;
+                case VFX_FLOAT: sscanf(sb.items,"%f",         ((float*)input.defaultPushConstantValue)); break;
+                case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1); break;
+                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2); break;
+                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2, ((float*)input.defaultPushConstantValue) + 3); break;
+                case VFX_COLOR: sscanf(sb.items,"%f,%f,%f,%f", ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2, ((float*)input.defaultPushConstantValue) + 3); break;
                 
                 default: TODO("IMPLEMENT THIS");
                 }
             }
+
+            da_append(&out->inputs, input);
         }
         else{
             printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
@@ -255,4 +255,14 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
     *sb = newSB;
 
     return true;
+}
+
+void vfx_fill_default_values(VfxModule* module, void* buff){
+    size_t offset = 0;
+    for(size_t i = 0; i < module->inputs.count; i++){
+        VfxInput* input = &module->inputs.items[i];
+        size_t size = get_vfxInputTypeSize(input->type);
+        if(input->defaultPushConstantValue != NULL) memcpy((uint8_t*)buff + offset, input->defaultPushConstantValue, size);
+        offset += size;
+    }
 }

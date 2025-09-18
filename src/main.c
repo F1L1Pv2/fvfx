@@ -446,6 +446,17 @@ int main(){
     for(size_t i = 0; i < project.vfxDescriptors.count; i++){
         VulkanizerVfx vfx = {0};
         if(!Vulkanizer_init_vfx(&vulkanizer, project.vfxDescriptors.items[i].filename, &vfx)) return 1;
+        bool hasAnyDefaultValues = false;
+        for(size_t j = 0; j < vfx.module.inputs.count; j++){
+            if(vfx.module.inputs.items[j].defaultPushConstantValue != NULL){
+                hasAnyDefaultValues = true;
+                break;
+            }
+        }
+        if(vfx.module.pushContantsSize > 0 && hasAnyDefaultValues){
+            vfx.module.defaultPushConstantValue = calloc(vfx.module.pushContantsSize, sizeof(uint8_t));
+            vfx_fill_default_values(&vfx.module, vfx.module.defaultPushConstantValue);
+        }
         da_append(&myVfxs, vfx);
     }
     
