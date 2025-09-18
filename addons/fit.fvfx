@@ -1,0 +1,23 @@
+/*
+Name: Fit
+Description: Fits your media to screen
+Author: F1L1P
+*/
+
+void main() {
+    float renderAspect = Input.renderArea.x / Input.renderArea.y;
+    float mediaAspect  = Input.mediaArea.x  / Input.mediaArea.y;
+    vec2 centeredUV = uv * 2.0 - 1.0;
+    if (mediaAspect > renderAspect) {
+        float scale = Input.renderArea.x / Input.mediaArea.x;
+        centeredUV.y /= (Input.mediaArea.y * scale / Input.renderArea.y);
+    } else {
+        float scale = Input.renderArea.y / Input.mediaArea.y;
+        centeredUV.x /= (Input.mediaArea.x * scale / Input.renderArea.x);
+    }
+    vec2 mediaUV = (centeredUV + 1.0) * 0.5;
+    if (any(lessThan(mediaUV, vec2(0.0))) || any(greaterThan(mediaUV, vec2(1.0)))) {
+        discard;
+    }
+    outColor = texture(imageIN, mediaUV);
+}

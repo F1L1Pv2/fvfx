@@ -1,0 +1,10 @@
+/*
+Name: Fancy
+Description: Fancy UV Effect
+Author: F1L1P
+*/
+
+void main() {
+    vec4 color = texture(imageIN, uv);
+    outColor = color * vec4(uv,1,1);
+}

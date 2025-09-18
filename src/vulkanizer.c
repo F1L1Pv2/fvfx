@@ -17,6 +17,7 @@
 #include "engine/vulkan_initSamplers.h"
 
 #include "vulkanizer.h"
+#include "shader_utils.h"
 
 static VkImageView currentViewInDescriptor = NULL;
 static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
@@ -33,7 +34,7 @@ static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView
     writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSet.descriptorCount = 1;
     writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSet.dstSet = vulkanizer->outDescriptorSet;
+    writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSet;
     writeDescriptorSet.dstBinding = 0;
     writeDescriptorSet.dstArrayElement = 0;
     writeDescriptorSet.pImageInfo = &descriptorImageInfo;
@@ -236,39 +237,8 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
             "gl_Position = vec4(baseCoord * 2 - 1, 0.0f, 1.0f);"
         "}";
 
-    VkShaderModule vertexShader;
 
-    if(!compileShader(vertexShaderSrc, shaderc_vertex_shader, &vertexShader)) return false;
-
-    const char* fragmentShaderSrc =
-        "#version 450\n"
-        "layout(location = 0) out vec4 outColor;\n"
-        "layout(location = 0) in vec2 uv;\n"
-        "layout(push_constant) uniform PushConsts {\n"
-            "vec2 renderArea;\n"
-            "vec2 mediaArea;\n"
-        "} pc;\n"
-        "layout(set = 0, binding = 0) uniform sampler2D imageIN;\n"
-        "void main() {\n"
-            "float renderAspect = pc.renderArea.x / pc.renderArea.y;\n"
-            "float mediaAspect  = pc.mediaArea.x  / pc.mediaArea.y;\n"
-            "vec2 centeredUV = uv * 2.0 - 1.0;\n"
-            "if (mediaAspect > renderAspect) {\n"
-                "float scale = pc.renderArea.x / pc.mediaArea.x;\n"
-                "centeredUV.y /= (pc.mediaArea.y * scale / pc.renderArea.y);\n"
-            "} else {\n"
-                "float scale = pc.renderArea.y / pc.mediaArea.y;\n"
-                "centeredUV.x /= (pc.mediaArea.x * scale / pc.renderArea.x);\n"
-            "}\n"
-            "vec2 mediaUV = (centeredUV + 1.0) * 0.5;\n"
-            "if (any(lessThan(mediaUV, vec2(0.0))) || any(greaterThan(mediaUV, vec2(1.0)))) {\n"
-                "discard;\n"
-            "}\n"
-            "outColor = texture(imageIN, mediaUV);\n"
-        "}\n";
-
-    VkShaderModule fragmentShader;
-    if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
+    if(!compileShader(vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
 
     VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
     descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -292,20 +262,11 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     descriptorSetAllocateInfo.descriptorSetCount = 1;
     descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
 
-    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->outDescriptorSet);
+    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSet);
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
-    if(!createGraphicPipeline(
-        vertexShader,fragmentShader, 
-        &vulkanizer->pipeline, 
-        &vulkanizer->pipelineLayout,
-        .pushConstantsSize = sizeof(float)*4,
-        .descriptorSetLayoutCount = 1,
-        .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
-        .outColorFormat = &colorFormat
-    )) return false;
-
+    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fit.fvfx",&vulkanizer->vfx)) return false;
     return true;
 }
 
@@ -356,7 +317,37 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VkImageView videoInVi
                 vulkanizer->videoOutImageMapped, 
                 vulkanizer->videoOutImageStride, 
 
-                vulkanizer->pipeline, 
-                vulkanizer->pipelineLayout, 
-                &vulkanizer->outDescriptorSet);
+                vulkanizer->vfx.pipeline, 
+                vulkanizer->vfx.pipelineLayout, 
+                &vulkanizer->vfxDescriptorSet);
+}
+
+static String_Builder sb = {0};
+bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx){
+    sb.count = 0;
+    if(!read_entire_file(filename,&sb)) return false;
+    if(!extractVFXModuleMetaData(nob_sb_to_sv(sb),&outVfx->module)) return false;
+    if(!preprocessVFXModule(&sb, &outVfx->module)) return false;
+    sb_append_null(&sb);
+
+    VkShaderModule fragmentShader;
+    if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+
+    for(size_t i = 0; i < outVfx->module.inputs.count; i++){
+        outVfx->module.pushContantsSize += get_vfxInputTypeSize(outVfx->module.inputs.items[i].type);
+    }
+
+    VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+    if(!createGraphicPipeline(
+        vulkanizer->vertexShader,fragmentShader, 
+        &outVfx->pipeline, 
+        &outVfx->pipelineLayout,
+        .pushConstantsSize = sizeof(float)*4 + outVfx->module.pushContantsSize,
+        .descriptorSetLayoutCount = 1,
+        .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
+        .outColorFormat = &colorFormat
+    )) return false;
+
+    return true;
 }

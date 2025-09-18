@@ -1,0 +1,18 @@
+/*
+Name: FishEye
+Description: fish eye distortion
+Author: F1L1P
+*/
+
+void main()
+{
+    vec2 newUv = uv * 2 - 1;
+
+    float d = length(newUv);
+    float z = sqrt(1.0 - d * d);
+    float r = atan(d, z) / 3.14159;
+    float phi = atan(newUv.y, newUv.x);
+    
+    newUv = vec2(r*cos(phi)+.5,r*sin(phi)+.5);
+	outColor = texture(imageIN, newUv);
+}
