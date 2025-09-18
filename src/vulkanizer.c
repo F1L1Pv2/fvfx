@@ -43,6 +43,31 @@ static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView
     currentViewInDescriptor = newView;
 }
 
+void transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(
+        tempCmd,
+        oldStage,
+        newStage,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
+}
+
 static bool applyShadersOnFrame(   Frame* frameIn,
 
                             void* outData,
@@ -84,28 +109,11 @@ static bool applyShadersOnFrame(   Frame* frameIn,
     commandBufferBeginInfo.pInheritanceInfo = NULL;
     vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
 
-    VkImageMemoryBarrier barrier = {0};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = color;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-
-    vkCmdPipelineBarrier(
-        cmd,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &barrier
+    transitionMyImage_inner(cmd, color, 
+        VK_IMAGE_LAYOUT_GENERAL, 
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     );
 
     vkCmdBeginRenderingEX(cmd,
@@ -135,17 +143,11 @@ static bool applyShadersOnFrame(   Frame* frameIn,
     vkCmdDraw(cmd, 6, 1, 0, 0);
     vkCmdEndRendering(cmd);
 
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    vkCmdPipelineBarrier(
-        cmd,
+    transitionMyImage_inner(cmd, color, 
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+        VK_IMAGE_LAYOUT_GENERAL, 
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &barrier
+        VK_PIPELINE_STAGE_TRANSFER_BIT
     );
 
     vkEndCommandBuffer(cmd);
@@ -173,28 +175,7 @@ static bool applyShadersOnFrame(   Frame* frameIn,
 
 void transitionMyImage(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
     VkCommandBuffer tempCmd = beginSingleTimeCommands();
-    VkImageMemoryBarrier barrier = {0};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.oldLayout = oldLayout;
-    barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(
-        tempCmd,
-        oldStage,
-        newStage,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &barrier
-    );
+    transitionMyImage_inner(tempCmd, image, oldLayout, newLayout, oldStage, newStage);
     endSingleTimeCommands(tempCmd);
 }
 
@@ -349,5 +330,6 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
         .outColorFormat = &colorFormat
     )) return false;
 
+    outVfx->module.filepath = filename;
     return true;
 }
