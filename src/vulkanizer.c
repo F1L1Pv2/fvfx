@@ -165,6 +165,18 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
 
     if(!compileShader(vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
 
+    const char* fragmentShaderSrc =
+        "#version 450\n"
+        "layout(location = 0) out vec4 outColor;\n"
+        "layout(location = 0) in vec2 uv;\n"
+        "layout(set = 0, binding = 0) uniform sampler2D imageIN;\n"
+        "void main() {\n"
+            "outColor = texture(imageIN, uv);\n"
+        "}\n";
+
+    VkShaderModule fragmentShader;
+    if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
+
     VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
     descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     descriptorSetLayoutBinding.descriptorCount = 1;
@@ -188,10 +200,21 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
 
     vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSet);
+    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSetImage1);
+    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSetImage2);
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    if(!createGraphicPipeline(
+        vulkanizer->vertexShader,fragmentShader, 
+        &vulkanizer->defaultPipeline, 
+        &vulkanizer->defaultPipelineLayout,
+        .descriptorSetLayoutCount = 1,
+        .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
+        .outColorFormat = &colorFormat
+    )) return false;
 
-    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fit.fvfx",&vulkanizer->vfx)) return false;
+    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fishEye.fvfx",&vulkanizer->vfx)) return false;
+    if(!Vulkanizer_init_vfx(vulkanizer, "./addons/fit.fvfx",&vulkanizer->vfx2)) return false;
     return true;
 }
 
@@ -210,18 +233,53 @@ bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* image
 }
 
 bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_t outHeight){
-    if(!createMyImage(&vulkanizer->videoOutImage,
+    if(!createMyImage(&vulkanizer->videoOut1Image,
         outWidth, 
         outHeight, 
-        &vulkanizer->videoOutImageMemory, &vulkanizer->videoOutImageView, 
-        &vulkanizer->videoOutImageStride, 
-        &vulkanizer->videoOutImageMapped,
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        &vulkanizer->videoOut1ImageMemory, &vulkanizer->videoOut1ImageView, 
+        &vulkanizer->videoOut1ImageStride, 
+        &vulkanizer->videoOut1ImageMapped,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
-    transitionMyImage(vulkanizer->videoOutImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    transitionMyImage(vulkanizer->videoOut1Image, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    if(!createMyImage(&vulkanizer->videoOut2Image,
+        outWidth, 
+        outHeight, 
+        &vulkanizer->videoOut2ImageMemory, &vulkanizer->videoOut2ImageView, 
+        &vulkanizer->videoOut2ImageStride, 
+        &vulkanizer->videoOut2ImageMapped,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    )) return false;
+    transitionMyImage(vulkanizer->videoOut2Image, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    
     vulkanizer->videoOutWidth = outWidth;
     vulkanizer->videoOutHeight = outHeight;
+
+    {
+        VkDescriptorImageInfo descriptorImageInfo = {0};
+        VkWriteDescriptorSet writeDescriptorSet = {0};
+
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptorImageInfo.imageView = vulkanizer->videoOut1ImageView;
+
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSetImage1;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+        descriptorImageInfo.imageView = vulkanizer->videoOut2ImageView;
+        writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSetImage2;
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+    }
     return true;
 }
 
@@ -247,16 +305,55 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_
     commandBufferBeginInfo.pInheritanceInfo = NULL;
     vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
 
-    transitionMyImage_inner(cmd, vulkanizer->videoOutImage, 
+    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_PIPELINE_STAGE_TRANSFER_BIT, 
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     );
 
-    VulkanizerVfx* vfx = vfxs_ref[0];
+    {
+        vkCmdBeginRenderingEX(cmd,
+            .colorAttachment = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,
+            .clearColor = COL_EMPTY,
+            .renderArea = (
+                (VkExtent2D){.width = vulkanizer->videoOutWidth, .height= vulkanizer->videoOutHeight}
+            )
+        );
 
-    if(!applyShadersOnFrame(
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = vulkanizer->videoOutWidth,
+            .height = vulkanizer->videoOutHeight
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent = (VkExtent2D){.width = vulkanizer->videoOutWidth, .height = vulkanizer->videoOutHeight},
+        });
+
+        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanizer->defaultPipeline);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,&vulkanizer->vfxDescriptorSet,0,NULL);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
+
+    for(size_t i = 0; i < vfxs_count; i++){
+        VulkanizerVfx* vfx = vfxs_ref[i];
+
+        transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        );
+
+        transitionMyImage_inner(cmd, vulkanizer->currentImage == 1 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        );
+
+        if(!applyShadersOnFrame(
                 frameIn->video.width,
                 frameIn->video.height,
                 vulkanizer->videoOutWidth,
@@ -264,12 +361,15 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_
                 vfx->module.defaultPushConstantValue,
                 vfx->module.pushContantsSize,
 
-                &vulkanizer->vfxDescriptorSet,
-                vulkanizer->videoOutImageView,
+                vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,
+                vulkanizer->currentImage == 1 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,
                 vfx
             )) return false;
+        
+        vulkanizer->currentImage = 1 - vulkanizer->currentImage;
+    }
 
-    transitionMyImage_inner(cmd, vulkanizer->videoOutImage, 
+    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -288,10 +388,12 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfx** vfxs_
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
     vkQueueWaitIdle(graphicsQueue);
 
+    void* data = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageMapped : vulkanizer->videoOut2ImageMapped;
+    size_t stride = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageStride : vulkanizer->videoOut2ImageStride;
     for(size_t i = 0; i < vulkanizer->videoOutHeight; i++) {
         memcpy(
             (uint8_t*)outData + i * vulkanizer->videoOutWidth * sizeof(uint32_t),
-            (uint8_t*)vulkanizer->videoOutImageMapped + i * vulkanizer->videoOutImageStride,
+            (uint8_t*)data + i * stride,
             vulkanizer->videoOutWidth * sizeof(uint32_t)
         );
     }

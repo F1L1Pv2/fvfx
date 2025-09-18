@@ -21,15 +21,29 @@ typedef struct{
 typedef struct{
     VkDescriptorSetLayout vfxDescriptorSetLayout;
     VkDescriptorSet vfxDescriptorSet;
+    VkDescriptorSet vfxDescriptorSetImage1;
+    VkDescriptorSet vfxDescriptorSetImage2;
 
     VkShaderModule vertexShader;
-    VulkanizerVfx vfx;
+    VkPipeline defaultPipeline;
+    VkPipelineLayout defaultPipelineLayout;
 
-    VkImage videoOutImage;
-    VkDeviceMemory videoOutImageMemory;
-    VkImageView videoOutImageView;
-    size_t videoOutImageStride;
-    void* videoOutImageMapped;
+    VulkanizerVfx vfx;
+    VulkanizerVfx vfx2;
+
+    int currentImage;
+
+    VkImage videoOut1Image;
+    VkDeviceMemory videoOut1ImageMemory;
+    VkImageView videoOut1ImageView;
+    size_t videoOut1ImageStride;
+    void* videoOut1ImageMapped;
+
+    VkImage videoOut2Image;
+    VkDeviceMemory videoOut2ImageMemory;
+    VkImageView videoOut2ImageView;
+    size_t videoOut2ImageStride;
+    void* videoOut2ImageMapped;
 
     size_t videoOutWidth;
     size_t videoOutHeight;
