@@ -355,20 +355,13 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstance
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
         );
 
-        void* pushConstantsData = vfx->vfx->module.defaultPushConstantValue;
-        size_t pushConstantsSize = vfx->vfx->module.pushContantsSize;
-        if(vfx->push_constants_data != NULL){
-            pushConstantsData = vfx->push_constants_data;
-            pushConstantsSize = vfx->push_constants_size;
-        }
-
         if(!applyShadersOnFrame(
                 frameIn->video.width,
                 frameIn->video.height,
                 vulkanizer->videoOutWidth,
                 vulkanizer->videoOutHeight,
-                pushConstantsData,
-                pushConstantsSize,
+                vfx->push_constants_data,
+                vfx->push_constants_size,
 
                 vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,
                 vulkanizer->currentImage == 1 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,

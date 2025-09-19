@@ -29,8 +29,6 @@ char* get_vfxInputTypeName(VfxInputType type){
         case VFX_DVEC3: return "dvec3";
         case VFX_DVEC4: return "dvec4";
 
-        case VFX_COLOR: return "vec4";
-
         default: UNREACHABLE("update this!");
     }
 }
@@ -58,8 +56,6 @@ size_t get_vfxInputTypeSize(VfxInputType type){
         case VFX_DVEC2: return sizeof(double) * 2;
         case VFX_DVEC3: return sizeof(double) * 3;
         case VFX_DVEC4: return sizeof(double) * 4;
-
-        case VFX_COLOR: return sizeof(float) * 4;
 
         default: UNREACHABLE("update this!");
     }
@@ -151,8 +147,6 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
             else if(sv_eq(inputType, sv_from_cstr("dvec3"))) input.type = VFX_DVEC3;
             else if(sv_eq(inputType, sv_from_cstr("dvec4"))) input.type = VFX_DVEC4;
 
-            else if(sv_eq(inputType, sv_from_cstr("Color"))) input.type = VFX_COLOR;
-
             if(input.type == VFX_NONE){
                 printf("Unknown input type: "SV_Fmt"\n", SV_Arg(inputType));
                 return false;
@@ -169,6 +163,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
                 sb_append_null(&sb);
 
                 input.defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
+                out->hasDefaultValues = true;
 
                 switch (input.type)
                 {
@@ -176,7 +171,6 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
                 case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1); break;
                 case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2); break;
                 case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2, ((float*)input.defaultPushConstantValue) + 3); break;
-                case VFX_COLOR: sscanf(sb.items,"%f,%f,%f,%f", ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2, ((float*)input.defaultPushConstantValue) + 3); break;
                 
                 default: TODO("IMPLEMENT THIS");
                 }
@@ -210,14 +204,6 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
                         "layout(location = 0) out vec4 outColor;\n"
                         "layout(location = 0) in vec2 uv;\n"
                         "layout (set = 0, binding = 0) uniform sampler2D imageIN;\n"
-                        "vec4 hsv2rgba(vec4 c) {\n"
-                        "    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0),\n"
-                        "                            6.0) - 3.0) - 1.0,\n"
-                        "                    0.0,\n"
-                        "                    1.0);\n"
-                        "    rgb = rgb * rgb * (3.0 - 2.0 * rgb); // smoothstep-like\n"
-                        "    return vec4(c.z * mix(vec3(1.0), rgb, c.y), c.w);\n"
-                        "}\n"
     ;
 
     sb_append_cstr(&newSB, prepend);
