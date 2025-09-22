@@ -79,6 +79,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
     }
 
     String_Builder sb = {0};
+    size_t push_constant_offset = 0;
 
     while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
         String_View leftSide = sv_chop_by_delim(&sv, ':');
@@ -162,19 +163,22 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out){
                 sb_append_buf(&sb, inputArg.data, inputArg.count);
                 sb_append_null(&sb);
 
-                input.defaultPushConstantValue = calloc(1, get_vfxInputTypeSize(input.type));
+                input.defaultValue = calloc(1, sizeof(*input.defaultValue));
                 out->hasDefaultValues = true;
 
                 switch (input.type)
                 {
-                case VFX_FLOAT: sscanf(sb.items,"%f",         ((float*)input.defaultPushConstantValue)); break;
-                case VFX_VEC2: sscanf(sb.items,"%f,%f",       ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1); break;
-                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2); break;
-                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", ((float*)input.defaultPushConstantValue), ((float*)input.defaultPushConstantValue) + 1, ((float*)input.defaultPushConstantValue) + 2, ((float*)input.defaultPushConstantValue) + 3); break;
+                case VFX_FLOAT: sscanf(sb.items,"%f",         &input.defaultValue->as.Float); break;
+                case VFX_VEC2: sscanf(sb.items,"%f,%f",       &input.defaultValue->as.vec2.x, &input.defaultValue->as.vec2.y); break;
+                case VFX_VEC3: sscanf(sb.items,"%f,%f,%f",    &input.defaultValue->as.vec3.x, &input.defaultValue->as.vec3.y, &input.defaultValue->as.vec3.z); break;
+                case VFX_VEC4: sscanf(sb.items,"%f,%f,%f,%f", &input.defaultValue->as.vec4.x, &input.defaultValue->as.vec4.y, &input.defaultValue->as.vec4.z, &input.defaultValue->as.vec4.w); break;
                 
                 default: TODO("IMPLEMENT THIS");
                 }
             }
+
+            input.push_constant_offset = push_constant_offset;
+            push_constant_offset += get_vfxInputTypeSize(input.type);
 
             da_append(&out->inputs, input);
         }
@@ -241,14 +245,4 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
     *sb = newSB;
 
     return true;
-}
-
-void vfx_fill_default_values(VfxModule* module, void* buff){
-    size_t offset = 0;
-    for(size_t i = 0; i < module->inputs.count; i++){
-        VfxInput* input = &module->inputs.items[i];
-        size_t size = get_vfxInputTypeSize(input->type);
-        if(input->defaultPushConstantValue != NULL) memcpy((uint8_t*)buff + offset, input->defaultPushConstantValue, size);
-        offset += size;
-    }
 }

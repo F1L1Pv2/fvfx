@@ -54,25 +54,23 @@ typedef struct{
 } VfxAutomationKeys;
 
 typedef struct{
-    size_t push_constants_offset;
+    size_t index;
     VfxInputType type;
     VfxInputValue initialValue;
     VfxAutomationKeys keys;
-} VfxAutomation;
+} MyInput;
 
 typedef struct{
-    VfxAutomation* items;
+    MyInput* items;
     size_t count;
     size_t capacity;
-} VfxAutomations;
+} MyInputs;
 
 typedef struct{
     size_t vfx_index;
     double offset;
     double duration;
-    void* push_constants_data;
-    size_t push_constants_size;
-    VfxAutomations automations;
+    MyInputs myInputs;
 } VfxInstance;
 
 typedef struct{
@@ -182,21 +180,68 @@ static void interpolateValue(VfxInputType type, VfxInputValue* out, VfxInputValu
     }
 }
 
-void VfxInstance_Update(VfxInstance* instance, double currentTime) {
-    for (size_t i = 0; i < instance->automations.count; i++) {
-        VfxAutomation* automation = &instance->automations.items[i];
+#define FVFX_YES
+#ifdef FVFX_YES
+void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
+    for (size_t i = 0; i < instance->myInputs.count; i++) {
+        MyInput* myInput = &instance->myInputs.items[i];
+
+        VfxInputValue result = myInput->initialValue;
+
+        if (myInput->keys.count > 0) {
+            double localTime = currentTime - instance->offset;
+            double accumulated = 0.0;
+            VfxInputValue prevValue = myInput->initialValue;
+            int found = 0;
+
+            for (size_t k = 0; k < myInput->keys.count; k++) {
+                VfxAutomationKey* key = &myInput->keys.items[k];
+                double keyStart = accumulated;
+                double keyEnd = accumulated + key->len;
+
+                if (localTime <= keyEnd) {
+                    double t = (key->len > 0) ? (localTime - keyStart) / key->len : 1.0;
+                    if (key->type == VFX_AUTO_KEY_STEP) {
+                        result = key->targetValue;
+                    } else {
+                        interpolateValue(myInput->type, &result, &prevValue, &key->targetValue, t);
+                    }
+                    found = 1;
+                    break;
+                }
+
+                prevValue = key->targetValue;
+                accumulated = keyEnd;
+            }
+
+            // If time is after the last key, hold the last key’s value
+            if (!found) {
+                result = myInput->keys.items[myInput->keys.count - 1].targetValue;
+            }
+        }
+
+        void* dst = (uint8_t*)push_constants_data +
+            myVfxs->items[instance->vfx_index].module.inputs.items[myInput->index].push_constant_offset;
+
+        memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
+    }
+}
+#else
+void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
+    for (size_t i = 0; i < instance->myInputs.count; i++) {
+        MyInput* myInput = &instance->myInputs.items[i];
 
         int shouldUpdate = 0;
 
-        VfxInputValue result = automation->initialValue;
+        VfxInputValue result = myInput->initialValue;
 
-        if (automation->keys.count > 0) {
+        if (myInput->keys.count > 0) {
             double localTime = currentTime - instance->offset;
             double accumulated = 0.0;
 
-            VfxInputValue prevValue = automation->initialValue;
-            for (size_t k = 0; k < automation->keys.count; k++) {
-                VfxAutomationKey* key = &automation->keys.items[k];
+            VfxInputValue prevValue = myInput->initialValue;
+            for (size_t k = 0; k < myInput->keys.count; k++) {
+                VfxAutomationKey* key = &myInput->keys.items[k];
                 double keyStart = accumulated;
                 double keyEnd = accumulated + key->len;
 
@@ -206,7 +251,7 @@ void VfxInstance_Update(VfxInstance* instance, double currentTime) {
                     if (key->type == VFX_AUTO_KEY_STEP) {
                         result = key->targetValue;
                     } else {
-                        interpolateValue(automation->type, &result, &prevValue, &key->targetValue, t);
+                        interpolateValue(myInput->type, &result, &prevValue, &key->targetValue, t);
                     }
                     break;
                 }
@@ -217,11 +262,14 @@ void VfxInstance_Update(VfxInstance* instance, double currentTime) {
         }
 
         if (shouldUpdate) {
-            void* dst = (uint8_t*)instance->push_constants_data + automation->push_constants_offset;
-            memcpy(dst, &result.as, get_vfxInputTypeSize(automation->type));
+            void* dst = (uint8_t*)push_constants_data +
+                myVfxs->items[instance->vfx_index].module.inputs.items[myInput->index].push_constant_offset;
+
+            memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
         }
     }
 }
+#endif
 
 
 
@@ -453,6 +501,10 @@ void composeImageBuffers(uint32_t* srcBuff, uint32_t* dstBuff, size_t width, siz
     }
 }
 
+int MyInput_compare(const void* a, const void* b) {
+    return ((MyInput*)a)->index - ((MyInput*)b)->index;
+}
+
 int main(){
     // ------------------------------ project config code --------------------------------
     Project project = {0};
@@ -473,10 +525,8 @@ int main(){
         #define SLICER(mediaIndex, offsetIN,durationIN) da_append(&layer.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
         #define EMPIER(durationIN) da_append(&layer.slices,((Slice){.media_index = EMPTY_MEDIA, .duration = (durationIN)}))
         #define VFXER(vfxIndex,offsetIN,durationIN) da_append(&layer.vfxInstances, ((VfxInstance){.vfx_index = (vfxIndex), .offset = (offsetIN), .duration = (durationIN)}))
-        #define VFXER_ARGS(vfxIndex,offsetIN,durationIN, args) da_append(&layer.vfxInstances, ((VfxInstance){.vfx_index = (vfxIndex), .offset = (offsetIN), .duration = (durationIN), .push_constants_size = sizeof(args), .push_constants_data = &(args)}))
-
-        #define AUTO(OFFSET,TYPE,INITIAL_VAL) da_append(&layer.vfxInstances.items[layer.vfxInstances.count-1].automations, ((VfxAutomation){.push_constants_offset = (OFFSET), .type = (TYPE), .initialValue = (INITIAL_VAL)}))
-        #define AUTO_KEY(TYPE, LEN, VAL) da_append(&layer.vfxInstances.items[layer.vfxInstances.count-1].automations.items[layer.vfxInstances.items[layer.vfxInstances.count-1].automations.count-1].keys, ((VfxAutomationKey){.len = LEN, .type = TYPE, .targetValue = VAL}))
+        #define VFXER_ARG(INDEX,TYPE,INITIAL_VAL) da_append(&layer.vfxInstances.items[layer.vfxInstances.count-1].myInputs, ((MyInput){.index = (INDEX), .type = (TYPE), .initialValue = (INITIAL_VAL)}))
+        #define VFXER_ARG_KEY(TYPE, LEN, VAL) da_append(&layer.vfxInstances.items[layer.vfxInstances.count-1].myInputs.items[layer.vfxInstances.items[layer.vfxInstances.count-1].myInputs.count-1].keys, ((VfxAutomationKey){.len = LEN, .type = TYPE, .targetValue = VAL}))
 
         //global things
         VFXO("./addons/fit.fvfx");
@@ -485,43 +535,49 @@ int main(){
         VFXO("./addons/coloring.fvfx");
 
         //per layer things
-        MEDIER("D:\\videos\\gato.mp4");
-        MEDIER("D:\\videos\\tester.mp4");
-        SLICER(0, 0.0, -1);
-        EMPIER(1.5);
-        SLICER(1, 0.0, 10);
+        { // layer 1
+            MEDIER("D:\\videos\\gato.mp4");
+            MEDIER("D:\\videos\\tester.mp4");
+            SLICER(0, 0.0, -1);
+            EMPIER(1.5);
+            SLICER(1, 0.0, 10);
+    
+            VFXER(0, 0, -1);
+    
+            VFXER(3,5,10);
+            VFXER_ARG(0,VFX_VEC4, ((VfxInputValue){.as.vec4 = {1,0.5,0.2,1}}));
+            LAYERO();
+        }
 
-        VFXER(0, 0, -1);
-        VFXER_ARGS(3, 5, 10, ((Vec4){1,0.5,0.2,1}));
-        LAYERO();
-
-        MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
-        MEDIER("C:\\Users\\mlodz\\Downloads\\whywelose.mp3");
-        MEDIER("C:\\Users\\mlodz\\Downloads\\shrek.gif");
-        MEDIER("C:\\Users\\mlodz\\Downloads\\jessie.jpg");
-        SLICER(1, 60.0 + 30, 4);
-        SLICER(0, 30.0, 5);
-        SLICER(2, 0.0, -1);
-        SLICER(2, 0.0, -1);
-        SLICER(2, 0.0, -1);
-        SLICER(2, 0.0, -1);
-        SLICER(3, 0.0, 2);
-
-        VFXER(1, 7, 5);
-        
-        VFXER(0, 0, -1);
-
-        VFXER(2, 5, 5);
-        AUTO(0, VFX_VEC2,                ((VfxInputValue){.as.vec2 = {.x =  0.0, .y =  0.0}}));
-        AUTO_KEY(VFX_AUTO_KEY_LINEAR, 1, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
-
-        VFXER(2, 18.1, 2);
-        AUTO(0, VFX_VEC2,                 ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
-        AUTO_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y =  0.5}}));
-        AUTO_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y = -0.5}}));
-        AUTO_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
-
-        LAYERO();
+        { // layer 2
+            MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
+            MEDIER("C:\\Users\\mlodz\\Downloads\\whywelose.mp3");
+            MEDIER("C:\\Users\\mlodz\\Downloads\\shrek.gif");
+            MEDIER("C:\\Users\\mlodz\\Downloads\\jessie.jpg");
+            SLICER(1, 60.0 + 30, 4);
+            SLICER(0, 30.0, 5);
+            SLICER(2, 0.0, -1);
+            SLICER(2, 0.0, -1);
+            SLICER(2, 0.0, -1);
+            SLICER(2, 0.0, -1);
+            SLICER(3, 0.0, 2);
+    
+            VFXER(1, 7, 5);
+            
+            VFXER(0, 0, -1);
+    
+            VFXER(2, 5, 5);
+            VFXER_ARG(0, VFX_VEC2,                ((VfxInputValue){.as.vec2 = {.x =  0.0, .y =  0.0}}));
+            VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, 1, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
+    
+            VFXER(2, 18.1, 2);
+            VFXER_ARG(0, VFX_VEC2,                 ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
+            VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y =  0.5}}));
+            VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y = -0.5}}));
+            VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
+    
+            LAYERO();
+        }
     }
 
     // ------------------------------------------- editor code -----------------------------------------------------
@@ -573,22 +629,46 @@ int main(){
         da_append(&myVfxs, vfx);
     }
 
+    //creating rest of inputs needed + type checking
     for(size_t i = 0; i < project.layers.count; i++){
         Layer* layer = &project.layers.items[i];
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
-            VfxInstance* instance = &layer->vfxInstances.items[j];
-            assert(instance->vfx_index < myVfxs.count);
-            VulkanizerVfx* myVfx = &myVfxs.items[instance->vfx_index];
-            if(instance->automations.count > 0) assert(myVfx->module.pushContantsSize > 0);
-            if(instance->push_constants_data) {
-                assert(instance->push_constants_size == myVfx->module.pushContantsSize);
-                continue;
-            }
+            VfxInstance* vfx = &layer->vfxInstances.items[j];
+            assert(vfx->vfx_index < myVfxs.count);
+            VulkanizerVfx* myVfx = &myVfxs.items[vfx->vfx_index];
 
-            if(myVfx->module.pushContantsSize > 0){
-               instance->push_constants_size = myVfx->module.pushContantsSize;
-               instance->push_constants_data = calloc(instance->push_constants_size, sizeof(uint8_t));
-               if(myVfx->module.hasDefaultValues) vfx_fill_default_values(&myVfx->module, instance->push_constants_data);
+            if(myVfx->module.inputs.count > 0){
+                size_t origMyInputsCount = vfx->myInputs.count;
+                for(size_t m = 0; m < myVfx->module.inputs.count; m++){
+                    VfxInput* input = &myVfx->module.inputs.items[m];
+
+                    bool needToAdd = true;
+                    for(size_t n = 0; n < origMyInputsCount; n++){
+                        MyInput* myInput = &vfx->myInputs.items[n];
+                        if(myInput->index == m){
+                            if(myInput->type != input->type){
+                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", i, j, m, get_vfxInputTypeName(input->type), get_vfxInputTypeName(myInput->type));
+                                return 1;
+                            }
+                            needToAdd = false;
+                            break;
+                        }
+                    }
+
+                    if(!needToAdd) continue;
+                    da_append(&vfx->myInputs, ((MyInput){
+                        .index = m,
+                        .type = input->type,
+                        .initialValue = *input->defaultValue
+                    }));
+                }
+
+                qsort(vfx->myInputs.items, vfx->myInputs.count, sizeof(vfx->myInputs.items[0]), MyInput_compare);
+            }else{
+                if(vfx->myInputs.count > 0){
+                    fprintf(stderr, "layer %zu vfx instance %zu expected 0 inputs got %zu\n", i, j, vfx->myInputs.count);
+                    return 1;
+                }
             }
         }
     }
@@ -616,6 +696,7 @@ int main(){
 
     double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
+    void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
     while(true){
         memset(outComposedVideoFrame, 0, project.width*project.height*sizeof(uint32_t));
@@ -632,8 +713,8 @@ int main(){
                 VfxInstance* vfx = &layer->vfxInstances.items[j];
                 if((vfx->duration != -1) && !(projectTime > vfx->offset && projectTime < vfx->offset + vfx->duration)) continue;
 
-                if(vfx->automations.count > 0) VfxInstance_Update(vfx, projectTime);
-                da_append(&vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs.items[vfx->vfx_index], .push_constants_data = vfx->push_constants_data, .push_constants_size = vfx->push_constants_size}));
+                if(vfx->myInputs.count > 0) VfxInstance_Update(&myVfxs, vfx, projectTime, push_constants_buf);
+                da_append(&vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs.items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs.items[vfx->vfx_index].module.pushContantsSize}));
             }
 
             int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
