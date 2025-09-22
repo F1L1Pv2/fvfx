@@ -145,38 +145,6 @@ typedef struct{
 #include <string.h>
 #include <math.h>
 
-static void copyValue(void* dst, VfxInputType type, VfxInputValue* value) {
-    switch (type) {
-        case VFX_BOOL:   memcpy(dst, &value->as.Bool,   sizeof(bool)); break;
-        case VFX_INT:    memcpy(dst, &value->as.Int,    sizeof(int32_t)); break;
-        case VFX_UINT:   memcpy(dst, &value->as.Uint,   sizeof(uint32_t)); break;
-        case VFX_FLOAT:  memcpy(dst, &value->as.Float,  sizeof(float)); break;
-        case VFX_DOUBLE: memcpy(dst, &value->as.Double, sizeof(double)); break;
-
-        case VFX_BVEC2: memcpy(dst, &value->as.Bvec2, sizeof(BVec2)); break;
-        case VFX_BVEC3: memcpy(dst, &value->as.Bvec3, sizeof(BVec3)); break;
-        case VFX_BVEC4: memcpy(dst, &value->as.Bvec4, sizeof(BVec4)); break;
-
-        case VFX_IVEC2: memcpy(dst, &value->as.Ivec2, sizeof(IVec2)); break;
-        case VFX_IVEC3: memcpy(dst, &value->as.Ivec3, sizeof(IVec3)); break;
-        case VFX_IVEC4: memcpy(dst, &value->as.Ivec4, sizeof(IVec4)); break;
-
-        case VFX_UVEC2: memcpy(dst, &value->as.Uvec2, sizeof(UVec2)); break;
-        case VFX_UVEC3: memcpy(dst, &value->as.Uvec3, sizeof(UVec3)); break;
-        case VFX_UVEC4: memcpy(dst, &value->as.Uvec4, sizeof(UVec4)); break;
-
-        case VFX_VEC2: memcpy(dst, &value->as.vec2, sizeof(Vec2)); break;
-        case VFX_VEC3: memcpy(dst, &value->as.vec3, sizeof(Vec3)); break;
-        case VFX_VEC4: memcpy(dst, &value->as.vec4, sizeof(Vec4)); break;
-
-        case VFX_DVEC2: memcpy(dst, &value->as.Dvec2, sizeof(DVec2)); break;
-        case VFX_DVEC3: memcpy(dst, &value->as.Dvec3, sizeof(DVec3)); break;
-        case VFX_DVEC4: memcpy(dst, &value->as.Dvec4, sizeof(DVec4)); break;
-
-        default: break;
-    }
-}
-
 #define LERP(a,b,t) ((a) + ((b) - (a)) * (t))
 
 static void interpolateValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t) {
@@ -250,7 +218,7 @@ void VfxInstance_Update(VfxInstance* instance, double currentTime) {
 
         if (shouldUpdate) {
             void* dst = (uint8_t*)instance->push_constants_data + automation->push_constants_offset;
-            copyValue(dst, automation->type, &result);
+            memcpy(dst, &result.as, get_vfxInputTypeSize(automation->type));
         }
     }
 }

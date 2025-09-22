@@ -39,24 +39,7 @@ extern MultipleVkQueueFamilyProperties multipleQueueFamilyProperties;
 
 extern VkCommandPool commandPool;
 extern VkCommandBuffer cmd;
-
-typedef struct {
-    float x;
-    float y;
-} vec2;
-
-typedef struct {
-    vec2 pos;
-} Vertex;
-
-extern VkPipelineLayout pipelineLayout;
-extern VkPipeline pipeline;
-
-extern VkSemaphore imageAvailableSemaphore;
-extern VkSemaphore renderFinishedSemaphore;
-extern VkFence inFlightFence;
 extern VkDescriptorPool descriptorPool;
-
 extern VkSampler samplerLinear;
 extern VkSampler samplerNearest;
 

@@ -7,7 +7,6 @@
 #include "engine/vulkan_initCommandPool.h"
 #include "engine/vulkan_initCommandBuffer.h"
 #include "engine/vulkan_compileShader.h"
-#include "engine/vulkan_synchro.h"
 #include "engine/vulkan_buffer.h"
 #include "engine/platform.h"
 #include "engine/vulkan_createGraphicPipelines.h"
@@ -18,6 +17,8 @@
 
 #include "vulkanizer.h"
 #include "shader_utils.h"
+
+static VkFence inFlightFence;
 
 static VkImageView currentViewInDescriptor = NULL;
 static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
@@ -148,9 +149,21 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     if(!getDevice()) return false;
     if(!initCommandPool()) return false;
     if(!initCommandBuffer()) return false;
-    if(!createAllNeededSyncrhonizationObjects()) return false;
     if(!initDescriptorPool()) return false;
     if(!initSamplers()) return false;
+
+    {
+        VkFenceCreateInfo fenceInfo = {0};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    
+        VkResult result = vkCreateFence(device, &fenceInfo, NULL, &inFlightFence);
+        
+        if(result != VK_SUCCESS){
+            printf("ERROR: Couldn't inFlightFence\n");
+            return false;
+        }
+    }
 
     const char* vertexShaderSrc = 
         "#version 450\n"
@@ -283,11 +296,11 @@ bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_
 
 bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
+
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &inFlightFence);
-    vkResetCommandBuffer(cmd, 0);
     updateDescriptorIfNeeded(vulkanizer, videoInView);
-
+    
     for(int i = 0; i < frameIn->video.height; i++){
         memcpy(
             (uint8_t*)videoInData + videoInStride*i,
@@ -295,7 +308,8 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstance
             frameIn->video.width *sizeof(uint32_t)
         );
     }
-
+    
+    vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
     commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     commandBufferBeginInfo.pNext = NULL;
@@ -382,13 +396,11 @@ bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstance
 
     VkSubmitInfo submitInfo = {0};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmd;
     
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
-    vkQueueWaitIdle(graphicsQueue);
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
     void* data = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageMapped : vulkanizer->videoOut2ImageMapped;
     size_t stride = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageStride : vulkanizer->videoOut2ImageStride;
