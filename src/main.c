@@ -516,7 +516,6 @@ int main(){
     project.hasAudio = true;
     project.stereo = true;
 
-    //TODO: add support for images
     {
         Layer layer = {0};
         #define VFXO(filenameIN) da_append(&project.vfxDescriptors, ((VfxDescriptor){.filename = (filenameIN)}))
