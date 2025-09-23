@@ -26,6 +26,12 @@ typedef struct{
 
 #define COL_BLACK ((Color){0.0,0.0,0.0,1.0})
 #define COL_EMPTY ((Color){0.0,0.0,0.0,0.0})
+#define COL_HEX(c) ((Color){ \
+    .r = ((float)(((c) >> 16) & 0xFF) / 255.0f), \
+    .g = ((float)(((c) >>  8) & 0xFF) / 255.0f), \
+    .b = ((float)(((c) >>  0) & 0xFF) / 255.0f), \
+    .a = ((float)(((c) >> 24) & 0xFF) / 255.0f)  \
+})
 
 void vkCmdBeginRenderingEX_opt(VkCommandBuffer commandBuffer, BeginRenderingEX args);
 
