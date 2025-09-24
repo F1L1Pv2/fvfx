@@ -699,12 +699,14 @@ int main(){
 
     while(true){
         memset(outComposedVideoFrame, 0, project.width*project.height*sizeof(uint32_t));
-        bool allFinished = true;
+        size_t finishedCount = 0;
         bool enoughSamples = true;
         for(size_t i = 0; i < myLayers.count; i++){
             MyLayer* myLayer = &myLayers.items[i];
-            if(myLayer->finished) continue;
-            if(!myLayer->finished) allFinished = false;
+            if(myLayer->finished) {
+                finishedCount++;
+                continue;
+            }
             Layer* layer = &project.layers.items[i];
 
             vulkanizerVfxInstances.count = 0;
@@ -724,11 +726,11 @@ int main(){
 
             if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
             if(e == -GET_FRAME_ERR) return 1;
-            if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; continue;}
+            if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
             if(e == -GET_FRAME_SKIP) continue;
             composeImageBuffers(outVideoFrame, outComposedVideoFrame, project.width, project.height);
         }
-        if(allFinished) break;
+        if(finishedCount == myLayers.count) break;
 
         renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
         renderFrame.data = outComposedVideoFrame;
