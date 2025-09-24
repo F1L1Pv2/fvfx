@@ -658,7 +658,7 @@ int main(){
                     da_append(&vfx->myInputs, ((MyInput){
                         .index = m,
                         .type = input->type,
-                        .initialValue = *input->defaultValue
+                        .initialValue = (input->defaultValue != NULL ? *input->defaultValue : (VfxInputValue){0}),
                     }));
                 }
 
