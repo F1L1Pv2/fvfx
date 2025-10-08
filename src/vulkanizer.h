@@ -58,7 +58,7 @@ typedef struct{
     size_t capacity;
 } VulkanizerVfxInstances;
 
-bool Vulkanizer_init(Vulkanizer* vulkanizer);
+bool Vulkanizer_init(VkDevice deviceIN, VkCommandBuffer cmdIN,VkQueue graphicsQueueIN, VkDescriptorPool descriptorPoolIN, Vulkanizer* vulkanizer);
 bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, void* imageDataOut);
 bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_t outHeight);
 bool Vulkanizer_apply_vfx_on_frame(Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, void* outData);

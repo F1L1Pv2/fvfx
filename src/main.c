@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "engine/vulkan_simple.h"
 #include "vulkanizer.h"
 #include "ffmpeg_media.h"
 #include "ffmpeg_media_render.h"
@@ -580,6 +581,21 @@ int main(){
     }
 
     // ------------------------------------------- editor code -----------------------------------------------------
+    if(!vulkan_init_headless()) return 1;
+
+    VkCommandBuffer cmd;
+
+    if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    },&cmd) != VK_SUCCESS) return 1;
+
+    Vulkanizer vulkanizer = {0};
+    if(!Vulkanizer_init(device, cmd, graphicsQueue, descriptorPool, &vulkanizer)) return 1;
+    if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
@@ -587,10 +603,6 @@ int main(){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
-
-    Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(&vulkanizer)) return 1;
-    if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
     MyLayers myLayers = {0};
 

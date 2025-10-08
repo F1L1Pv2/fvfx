@@ -1,11 +1,17 @@
-#include "engine/vulkan_simple.h"
-
 #include "vulkanizer.h"
+#include "engine/vulkan_createGraphicPipelines.h"
+#include "engine/vulkan_compileShader.h"
+#include "engine/vulkan_helpers.h"
+#include "engine/vulkan_buffer.h"
+#include "engine/vulkan_images.h"
 #include "shader_utils.h"
 
 static VkFence inFlightFence;
 static VkSampler samplerLinear;
 static VkCommandBuffer cmd;
+static VkDevice device;
+static VkQueue graphicsQueue;
+static VkDescriptorPool descriptorPool;
 
 static VkImageView currentViewInDescriptor = NULL;
 static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
@@ -131,16 +137,11 @@ bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* 
     return true;
 }
 
-bool Vulkanizer_init(Vulkanizer* vulkanizer){
-    if(!vulkan_init_headless()) return false;
-
-    if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext = NULL,
-        .commandPool = commandPool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    },&cmd) != VK_SUCCESS) return 1;
+bool Vulkanizer_init(VkDevice deviceIN, VkCommandBuffer cmdIN,VkQueue graphicsQueueIN, VkDescriptorPool descriptorPoolIN, Vulkanizer* vulkanizer){
+    device = deviceIN;
+    cmd = cmdIN;
+    graphicsQueue = graphicsQueueIN;
+    descriptorPool = descriptorPoolIN;
 
     if(vkCreateSampler(device, &(VkSamplerCreateInfo){
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
