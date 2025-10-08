@@ -1,16 +1,28 @@
 /*
-Name: Translate
-Description: Move Video Around
+Name: Translate & Scale
+Description: Move and Scale Video Around
 Author: F1L1P
 Input: vec2 Offset
+Input: vec2 Scale 1,1
 */
 
 void main() {
-    vec2 newUV = uv + vec2(-Input.Offset.x,Input.Offset.y);
+    // Scale from center
+    vec2 newUV = uv - 0.5;
+    newUV *= vec2(1,1) / Input.Scale;
+    newUV += 0.5;
+
+    // Apply translation
+    newUV += vec2(-Input.Offset.x, Input.Offset.y);
+
+    // Sample texture
     vec4 color = texture(imageIN, newUV);
-    if(newUV.x < 0 || newUV.x > 1.0 || newUV.y < 0 || newUV.y > 1.0){
+
+    // Check bounds
+    if(newUV.x < 0.0 || newUV.x > 1.0 || newUV.y < 0.0 || newUV.y > 1.0){
         outColor = vec4(0,0,0,0);
         return;
     }
+
     outColor = color;
 }
