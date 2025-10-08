@@ -14,12 +14,13 @@
 #include "vulkan/vulkan.h"
 
 #include "vulkan_globals.h"
-#include "vulkan_createSurface.h"
+#include "vulkan_initSurface.h"
+#include "vulkan_internal.h"
 
 
 VkSurfaceKHR surface;
 
-bool createSurface(){
+bool initSurface(){
 
     #ifdef _WIN32
         VkWin32SurfaceCreateInfoKHR win32SurfaceCreateInfoKHR = {0};

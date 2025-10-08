@@ -7,26 +7,7 @@
 #include "vulkan_globals.h"
 #include "vulkan_helpers.h"
 
-int getNeededQueueFamilyIndex(VkQueueFlags flags){
-    for(int i = 0; i < multipleQueueFamilyProperties.count; i++){
-        if(multipleQueueFamilyProperties.items[i].queueFlags & flags){
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index) {
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            *index = i;
-            return true;
-        }
-    }
-    return false;
-}
-
-VkCommandBuffer beginSingleTimeCommands() {
+VkCommandBuffer vkCmdBeginSingleTime() {
     VkCommandBufferAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -45,7 +26,7 @@ VkCommandBuffer beginSingleTimeCommands() {
     return commandBuffer;
 }
 
-void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+void vkCmdEndSingleTime(VkCommandBuffer commandBuffer) {
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo = {0};
@@ -96,4 +77,29 @@ void vkCmdBeginRenderingEX_opt(VkCommandBuffer commandBuffer, BeginRenderingEX a
     renderingInfo.pStencilAttachment = NULL;
 
     vkCmdBeginRendering(commandBuffer, &renderingInfo);
+}
+
+void vkCmdTransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        oldStage,
+        newStage,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &barrier
+    );
 }

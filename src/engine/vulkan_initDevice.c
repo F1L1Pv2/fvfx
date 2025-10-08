@@ -7,14 +7,15 @@
 #include "vulkan/vulkan.h"
 
 #include "vulkan_globals.h"
-#include "vulkan_getDevice.h"
+#include "vulkan_initDevice.h"
+#include "vulkan_internal.h"
 
 VkDevice device;
 VkPhysicalDevice physicalDevice;
 VkPhysicalDeviceLimits physicalDeviceLimits;
 VkQueue graphicsQueue;
 VkQueue presentQueue;
-VkPhysicalDeviceMemoryProperties memoryProperties;
+VkPhysicalDeviceMemoryProperties physicalMemoryProperties;
 MultipleVkQueueFamilyProperties multipleQueueFamilyProperties;
 
 typedef struct{
@@ -41,7 +42,7 @@ typedef struct{
     size_t capacity;
 }   MultipleVkQueuePriorities;
 
-bool getDevice(){
+bool initDevice(){
 
     VkPhysicalDevices physicalDevices = {0};
 
@@ -74,7 +75,7 @@ bool getDevice(){
     
     printf("INFO: Chosen %s physical device\n", physicalDeviceProperties.deviceName);
 
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalMemoryProperties);
 
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice,&multipleQueueFamilyProperties.count, NULL);
     da_resize(&multipleQueueFamilyProperties,multipleQueueFamilyProperties.count);
@@ -152,6 +153,16 @@ bool getDevice(){
     VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature  = {0};
     dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
     dynamicRenderingFeature.dynamicRendering = VK_TRUE;
+
+    VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .runtimeDescriptorArray = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+        .descriptorBindingVariableDescriptorCount = VK_TRUE,
+        // ... add other features you need
+    };
+
+    dynamicRenderingFeature.pNext = &indexingFeatures;
 
     VkDeviceCreateInfo deviceInfo = {0};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

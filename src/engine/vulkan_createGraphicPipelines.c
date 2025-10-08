@@ -10,7 +10,7 @@
 #include "vulkan_createGraphicPipelines.h"
 
 
-bool createGraphicPipeline_opts(CreateGraphicsPipelineARGS args){
+bool vkCreateGraphicPipeline_opts(CreateGraphicsPipelineARGS args){
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {0};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = NULL;
@@ -174,7 +174,7 @@ bool createGraphicPipeline_opts(CreateGraphicsPipelineARGS args){
     pipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     pipelineRenderingCreateInfo.viewMask = 0;
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    pipelineRenderingCreateInfo.pColorAttachmentFormats = args.outColorFormat ? args.outColorFormat : &swapchainImageFormat;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats = &args.outColorFormat;
     if(args.depthTest){
         pipelineRenderingCreateInfo.depthAttachmentFormat = VK_FORMAT_D16_UNORM;
     }else{

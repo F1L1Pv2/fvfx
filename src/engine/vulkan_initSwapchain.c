@@ -9,6 +9,7 @@
 #include "vulkan_globals.h"
 #include "vulkan_initSwapchain.h"
 #include "vulkan_images.h"
+#include "vulkan_internal.h"
 
 VkSwapchainKHR swapchain;
 VkFormat swapchainImageFormat;
@@ -110,7 +111,7 @@ bool initSwapchain(){
     da_resize(&swapchainImageViews,swapchainImages.count);
 
     for(int i = 0; i < swapchainImageViews.count; i++){
-        if(!createImageView(swapchainImages.items[i],swapchainImageFormat,VK_IMAGE_ASPECT_COLOR_BIT,&swapchainImageViews.items[i])) return false;
+        if(!vkCreateImageViewEX(device, swapchainImages.items[i],swapchainImageFormat,VK_IMAGE_ASPECT_COLOR_BIT,&swapchainImageViews.items[i])) return false;
     }
 
     return true;

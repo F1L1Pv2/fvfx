@@ -1,24 +1,11 @@
-#include "vulkan/vulkan.h"
-#include "engine/vulkan_globals.h"
-#include "engine/vulkan_initialize.h"
-#include "engine/vulkan_getDevice.h"
-#include "engine/vulkan_createSurface.h"
-#include "engine/vulkan_initSwapchain.h"
-#include "engine/vulkan_initCommandPool.h"
-#include "engine/vulkan_initCommandBuffer.h"
-#include "engine/vulkan_compileShader.h"
-#include "engine/vulkan_buffer.h"
-#include "engine/platform.h"
-#include "engine/vulkan_createGraphicPipelines.h"
-#include "engine/vulkan_initDescriptorPool.h"
-#include "engine/vulkan_images.h"
-#include "engine/vulkan_helpers.h"
-#include "engine/vulkan_initSamplers.h"
+#include "engine/vulkan_simple.h"
 
 #include "vulkanizer.h"
 #include "shader_utils.h"
 
 static VkFence inFlightFence;
+static VkSampler samplerLinear;
+static VkCommandBuffer cmd;
 
 static VkImageView currentViewInDescriptor = NULL;
 static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
@@ -119,38 +106,60 @@ static bool applyShadersOnFrame(
 }
 
 void transitionMyImage(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
-    VkCommandBuffer tempCmd = beginSingleTimeCommands();
+    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
     transitionMyImage_inner(tempCmd, image, oldLayout, newLayout, oldStage, newStage);
-    endSingleTimeCommands(tempCmd);
+    vkCmdEndSingleTime(tempCmd);
 }
 
 bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
-    if(!createImage(width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+    if(!vkCreateImageEX(device, width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
             imageUsage,
             memoryProperty, image,imageMemory)){
         printf("Couldn't create image\n");
         return false;
     }
 
-    if(!createImageView(*image,VK_FORMAT_R8G8B8A8_UNORM, 
+    if(!vkCreateImageViewEX(device, *image,VK_FORMAT_R8G8B8A8_UNORM, 
                 VK_IMAGE_ASPECT_COLOR_BIT, imageView)){
         printf("Couldn't create image view\n");
         return false;
     }
 
-    *imageStride = getImageStride(*image);
+    *imageStride = vkGetImageStride(device, *image);
     vkMapMemory(device,*imageMemory, 0, (*imageStride)*height, 0, imageMapped);
 
     return true;
 }
 
 bool Vulkanizer_init(Vulkanizer* vulkanizer){
-    if(!initialize_vulkan()) return false;
-    if(!getDevice()) return false;
-    if(!initCommandPool()) return false;
-    if(!initCommandBuffer()) return false;
-    if(!initDescriptorPool()) return false;
-    if(!initSamplers()) return false;
+    if(!vulkan_init_headless()) return false;
+
+    if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    },&cmd) != VK_SUCCESS) return 1;
+
+    if(vkCreateSampler(device, &(VkSamplerCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+        .anisotropyEnable = VK_FALSE,
+        .maxAnisotropy = 1.0f,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = VK_FALSE,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .mipLodBias = 0.0f,
+        .minLod = 0.0f,
+        .maxLod = VK_LOD_CLAMP_NONE,
+    }, NULL, &samplerLinear) != VK_SUCCESS) return false;
 
     {
         VkFenceCreateInfo fenceInfo = {0};
@@ -176,7 +185,7 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
         "}";
 
 
-    if(!compileShader(vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
+    if(!vkCompileShader(device,vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
 
     const char* fragmentShaderSrc =
         "#version 450\n"
@@ -188,7 +197,7 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
         "}\n";
 
     VkShaderModule fragmentShader;
-    if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
+    if(!vkCompileShader(device,fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
 
     VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
     descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -217,13 +226,13 @@ bool Vulkanizer_init(Vulkanizer* vulkanizer){
     vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSetImage2);
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    if(!createGraphicPipeline(
+    if(!vkCreateGraphicPipeline(
         vulkanizer->vertexShader,fragmentShader, 
         &vulkanizer->defaultPipeline, 
         &vulkanizer->defaultPipelineLayout,
+        colorFormat,
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
-        .outColorFormat = &colorFormat
     )) return false;
 
     return true;
@@ -424,7 +433,7 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
     sb_append_null(&sb);
 
     VkShaderModule fragmentShader;
-    if(!compileShader(sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+    if(!vkCompileShader(device,sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
 
     for(size_t i = 0; i < outVfx->module.inputs.count; i++){
         outVfx->module.pushContantsSize += get_vfxInputTypeSize(outVfx->module.inputs.items[i].type);
@@ -432,14 +441,14 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
-    if(!createGraphicPipeline(
+    if(!vkCreateGraphicPipeline(
         vulkanizer->vertexShader,fragmentShader, 
         &outVfx->pipeline, 
         &outVfx->pipelineLayout,
+        colorFormat,
         .pushConstantsSize = sizeof(float)*4 + outVfx->module.pushContantsSize,
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
-        .outColorFormat = &colorFormat
     )) return false;
 
     outVfx->module.filepath = filename;
