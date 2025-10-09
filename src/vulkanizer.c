@@ -287,7 +287,7 @@ bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn){
+bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, VkImageView composedOutView){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
 
     updateDescriptorIfNeeded(vulkanizer, videoInView);
@@ -369,26 +369,46 @@ bool Vulkanizer_apply_vfx_on_frame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, 
         vulkanizer->currentImage = 1 - vulkanizer->currentImage;
     }
 
+    //compositing
     transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-        VK_IMAGE_LAYOUT_GENERAL, 
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+    );
+
+    {
+        vkCmdBeginRenderingEX(cmd,
+            .colorAttachment = composedOutView,
+            .clearBackground = false,
+            .renderArea = (
+                (VkExtent2D){.width = vulkanizer->videoOutWidth, .height= vulkanizer->videoOutHeight}
+            )
+        );
+
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = vulkanizer->videoOutWidth,
+            .height = vulkanizer->videoOutHeight
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent = (VkExtent2D){.width = vulkanizer->videoOutWidth, .height = vulkanizer->videoOutHeight},
+        });
+
+        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanizer->defaultPipeline);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,0,NULL);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
+
+    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+        VK_IMAGE_LAYOUT_GENERAL, 
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT
     );
 
     return true;
-}
-
-void Vulkanizer_output_vfx_to_frame(Vulkanizer* vulkanizer, void* outData){
-    void* data = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageMapped : vulkanizer->videoOut2ImageMapped;
-    size_t stride = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageStride : vulkanizer->videoOut2ImageStride;
-    for(size_t i = 0; i < vulkanizer->videoOutHeight; i++) {
-        memcpy(
-            (uint8_t*)outData + i * vulkanizer->videoOutWidth * sizeof(uint32_t),
-            (uint8_t*)data + i * stride,
-            vulkanizer->videoOutWidth * sizeof(uint32_t)
-        );
-    }
 }
 
 static String_Builder sb = {0};

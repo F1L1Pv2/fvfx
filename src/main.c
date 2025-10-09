@@ -318,7 +318,7 @@ typedef struct{
 VkFence inFlightFence;
 VkCommandBuffer cmd;
 
-int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* vulkanizerVfxInstances, Frame * frame, uint32_t* outVideoFrame){
+int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* vulkanizerVfxInstances, Frame * frame, VkImageView composedOutView){
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &inFlightFence);
     
@@ -330,7 +330,7 @@ int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* 
     commandBufferBeginInfo.pInheritanceInfo = NULL;
     vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
     
-    if(!Vulkanizer_apply_vfx_on_frame(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame)) return -GET_FRAME_ERR;
+    if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, composedOutView)) return -GET_FRAME_ERR;
 
     vkEndCommandBuffer(cmd);
 
@@ -341,12 +341,10 @@ int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* 
     
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-
-    Vulkanizer_output_vfx_to_frame(vulkanizer, outVideoFrame);
     return 0;
 }
 
-int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
@@ -364,7 +362,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     
         
         if(args->times_to_catch_up_target_framerate > 0){
-            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
+            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
             if(e < 0) return e;
             args->times_to_catch_up_target_framerate--;
             return 0;
@@ -390,7 +388,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
+            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
             if(e < 0) return e;
             args->times_to_catch_up_target_framerate--;
             return 0;
@@ -438,7 +436,7 @@ int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, VkImageView composedOutView){
     if(args->localTime < args->checkDuration){
         args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
         args->localTime = args->checkDuration;
@@ -449,8 +447,8 @@ int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
-        int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
-            if(e < 0) return e;
+        int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
+        if(e < 0) return e;
         return 0;
     }
 
@@ -487,15 +485,15 @@ int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
+int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
     int e;
     while(true){
         if(args->currentMediaIndex == EMPTY_MEDIA){
             e = getEmptyFrame(vulkanizer,project,slices,myMedias,args);
         }else{
             MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
-            if(myMedia->media.isImage) e = getImageFrame(vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,args,outVideoFrame);
-            else if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,audioFifo,args,outVideoFrame);
+            if(myMedia->media.isImage) e = getImageFrame(vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,args,composedOutView);
+            else if(myMedia->hasVideo) e = getVideoFrame(vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,audioFifo,args,composedOutView);
             else if(myMedia->hasAudio && !myMedia->hasVideo) e = getAudioFrame(vulkanizer,project,slices,myMedias,frame, audioFifo, args);
             else assert(false && "Unreachable");
         }
@@ -731,9 +729,6 @@ int main(){
     int composedAudioBufLineSize;
     av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
 
-    uint32_t* outVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
-    uint32_t* outComposedVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
-
     for(size_t i = 0; i < myLayers.count; i++){
         MyLayer* myLayer = &myLayers.items[i];
         Layer* layer = &project.layers.items[i];
@@ -746,8 +741,36 @@ int main(){
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
+    VkImage outComposedImage;
+    VkDeviceMemory outComposedImageMemory;
+    VkImageView outComposedImageView;
+    size_t outComposedImage_stride;
+    void* outComposedImage_mapped;
+    uint32_t* outComposedVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
+
+    if(!createMyImage(&outComposedImage, 
+        project.width, project.height, 
+        &outComposedImageMemory, 
+        &outComposedImageView, 
+        &outComposedImage_stride, 
+        &outComposedImage_mapped,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    )) return 1;
+
+    transitionMyImage(outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
     while(true){
-        memset(outComposedVideoFrame, 0, project.width*project.height*sizeof(uint32_t));
+        memset(outComposedImage_mapped, 0xFF000000, outComposedImage_stride*project.height);
+
+        transitionMyImage(
+            outComposedImage,
+            VK_IMAGE_LAYOUT_GENERAL, 
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        );
+
         size_t finishedCount = 0;
         bool enoughSamples = true;
         for(size_t i = 0; i < myLayers.count; i++){
@@ -767,7 +790,7 @@ int main(){
                 da_append(&vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs.items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs.items[vfx->vfx_index].module.pushContantsSize}));
             }
 
-            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outVideoFrame);
+            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
             
             if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
                 av_audio_fifo_add_silence(myLayer->audioFifo, renderContext.audioCodecContext->sample_fmt, &renderContext.audioCodecContext->ch_layout, project.sampleRate / project.fps);
@@ -777,9 +800,24 @@ int main(){
             if(e == -GET_FRAME_ERR) return 1;
             if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
             if(e == -GET_FRAME_SKIP) continue;
-            composeImageBuffers(outVideoFrame, outComposedVideoFrame, project.width, project.height);
         }
         if(finishedCount == myLayers.count) break;
+
+        transitionMyImage(
+            outComposedImage,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_IMAGE_LAYOUT_GENERAL, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT
+        );
+
+        for(size_t y = 0; y < project.height; y++){
+            memcpy(
+                ((uint8_t*)outComposedVideoFrame) + y*project.width*sizeof(uint32_t),
+                ((uint8_t*)outComposedImage_mapped) + y*outComposedImage_stride,
+                project.width*sizeof(uint32_t)
+            );
+        }
 
         renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
         renderFrame.data = outComposedVideoFrame;
