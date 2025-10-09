@@ -300,19 +300,19 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
         vulkanizer->videoOutHeight,
         vulkanizer->vfxDescriptorSetLayout,
 
-        &vulkanizer->videoOut1Image,
-        &vulkanizer->videoOut1ImageMemory,
-        &vulkanizer->videoOut1ImageView,
-        &vulkanizer->videoOut1ImageStride,
-        &vulkanizer->videoOut1ImageMapped,
-        &vulkanizer->vfxDescriptorSetImage1,
+        &vulkanizer->vfxImagesOut.image1,
+        &vulkanizer->vfxImagesOut.imageMemory1,
+        &vulkanizer->vfxImagesOut.imageView1,
+        &vulkanizer->vfxImagesOut.imageStride1,
+        &vulkanizer->vfxImagesOut.imageMapped1,
+        &vulkanizer->vfxImagesOut.descriptorSet1,
 
-        &vulkanizer->videoOut2Image,
-        &vulkanizer->videoOut2ImageMemory,
-        &vulkanizer->videoOut2ImageView,
-        &vulkanizer->videoOut2ImageStride,
-        &vulkanizer->videoOut2ImageMapped,
-        &vulkanizer->vfxDescriptorSetImage2
+        &vulkanizer->vfxImagesOut.image2,
+        &vulkanizer->vfxImagesOut.imageMemory2,
+        &vulkanizer->vfxImagesOut.imageView2,
+        &vulkanizer->vfxImagesOut.imageStride2,
+        &vulkanizer->vfxImagesOut.imageMapped2,
+        &vulkanizer->vfxImagesOut.descriptorSet2
     )) return false;
     
     return true;
@@ -335,6 +335,8 @@ bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* image
 bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, VkImageView composedOutView){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
 
+    VulkanizerImagesOut* usedImages = &vulkanizer->vfxImagesOut;
+
     updateDescriptorIfNeeded(vulkanizer, videoInView);
 
     for(int i = 0; i < frameIn->video.height; i++){
@@ -345,7 +347,7 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         );
     }
 
-    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_PIPELINE_STAGE_TRANSFER_BIT, 
@@ -354,7 +356,7 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
 
     {
         vkCmdBeginRenderingEX(cmd,
-            .colorAttachment = vulkanizer->currentImage == 0 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,
+            .colorAttachment = usedImages->currentImage == 0 ? usedImages->imageView1 : usedImages->imageView2,
             .clearColor = COL_EMPTY,
             .renderArea = (
                 (VkExtent2D){.width = vulkanizer->videoOutWidth, .height= vulkanizer->videoOutHeight}
@@ -383,14 +385,14 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
             return false;
         }
 
-        transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+        transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
         );
 
-        transitionMyImage_inner(cmd, vulkanizer->currentImage == 1 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+        transitionMyImage_inner(cmd, usedImages->currentImage == 1 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -406,16 +408,16 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
                 vfx->push_constants_data,
                 vfx->push_constants_size,
 
-                vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,
-                vulkanizer->currentImage == 1 ? vulkanizer->videoOut1ImageView : vulkanizer->videoOut2ImageView,
+                usedImages->currentImage == 0 ? &usedImages->descriptorSet1 : &usedImages->descriptorSet2,
+                usedImages->currentImage == 1 ? usedImages->imageView1 : usedImages->imageView2,
                 vfx->vfx
             )) return false;
         
-        vulkanizer->currentImage = 1 - vulkanizer->currentImage;
+        usedImages->currentImage = 1 - usedImages->currentImage;
     }
 
     //compositing
-    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -441,12 +443,12 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         });
 
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanizer->defaultPipeline);
-        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,vulkanizer->currentImage == 0 ? &vulkanizer->vfxDescriptorSetImage1 : &vulkanizer->vfxDescriptorSetImage2,0,NULL);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,usedImages->currentImage == 0 ? &usedImages->descriptorSet1 : &usedImages->descriptorSet2,0,NULL);
         vkCmdDraw(cmd, 6, 1, 0, 0);
         vkCmdEndRendering(cmd);
     }
 
-    transitionMyImage_inner(cmd, vulkanizer->currentImage == 0 ? vulkanizer->videoOut1Image : vulkanizer->videoOut2Image, 
+    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,

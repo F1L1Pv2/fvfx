@@ -19,28 +19,32 @@ typedef struct{
 } VulkanizerVfxsRef;
 
 typedef struct{
+    int currentImage;
+    
+    VkImage image1;
+    VkDeviceMemory imageMemory1;
+    VkImageView imageView1;
+    size_t imageStride1;
+    void* imageMapped1;
+    VkDescriptorSet descriptorSet1;
+    
+    VkImage image2;
+    VkDeviceMemory imageMemory2;
+    VkImageView imageView2;
+    size_t imageStride2;
+    void* imageMapped2;
+    VkDescriptorSet descriptorSet2;
+} VulkanizerImagesOut;
+
+typedef struct{
     VkDescriptorSetLayout vfxDescriptorSetLayout;
     VkDescriptorSet vfxDescriptorSet;
-    VkDescriptorSet vfxDescriptorSetImage1;
-    VkDescriptorSet vfxDescriptorSetImage2;
 
     VkShaderModule vertexShader;
     VkPipeline defaultPipeline;
     VkPipelineLayout defaultPipelineLayout;
 
-    int currentImage;
-
-    VkImage videoOut1Image;
-    VkDeviceMemory videoOut1ImageMemory;
-    VkImageView videoOut1ImageView;
-    size_t videoOut1ImageStride;
-    void* videoOut1ImageMapped;
-
-    VkImage videoOut2Image;
-    VkDeviceMemory videoOut2ImageMemory;
-    VkImageView videoOut2ImageView;
-    size_t videoOut2ImageStride;
-    void* videoOut2ImageMapped;
+    VulkanizerImagesOut vfxImagesOut;
 
     size_t videoOutWidth;
     size_t videoOutHeight;
