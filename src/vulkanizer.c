@@ -6,9 +6,55 @@
 #include "engine/vulkan_images.h"
 #include "shader_utils.h"
 
+#define FA_REALLOC(optr, osize, new_size) realloc(optr, new_size)
+#define fa_reserve(da, extra) \
+   do {\
+      if((da)->count + extra >= (da)->capacity) {\
+          void* _da_old_ptr;\
+          size_t _da_old_capacity = (da)->capacity;\
+          (void)_da_old_capacity;\
+          (void)_da_old_ptr;\
+          (da)->capacity = (da)->capacity*2+extra;\
+          _da_old_ptr = (da)->items;\
+          (da)->items = FA_REALLOC(_da_old_ptr, _da_old_capacity*sizeof(*(da)->items), (da)->capacity*sizeof(*(da)->items));\
+          assert((da)->items && "Ran out of memory");\
+      }\
+   } while(0)
+#define fa_push(da, value) \
+   do {\
+        fa_reserve(da, 1);\
+        (da)->items[(da)->count++]=value;\
+   } while(0)
+
 static VkSampler samplerLinear;
 static VkDevice device;
 static VkDescriptorPool descriptorPool;
+
+typedef struct{
+    int currentImage;
+    
+    VkImage image1;
+    VkDeviceMemory imageMemory1;
+    VkImageView imageView1;
+    size_t imageStride1;
+    void* imageMapped1;
+    VkDescriptorSet descriptorSet1;
+    
+    VkImage image2;
+    VkDeviceMemory imageMemory2;
+    VkImageView imageView2;
+    size_t imageStride2;
+    void* imageMapped2;
+    VkDescriptorSet descriptorSet2;
+} VulkanizerImagesOut;
+
+typedef struct{
+    VulkanizerImagesOut* items;
+    size_t count;
+    size_t capacity;
+    size_t used;
+    size_t item_size;
+} VulkanizerImagesOutPool;
 
 void transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
     VkImageMemoryBarrier barrier = {0};
@@ -187,6 +233,41 @@ bool init_output_image(
     return true;
 }
 
+VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanizer, VulkanizerImagesOutPool* pool){
+    if(pool->used < pool->count) return &pool->items[pool->used++];
+    fa_reserve(pool, pool->count + 1);
+    VulkanizerImagesOut* out = &pool->items[pool->count++];
+
+    //initalization
+    *out = (VulkanizerImagesOut){0};
+    if(!init_output_image(
+        vulkanizer->videoOutWidth, vulkanizer->videoOutHeight,
+        vulkanizer->vfxDescriptorSetLayout,
+
+        &out->image1,
+        &out->imageMemory1,
+        &out->imageView1,
+        &out->imageStride1,
+        &out->imageMapped1,
+        &out->descriptorSet1,
+
+        &out->image2,
+        &out->imageMemory2,
+        &out->imageView2,
+        &out->imageStride2,
+        &out->imageMapped2,
+        &out->descriptorSet2
+    )) return NULL;
+
+    return out;
+}
+
+void VulkanizerImagesOutPool_reset(VulkanizerImagesOutPool* pool){
+    pool->used = 0;
+}
+
+VulkanizerImagesOutPool vulkanizerImagesOutPool = {0};
+
 bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer){
     device = deviceIN;
     descriptorPool = descriptorPoolIN;
@@ -263,25 +344,6 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
 
     vulkanizer->videoOutWidth = outWidth;
     vulkanizer->videoOutHeight = outHeight;
-    if(!init_output_image(
-        vulkanizer->videoOutWidth,
-        vulkanizer->videoOutHeight,
-        vulkanizer->vfxDescriptorSetLayout,
-
-        &vulkanizer->vfxImagesOut.image1,
-        &vulkanizer->vfxImagesOut.imageMemory1,
-        &vulkanizer->vfxImagesOut.imageView1,
-        &vulkanizer->vfxImagesOut.imageStride1,
-        &vulkanizer->vfxImagesOut.imageMapped1,
-        &vulkanizer->vfxImagesOut.descriptorSet1,
-
-        &vulkanizer->vfxImagesOut.image2,
-        &vulkanizer->vfxImagesOut.imageMemory2,
-        &vulkanizer->vfxImagesOut.imageView2,
-        &vulkanizer->vfxImagesOut.imageStride2,
-        &vulkanizer->vfxImagesOut.imageMapped2,
-        &vulkanizer->vfxImagesOut.descriptorSet2
-    )) return false;
     
     return true;
 }
@@ -326,10 +388,15 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
     return true;
 }
 
+void Vulkanizer_reset_pool(){
+    VulkanizerImagesOutPool_reset(&vulkanizerImagesOutPool);
+}
+
 bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, VkDescriptorSet videoInDescriptorSet, Frame* frameIn, VkImageView composedOutView){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
 
-    VulkanizerImagesOut* usedImages = &vulkanizer->vfxImagesOut;
+    VulkanizerImagesOut* usedImages = VulkanizerImagesOutPool_get_avaliable(vulkanizer, &vulkanizerImagesOutPool);
+    if(usedImages == NULL) return false;
 
     for(int i = 0; i < frameIn->video.height; i++){
         memcpy(

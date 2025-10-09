@@ -314,34 +314,7 @@ typedef struct{
     size_t capacity;
 } MyLayers;
 
-VkFence inFlightFence;
 VkCommandBuffer cmd;
-
-int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* vulkanizerVfxInstances, Frame * frame, VkImageView composedOutView){
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &inFlightFence);
-    
-    vkResetCommandBuffer(cmd, 0);
-    VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
-    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    commandBufferBeginInfo.pNext = NULL;
-    commandBufferBeginInfo.flags = 0;
-    commandBufferBeginInfo.pInheritanceInfo = NULL;
-    vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
-    
-    if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submitInfo = {0};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
-    
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    return 0;
-}
 
 int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
@@ -361,8 +334,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     
         
         if(args->times_to_catch_up_target_framerate > 0){
-            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
-            if(e < 0) return e;
+            if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }
@@ -387,8 +359,7 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
-            if(e < 0) return e;
+            if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
@@ -446,8 +417,7 @@ int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
-        int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, composedOutView);
-        if(e < 0) return e;
+        if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
         return 0;
     }
 
@@ -498,38 +468,6 @@ int getFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias*
         }
 
         if(e != -GET_FRAME_NEXT_MEDIA) return e;
-    }
-}
-
-uint8_t blend_channel(uint8_t s, uint8_t d, uint8_t sa) {
-    uint32_t t = s * sa + d * (255 - sa);
-    return (t + 128) * 257 >> 16;
-}
-
-void composeImageBuffers(uint32_t* srcBuff, uint32_t* dstBuff, size_t width, size_t height){
-    for (size_t j = 0; j < width * height; j++) {
-        uint32_t src = srcBuff[j];
-        uint32_t dst = dstBuff[j];
-
-        uint8_t sr = (src >> 0)  & 0xFF;
-        uint8_t sg = (src >> 8)  & 0xFF;
-        uint8_t sb = (src >> 16) & 0xFF;
-        uint8_t sa = (src >> 24) & 0xFF;
-
-        uint8_t dr = (dst >> 0)  & 0xFF;
-        uint8_t dg = (dst >> 8)  & 0xFF;
-        uint8_t db = (dst >> 16) & 0xFF;
-        uint8_t da = (dst >> 24) & 0xFF;
-
-        uint8_t or_ = blend_channel(sr, dr, sa);
-        uint8_t og  = blend_channel(sg, dg, sa);
-        uint8_t ob  = blend_channel(sb, db, sa);
-
-        uint32_t at = sa + da * (255 - sa);
-        uint8_t oa = (at + 128) * 257 >> 16;
-
-        dstBuff[j] =
-            (oa << 24) | (ob << 16) | (og << 8) | (or_);
     }
 }
 
@@ -622,6 +560,7 @@ int main(){
         .commandBufferCount = 1,
     },&cmd) != VK_SUCCESS) return 1;
         
+    VkFence inFlightFence;
     if(vkCreateFence(device, &(VkFenceCreateInfo){
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .flags = VK_FENCE_CREATE_SIGNALED_BIT,
@@ -759,15 +698,37 @@ int main(){
     transitionMyImage(outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     while(true){
-        memset(outComposedImage_mapped, 0xFF000000, outComposedImage_stride*project.height);
+        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &inFlightFence);
+        
+        vkResetCommandBuffer(cmd, 0);
+        VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
+        commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        commandBufferBeginInfo.pNext = NULL;
+        commandBufferBeginInfo.flags = 0;
+        commandBufferBeginInfo.pInheritanceInfo = NULL;
+        vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
 
-        transitionMyImage(
+        Vulkanizer_reset_pool();
+
+        transitionMyImage_inner(
+            cmd,
             outComposedImage,
             VK_IMAGE_LAYOUT_GENERAL, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_PIPELINE_STAGE_TRANSFER_BIT, 
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
         );
+
+        vkCmdBeginRenderingEX(cmd,
+            .colorAttachment = outComposedImageView,
+            .clearColor = COL_EMPTY,
+            .renderArea = (
+                (VkExtent2D){.width = project.width, .height= project.height}
+            )
+        );
+
+        vkCmdEndRendering(cmd);
 
         size_t finishedCount = 0;
         bool enoughSamples = true;
@@ -801,13 +762,24 @@ int main(){
         }
         if(finishedCount == myLayers.count) break;
 
-        transitionMyImage(
+        transitionMyImage_inner(
+            cmd,
             outComposedImage,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_IMAGE_LAYOUT_GENERAL, 
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT
         );
+
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submitInfo = {0};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmd;
+        
+        vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
+        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
         for(size_t y = 0; y < project.height; y++){
             memcpy(
