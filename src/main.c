@@ -629,8 +629,7 @@ int main(){
     }, NULL, &inFlightFence) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, &vulkanizer)) return 1;
-    if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project.width, project.height, &vulkanizer)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};

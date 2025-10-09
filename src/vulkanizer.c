@@ -135,7 +135,83 @@ bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* 
     return true;
 }
 
-bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, Vulkanizer* vulkanizer){
+bool init_output_image(
+    size_t outWidth,
+    size_t outHeight,
+
+    VkDescriptorSetLayout descriptorSetLayout,
+
+    VkImage* outImage1,
+    VkDeviceMemory* outImageMemory1,
+    VkImageView* outImageView1,
+    size_t* outImageStride1,
+    void** outImageMapped1,
+    VkDescriptorSet* outImageDescriptorSet1,
+
+    VkImage* outImage2,
+    VkDeviceMemory* outImageMemory2,
+    VkImageView* outImageView2,
+    size_t* outImageStride2,
+    void** outImageMapped2,
+    VkDescriptorSet* outImageDescriptorSet2
+){
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayout;
+
+    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, outImageDescriptorSet1);
+    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, outImageDescriptorSet2);
+
+    if(!createMyImage(outImage1,
+        outWidth,
+        outHeight,
+        outImageMemory1, outImageView1,
+        outImageStride1, 
+        outImageMapped1,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    )) return false;
+    transitionMyImage(*outImage1, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    if(!createMyImage(outImage2,
+        outWidth,
+        outHeight,
+        outImageMemory2, outImageView2, 
+        outImageStride2, 
+        outImageMapped2,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    )) return false;
+    transitionMyImage(*outImage2, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    {
+        VkDescriptorImageInfo descriptorImageInfo = {0};
+        VkWriteDescriptorSet writeDescriptorSet = {0};
+
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptorImageInfo.imageView = *outImageView1;
+
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.dstSet = *outImageDescriptorSet1;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+        descriptorImageInfo.imageView = *outImageView2;
+        writeDescriptorSet.dstSet = *outImageDescriptorSet2;
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+    }
+    return true;
+}
+
+bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer){
     device = deviceIN;
     descriptorPool = descriptorPoolIN;
 
@@ -206,8 +282,6 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, Vulka
     descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
 
     vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSet);
-    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSetImage1);
-    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSetImage2);
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
     if(!vkCreateGraphicPipeline(
@@ -219,6 +293,28 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, Vulka
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
     )) return false;
 
+    vulkanizer->videoOutWidth = outWidth;
+    vulkanizer->videoOutHeight = outHeight;
+    if(!init_output_image(
+        vulkanizer->videoOutWidth,
+        vulkanizer->videoOutHeight,
+        vulkanizer->vfxDescriptorSetLayout,
+
+        &vulkanizer->videoOut1Image,
+        &vulkanizer->videoOut1ImageMemory,
+        &vulkanizer->videoOut1ImageView,
+        &vulkanizer->videoOut1ImageStride,
+        &vulkanizer->videoOut1ImageMapped,
+        &vulkanizer->vfxDescriptorSetImage1,
+
+        &vulkanizer->videoOut2Image,
+        &vulkanizer->videoOut2ImageMemory,
+        &vulkanizer->videoOut2ImageView,
+        &vulkanizer->videoOut2ImageStride,
+        &vulkanizer->videoOut2ImageMapped,
+        &vulkanizer->vfxDescriptorSetImage2
+    )) return false;
+    
     return true;
 }
 
@@ -233,57 +329,6 @@ bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* image
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
     transitionMyImage(*imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    return true;
-}
-
-bool Vulkanizer_init_output_image(Vulkanizer* vulkanizer, size_t outWidth, size_t outHeight){
-    if(!createMyImage(&vulkanizer->videoOut1Image,
-        outWidth, 
-        outHeight, 
-        &vulkanizer->videoOut1ImageMemory, &vulkanizer->videoOut1ImageView, 
-        &vulkanizer->videoOut1ImageStride, 
-        &vulkanizer->videoOut1ImageMapped,
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    )) return false;
-    transitionMyImage(vulkanizer->videoOut1Image, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-    if(!createMyImage(&vulkanizer->videoOut2Image,
-        outWidth, 
-        outHeight, 
-        &vulkanizer->videoOut2ImageMemory, &vulkanizer->videoOut2ImageView, 
-        &vulkanizer->videoOut2ImageStride, 
-        &vulkanizer->videoOut2ImageMapped,
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    )) return false;
-    transitionMyImage(vulkanizer->videoOut2Image, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    
-    vulkanizer->videoOutWidth = outWidth;
-    vulkanizer->videoOutHeight = outHeight;
-
-    {
-        VkDescriptorImageInfo descriptorImageInfo = {0};
-        VkWriteDescriptorSet writeDescriptorSet = {0};
-
-        descriptorImageInfo.sampler = samplerLinear;
-        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        descriptorImageInfo.imageView = vulkanizer->videoOut1ImageView;
-
-        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writeDescriptorSet.descriptorCount = 1;
-        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSetImage1;
-        writeDescriptorSet.dstBinding = 0;
-        writeDescriptorSet.dstArrayElement = 0;
-        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
-
-        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
-
-        descriptorImageInfo.imageView = vulkanizer->videoOut2ImageView;
-        writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSetImage2;
-        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
-    }
     return true;
 }
 
