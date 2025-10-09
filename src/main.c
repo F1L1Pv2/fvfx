@@ -315,6 +315,37 @@ typedef struct{
     size_t capacity;
 } MyLayers;
 
+VkFence inFlightFence;
+VkCommandBuffer cmd;
+
+int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* vulkanizerVfxInstances, Frame * frame, uint32_t* outVideoFrame){
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(device, 1, &inFlightFence);
+    
+    vkResetCommandBuffer(cmd, 0);
+    VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
+    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    commandBufferBeginInfo.pNext = NULL;
+    commandBufferBeginInfo.flags = 0;
+    commandBufferBeginInfo.pInheritanceInfo = NULL;
+    vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
+    
+    if(!Vulkanizer_apply_vfx_on_frame(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame)) return -GET_FRAME_ERR;
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
+    
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+
+    Vulkanizer_output_vfx_to_frame(vulkanizer, outVideoFrame);
+    return 0;
+}
+
 int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, uint32_t* outVideoFrame){
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasVideo && "You used wrong function!");
@@ -333,7 +364,8 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     
         
         if(args->times_to_catch_up_target_framerate > 0){
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
+            if(e < 0) return e;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }
@@ -358,7 +390,8 @@ int getVideoFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
                 args->video_skip_count = (size_t)(framerate / project->fps);
             }
     
-            if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+            int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
+            if(e < 0) return e;
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
@@ -416,7 +449,8 @@ int getImageFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
-        if(!Vulkanizer_apply_vfx_on_frame(vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, outVideoFrame)) return -GET_FRAME_ERR;
+        int e = apply_vfxs(vulkanizer, myMedia, vulkanizerVfxInstances, frame, outVideoFrame);
+            if(e < 0) return e;
         return 0;
     }
 
@@ -583,8 +617,6 @@ int main(){
     // ------------------------------------------- editor code -----------------------------------------------------
     if(!vulkan_init_headless()) return 1;
 
-    VkCommandBuffer cmd;
-
     if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = NULL,
@@ -592,9 +624,14 @@ int main(){
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1,
     },&cmd) != VK_SUCCESS) return 1;
+        
+    if(vkCreateFence(device, &(VkFenceCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    }, NULL, &inFlightFence) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, cmd, graphicsQueue, descriptorPool, &vulkanizer)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, &vulkanizer)) return 1;
     if(!Vulkanizer_init_output_image(&vulkanizer, project.width, project.height)) return 1;
 
     //init renderer
