@@ -10,30 +10,6 @@ static VkSampler samplerLinear;
 static VkDevice device;
 static VkDescriptorPool descriptorPool;
 
-static VkImageView currentViewInDescriptor = NULL;
-static void updateDescriptorIfNeeded(Vulkanizer* vulkanizer, VkImageView newView){
-    if(newView == currentViewInDescriptor) return;
-
-    // --------------------- updating descriptor set -------------------------
-    VkDescriptorImageInfo descriptorImageInfo = {0};
-    VkWriteDescriptorSet writeDescriptorSet = {0};
-
-    descriptorImageInfo.sampler = samplerLinear;
-    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    descriptorImageInfo.imageView = newView;
-
-    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSet.descriptorCount = 1;
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSet.dstSet = vulkanizer->vfxDescriptorSet;
-    writeDescriptorSet.dstBinding = 0;
-    writeDescriptorSet.dstArrayElement = 0;
-    writeDescriptorSet.pImageInfo = &descriptorImageInfo;
-
-    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
-    currentViewInDescriptor = newView;
-}
-
 void transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
     VkImageMemoryBarrier barrier = {0};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -275,14 +251,6 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
         return false;
     }
 
-    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
-    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
-    descriptorSetAllocateInfo.descriptorSetCount = 1;
-    descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
-
-    vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &vulkanizer->vfxDescriptorSet);
-
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
     if(!vkCreateGraphicPipeline(
         vulkanizer->vertexShader,fragmentShader, 
@@ -318,7 +286,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
     return true;
 }
 
-bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, void* imageDataOut){
+bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, VkDescriptorSet* descriptorSetOut, void* imageDataOut){
     if(!createMyImage(imageOut,
         width, 
         height, 
@@ -329,15 +297,39 @@ bool Vulkanizer_init_image_for_media(size_t width, size_t height, VkImage* image
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
     transitionMyImage(*imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
+    if(vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, descriptorSetOut) != VK_SUCCESS) return false;
+
+    {
+        VkDescriptorImageInfo descriptorImageInfo = {0};
+        VkWriteDescriptorSet writeDescriptorSet = {0};
+
+        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptorImageInfo.imageView = *imageViewOut;
+
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeDescriptorSet.dstSet = *descriptorSetOut;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.dstArrayElement = 0;
+        writeDescriptorSet.pImageInfo = &descriptorImageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+    }
     return true;
 }
 
-bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, Frame* frameIn, VkImageView composedOutView){
+bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, VkDescriptorSet videoInDescriptorSet, Frame* frameIn, VkImageView composedOutView){
     if(frameIn->type != FRAME_TYPE_VIDEO) return false;
 
     VulkanizerImagesOut* usedImages = &vulkanizer->vfxImagesOut;
-
-    updateDescriptorIfNeeded(vulkanizer, videoInView);
 
     for(int i = 0; i < frameIn->video.height; i++){
         memcpy(
@@ -373,7 +365,7 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         });
 
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanizer->defaultPipeline);
-        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,&vulkanizer->vfxDescriptorSet,0,NULL);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,vulkanizer->defaultPipelineLayout,0,1,&videoInDescriptorSet,0,NULL);
         vkCmdDraw(cmd, 6, 1, 0, 0);
         vkCmdEndRendering(cmd);
     }

@@ -126,6 +126,7 @@ typedef struct{
     VkImageView mediaImageView;
     size_t mediaImageStride;
     void* mediaImageData;
+    VkDescriptorSet mediaDescriptorSet;
     double duration;
 } MyMedia;
 
@@ -272,8 +273,6 @@ void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTim
 }
 #endif
 
-
-
 static inline bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
     *checkDuration = slices->items[currentSlice].duration;
@@ -330,7 +329,7 @@ int apply_vfxs(Vulkanizer* vulkanizer, MyMedia* myMedia,VulkanizerVfxInstances* 
     commandBufferBeginInfo.pInheritanceInfo = NULL;
     vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
     
-    if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, frame, composedOutView)) return -GET_FRAME_ERR;
+    if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
 
     vkEndCommandBuffer(cmd);
 
@@ -659,7 +658,7 @@ int main(){
             if(myMedia.hasAudio) hasAudio = true;
             
             if(myMedia.hasVideo){
-                if(!Vulkanizer_init_image_for_media(myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaImageData)) return 1;
+                if(!Vulkanizer_init_image_for_media(&vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return 1;
             }
             da_append(&myLayer.myMedias, myMedia);
         }
