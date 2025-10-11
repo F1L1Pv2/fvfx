@@ -695,7 +695,9 @@ int main(){
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return 1;
 
-    transitionMyImage(outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+    vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    vkCmdEndSingleTime(tempCmd);
 
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -711,7 +713,7 @@ int main(){
 
         Vulkanizer_reset_pool();
 
-        transitionMyImage_inner(
+        vkCmdTransitionImage(
             cmd,
             outComposedImage,
             VK_IMAGE_LAYOUT_GENERAL, 
@@ -762,7 +764,7 @@ int main(){
         }
         if(finishedCount == myLayers.count) break;
 
-        transitionMyImage_inner(
+        vkCmdTransitionImage(
             cmd,
             outComposedImage,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 

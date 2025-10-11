@@ -56,31 +56,6 @@ typedef struct{
     size_t item_size;
 } VulkanizerImagesOutPool;
 
-void transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
-    VkImageMemoryBarrier barrier = {0};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.oldLayout = oldLayout;
-    barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(
-        tempCmd,
-        oldStage,
-        newStage,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &barrier
-    );
-}
-
 static bool applyShadersOnFrame(
                             VkCommandBuffer cmd,
                             size_t inWidth,
@@ -129,12 +104,6 @@ static bool applyShadersOnFrame(
     vkCmdEndRendering(cmd);
 
     return true;
-}
-
-void transitionMyImage(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
-    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    transitionMyImage_inner(tempCmd, image, oldLayout, newLayout, oldStage, newStage);
-    vkCmdEndSingleTime(tempCmd);
 }
 
 bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
@@ -195,7 +164,6 @@ bool init_output_image(
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
-    transitionMyImage(*outImage1, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     if(!createMyImage(outImage2,
         outWidth,
@@ -206,7 +174,11 @@ bool init_output_image(
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
-    transitionMyImage(*outImage2, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+    vkCmdTransitionImage(tempCmd,*outImage1, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    vkCmdTransitionImage(tempCmd,*outImage2, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdEndSingleTime(tempCmd);
 
     {
         VkDescriptorImageInfo descriptorImageInfo = {0};
@@ -358,7 +330,10 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
-    transitionMyImage(*imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+    vkCmdTransitionImage(tempCmd, *imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdEndSingleTime(tempCmd);
     
     VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
     descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -406,7 +381,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         );
     }
 
-    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
+    vkCmdTransitionImage(
+        cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_PIPELINE_STAGE_TRANSFER_BIT, 
@@ -444,14 +420,17 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
             return false;
         }
 
-        transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
+
+        vkCmdTransitionImage(
+            cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
         );
 
-        transitionMyImage_inner(cmd, usedImages->currentImage == 1 ? usedImages->image1 : usedImages->image2, 
+        vkCmdTransitionImage(
+            cmd, usedImages->currentImage == 1 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -476,7 +455,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
     }
 
     //compositing
-    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
+    vkCmdTransitionImage(
+        cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -507,7 +487,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         vkCmdEndRendering(cmd);
     }
 
-    transitionMyImage_inner(cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
+    vkCmdTransitionImage(
+        cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
