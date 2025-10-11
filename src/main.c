@@ -685,7 +685,7 @@ int main(){
     void* outComposedImage_mapped;
     uint32_t* outComposedVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
 
-    if(!createMyImage(&outComposedImage, 
+    if(!createMyImage(device, &outComposedImage, 
         project.width, project.height, 
         &outComposedImageMemory, 
         &outComposedImageView, 

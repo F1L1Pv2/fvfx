@@ -20,6 +20,9 @@ typedef struct{
 
 typedef struct{
     VkDescriptorSetLayout vfxDescriptorSetLayout;
+    VkSampler samplerLinear;
+    VkDevice device;
+    VkDescriptorPool descriptorPool;
 
     VkShaderModule vertexShader;
     VkPipeline defaultPipeline;
@@ -48,6 +51,6 @@ void Vulkanizer_reset_pool();
 
 bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx);
 
-bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty);
+bool createMyImage(VkDevice device, VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty);
 
 #endif

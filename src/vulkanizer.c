@@ -26,10 +26,6 @@
         (da)->items[(da)->count++]=value;\
    } while(0)
 
-static VkSampler samplerLinear;
-static VkDevice device;
-static VkDescriptorPool descriptorPool;
-
 typedef struct{
     int currentImage;
     
@@ -106,7 +102,7 @@ static bool applyShadersOnFrame(
     return true;
 }
 
-bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
+bool createMyImage(VkDevice device, VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
     if(!vkCreateImageEX(device, width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
             imageUsage,
             memoryProperty, image,imageMemory)){
@@ -127,10 +123,14 @@ bool createMyImage(VkImage* image, size_t width, size_t height, VkDeviceMemory* 
 }
 
 bool init_output_image(
+    VkDevice device,
+    VkDescriptorPool descriptorPool,
+
     size_t outWidth,
     size_t outHeight,
 
     VkDescriptorSetLayout descriptorSetLayout,
+    VkSampler samplerLinear,
 
     VkImage* outImage1,
     VkDeviceMemory* outImageMemory1,
@@ -155,7 +155,7 @@ bool init_output_image(
     vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, outImageDescriptorSet1);
     vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, outImageDescriptorSet2);
 
-    if(!createMyImage(outImage1,
+    if(!createMyImage(device, outImage1,
         outWidth,
         outHeight,
         outImageMemory1, outImageView1,
@@ -165,7 +165,7 @@ bool init_output_image(
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     )) return false;
 
-    if(!createMyImage(outImage2,
+    if(!createMyImage(device, outImage2,
         outWidth,
         outHeight,
         outImageMemory2, outImageView2, 
@@ -213,8 +213,11 @@ VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanize
     //initalization
     *out = (VulkanizerImagesOut){0};
     if(!init_output_image(
+        vulkanizer->device,
+        vulkanizer->descriptorPool,
         vulkanizer->videoOutWidth, vulkanizer->videoOutHeight,
         vulkanizer->vfxDescriptorSetLayout,
+        vulkanizer->samplerLinear,
 
         &out->image1,
         &out->imageMemory1,
@@ -241,10 +244,10 @@ void VulkanizerImagesOutPool_reset(VulkanizerImagesOutPool* pool){
 VulkanizerImagesOutPool vulkanizerImagesOutPool = {0};
 
 bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer){
-    device = deviceIN;
-    descriptorPool = descriptorPoolIN;
+    vulkanizer->device = deviceIN;
+    vulkanizer->descriptorPool = descriptorPoolIN;
 
-    if(vkCreateSampler(device, &(VkSamplerCreateInfo){
+    if(vkCreateSampler(vulkanizer->device, &(VkSamplerCreateInfo){
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = VK_FILTER_LINEAR,
         .minFilter = VK_FILTER_LINEAR,
@@ -261,7 +264,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
         .mipLodBias = 0.0f,
         .minLod = 0.0f,
         .maxLod = VK_LOD_CLAMP_NONE,
-    }, NULL, &samplerLinear) != VK_SUCCESS) return false;
+    }, NULL, &vulkanizer->samplerLinear) != VK_SUCCESS) return false;
 
     const char* vertexShaderSrc = 
         "#version 450\n"
@@ -274,7 +277,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
         "}";
 
 
-    if(!vkCompileShader(device,vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
+    if(!vkCompileShader(vulkanizer->device,vertexShaderSrc, shaderc_vertex_shader, &vulkanizer->vertexShader)) return false;
 
     const char* fragmentShaderSrc =
         "#version 450\n"
@@ -286,7 +289,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
         "}\n";
 
     VkShaderModule fragmentShader;
-    if(!vkCompileShader(device,fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
+    if(!vkCompileShader(vulkanizer->device,fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return false;
 
     VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
     descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -299,7 +302,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
     descriptorSetLayoutCreateInfo.bindingCount  = 1;
     descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
 
-    if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &vulkanizer->vfxDescriptorSetLayout) != VK_SUCCESS){
+    if(vkCreateDescriptorSetLayout(vulkanizer->device, &descriptorSetLayoutCreateInfo, NULL, &vulkanizer->vfxDescriptorSetLayout) != VK_SUCCESS){
         printf("ERROR\n");
         return false;
     }
@@ -321,7 +324,7 @@ bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_
 }
 
 bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_t height, VkImage* imageOut, VkDeviceMemory* imageMemoryOut, VkImageView* imageViewOut, size_t* imageStrideOut, VkDescriptorSet* descriptorSetOut, void* imageDataOut){
-    if(!createMyImage(imageOut,
+    if(!createMyImage(vulkanizer->device, imageOut,
         width, 
         height, 
         imageMemoryOut, imageViewOut, 
@@ -337,16 +340,16 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
     
     VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
     descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorPool = vulkanizer->descriptorPool;
     descriptorSetAllocateInfo.descriptorSetCount = 1;
     descriptorSetAllocateInfo.pSetLayouts = &vulkanizer->vfxDescriptorSetLayout;
-    if(vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, descriptorSetOut) != VK_SUCCESS) return false;
+    if(vkAllocateDescriptorSets(vulkanizer->device, &descriptorSetAllocateInfo, descriptorSetOut) != VK_SUCCESS) return false;
 
     {
         VkDescriptorImageInfo descriptorImageInfo = {0};
         VkWriteDescriptorSet writeDescriptorSet = {0};
 
-        descriptorImageInfo.sampler = samplerLinear;
+        descriptorImageInfo.sampler = vulkanizer->samplerLinear;
         descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptorImageInfo.imageView = *imageViewOut;
 
@@ -358,7 +361,7 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
         writeDescriptorSet.dstArrayElement = 0;
         writeDescriptorSet.pImageInfo = &descriptorImageInfo;
 
-        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+        vkUpdateDescriptorSets(vulkanizer->device, 1, &writeDescriptorSet, 0, NULL);
     }
     return true;
 }
@@ -507,7 +510,7 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
     sb_append_null(&sb);
 
     VkShaderModule fragmentShader;
-    if(!vkCompileShader(device,sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
+    if(!vkCompileShader(vulkanizer->device,sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
 
     for(size_t i = 0; i < outVfx->module.inputs.count; i++){
         outVfx->module.pushContantsSize += get_vfxInputTypeSize(outVfx->module.inputs.items[i].type);
