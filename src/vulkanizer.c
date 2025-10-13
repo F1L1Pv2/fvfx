@@ -122,7 +122,7 @@ bool createMyImage(VkDevice device, VkImage* image, size_t width, size_t height,
     return true;
 }
 
-bool init_output_image(
+static bool init_output_image(
     VkDevice device,
     VkDescriptorPool descriptorPool,
 
@@ -205,7 +205,7 @@ bool init_output_image(
     return true;
 }
 
-VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanizer, VulkanizerImagesOutPool* pool){
+static VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanizer, VulkanizerImagesOutPool* pool){
     if(pool->used < pool->count) return &pool->items[pool->used++];
     fa_reserve(pool, pool->count + 1);
     VulkanizerImagesOut* out = &pool->items[pool->count++];
@@ -237,11 +237,11 @@ VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanize
     return out;
 }
 
-void VulkanizerImagesOutPool_reset(VulkanizerImagesOutPool* pool){
+static void VulkanizerImagesOutPool_reset(VulkanizerImagesOutPool* pool){
     pool->used = 0;
 }
 
-VulkanizerImagesOutPool vulkanizerImagesOutPool = {0};
+static VulkanizerImagesOutPool vulkanizerImagesOutPool = {0};
 
 bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer){
     vulkanizer->device = deviceIN;

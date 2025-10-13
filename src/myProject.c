@@ -7,7 +7,7 @@
 
 #define FVFX_YES
 #ifdef FVFX_YES
-void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
+static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
     for (size_t i = 0; i < instance->inputs.count; i++) {
         VfxInstanceInput* myInput = &instance->inputs.items[i];
 
@@ -52,7 +52,7 @@ void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTim
     }
 }
 #else
-void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
+static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
     for (size_t i = 0; i < instance->inputs.count; i++) {
         VfxInstanceInput* myInput = &instance->inputs.items[i];
 
