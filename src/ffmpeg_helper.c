@@ -5,23 +5,41 @@
 #include <stdint.h>
 
 void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_channels, enum AVSampleFormat sample_fmt) {
-    if (sample_fmt != AV_SAMPLE_FMT_FLTP) {
-        // Only FLTP supported for now
+    if (sample_fmt != AV_SAMPLE_FMT_FLTP && sample_fmt != AV_SAMPLE_FMT_FLT) {
+        // Only FLTP and FLT supported for now
         return;
     }
 
-    for (size_t ch = 0; ch < num_channels; ch++) {
-        float *base_ch  = (float*) base[ch];
-        float *added_ch = (float*) added[ch];
+    if (sample_fmt == AV_SAMPLE_FMT_FLTP) {
+        // Planar float format (separate channel arrays)
+        for (size_t ch = 0; ch < num_channels; ch++) {
+            float *base_ch  = (float*) base[ch];
+            float *added_ch = (float*) added[ch];
 
-        for (size_t i = 0; i < nb_samples; i++) {
-            float mixed = base_ch[i] + added_ch[i];
+            for (size_t i = 0; i < nb_samples; i++) {
+                float mixed = base_ch[i] + added_ch[i];
+
+                // Clamp to [-1.0, 1.0]
+                if (mixed > 1.0f)  mixed = 1.0f;
+                if (mixed < -1.0f) mixed = -1.0f;
+
+                base_ch[i] = mixed;
+            }
+        }
+    } else if (sample_fmt == AV_SAMPLE_FMT_FLT) {
+        // Packed float format (interleaved channels in single array)
+        float *base_packed  = (float*) base[0];
+        float *added_packed = (float*) added[0];
+        size_t total_samples = nb_samples * num_channels;
+
+        for (size_t i = 0; i < total_samples; i++) {
+            float mixed = base_packed[i] + added_packed[i];
 
             // Clamp to [-1.0, 1.0]
             if (mixed > 1.0f)  mixed = 1.0f;
             if (mixed < -1.0f) mixed = -1.0f;
 
-            base_ch[i] = mixed;
+            base_packed[i] = mixed;
         }
     }
 }
