@@ -14,15 +14,7 @@
 #include <string.h>
 #include <math.h>
 
-int main(){
-    // ------------------------------ project config code --------------------------------
-    Project project = {0};
-    if(!project_load(&project, NULL)) {
-        fprintf(stderr, "Couldn't load project\n");
-        return 1;
-    }
-
-    // ------------------------------------------- editor code -----------------------------------------------------
+int render(Project* project){
     if(!vulkan_init_headless()) return 1;
 
     VkCommandBuffer cmd;
@@ -41,11 +33,11 @@ int main(){
     }, NULL, &inFlightFence) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project.width, project.height, &vulkanizer)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(project.outputFilename, project.width, project.height, project.fps, project.sampleRate, project.stereo, project.hasAudio, &renderContext)){
+    if(!ffmpegMediaRenderInit(project->outputFilename, project->width, project->height, project->fps, project->sampleRate, project->stereo, project->hasAudio, &renderContext)){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
@@ -55,17 +47,17 @@ int main(){
 
     MyLayers myLayers = {0};
     MyVfxs myVfxs = {0};
-    if(!prepare_project(&project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
+    if(!prepare_project(project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
     
     RenderFrame renderFrame = {0};
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     uint8_t** composedAudioBuf;
     int composedAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
@@ -76,10 +68,10 @@ int main(){
     VkImageView outComposedImageView;
     size_t outComposedImage_stride;
     void* outComposedImage_mapped;
-    uint32_t* outComposedVideoFrame = malloc(project.width*project.height*sizeof(uint32_t));
+    uint32_t* outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
 
     if(!createMyImage(device, &outComposedImage, 
-        project.width, project.height, 
+        project->width, project->height, 
         &outComposedImageMemory, 
         &outComposedImageView, 
         &outComposedImage_stride, 
@@ -92,7 +84,7 @@ int main(){
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
 
-    if(!init_my_project(&project, &myLayers)) return false;
+    if(!init_my_project(project, &myLayers)) return false;
 
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -121,14 +113,14 @@ int main(){
             .colorAttachment = outComposedImageView,
             .clearColor = COL_EMPTY,
             .renderArea = (
-                (VkExtent2D){.width = project.width, .height= project.height}
+                (VkExtent2D){.width = project->width, .height= project->height}
             )
         );
 
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, &project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
@@ -150,33 +142,33 @@ int main(){
         vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
-        for(size_t y = 0; y < project.height; y++){
+        for(size_t y = 0; y < project->height; y++){
             memcpy(
-                ((uint8_t*)outComposedVideoFrame) + y*project.width*sizeof(uint32_t),
+                ((uint8_t*)outComposedVideoFrame) + y*project->width*sizeof(uint32_t),
                 ((uint8_t*)outComposedImage_mapped) + y*outComposedImage_stride,
-                project.width*sizeof(uint32_t)
+                project->width*sizeof(uint32_t)
             );
         }
 
         renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
         renderFrame.data = outComposedVideoFrame;
-        renderFrame.size = project.width * project.height * sizeof(outComposedVideoFrame[0]);
+        renderFrame.size = project->width * project->height * sizeof(outComposedVideoFrame[0]);
         ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
 
         if(enoughSamples){
-            av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project.stereo ? 2 : 1, out_audio_format);
+            av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
             for(size_t i = 0; i < myLayers.count; i++){
                 MyLayer* myLayer = &myLayers.items[i];
                 if(!myLayer->audioFifo) continue;
                 int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, out_audio_frame_size);
                 bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
                 if(conditionalMix && read > 0){
-                    mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, out_audio_format);
+                    mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
                     continue;
                 }else if(conditionalMix && read == 0) continue;
                 
                 assert(read == out_audio_frame_size && "You fucked up smth my bruvskiers");
-                mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, out_audio_format);
+                mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
             }
             renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
             renderFrame.data = composedAudioBuf;
@@ -184,7 +176,7 @@ int main(){
             ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
 
-        projectTime += 1.0 / project.fps;
+        projectTime += 1.0 / project->fps;
     }
 
     printf("[FVFX] Draining leftover audio\n");
@@ -204,7 +196,7 @@ int main(){
             composedAudioBuf,
             0,
             out_audio_frame_size,
-            project.stereo ? 2 : 1,
+            project->stereo ? 2 : 1,
             out_audio_format
         );
         for (size_t i = 0; i < myLayers.count; i++) {
@@ -223,7 +215,7 @@ int main(){
                 composedAudioBuf,
                 tempAudioBuf,
                 read,
-                project.stereo ? 2 : 1,
+                project->stereo ? 2 : 1,
                 out_audio_format
             );
         }
@@ -237,4 +229,44 @@ int main(){
     printf("[FVFX] Finished rendering!\n");
 
     return 0;
+}
+
+enum {
+    MODE_NONE = 0,
+    MODE_RENDER,
+    MODE_PREVIEW,
+};
+
+int main(int argc, char** argv){
+    // ------------------------------ project config code --------------------------------
+    Project project = {0};
+    if(!project_load(&project, NULL)) {
+        fprintf(stderr, "Couldn't load project\n");
+        return 1;
+    }
+
+    // ------------------------------------------- editor code -----------------------------------------------------
+    char* filename = argv[0];
+
+    if(argc < 2){
+        fprintf(stderr, "specify mode %s render|preview\n", filename);
+        return 1;
+    }
+
+    int mode = MODE_NONE;
+    if(strcmp(argv[1], "render") == 0) mode = MODE_RENDER;
+    else if(strcmp(argv[1], "preview") == 0) mode = MODE_PREVIEW;
+
+    if(mode == MODE_NONE){
+        fprintf(stderr, "Unknown mode %s please specify correct ones (render|preview)\n", argv[1]);
+        return 1;
+    }
+
+    if(mode == MODE_RENDER){
+        return render(&project);
+    }else if(mode == MODE_PREVIEW){
+        assert(false && "implement this");
+    }else assert(false && "UNREACHABLE");
+
+    return 1;
 }
