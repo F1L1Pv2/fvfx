@@ -376,7 +376,6 @@ int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMe
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasAudio && "You used wrong function!");
     assert(!myMedia->hasVideo && "You used wrong function!");
-    size_t initialSize = av_audio_fifo_size(audioFifo);
 
     if(args->localTime < args->checkDuration){
         args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
@@ -666,14 +665,6 @@ int main(){
     int composedAudioBufLineSize;
     av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
 
-    for(size_t i = 0; i < myLayers.count; i++){
-        MyLayer* myLayer = &myLayers.items[i];
-        Layer* layer = &project.layers.items[i];
-        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return 1;
-        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
-        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
-    }
-
     double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
@@ -698,6 +689,15 @@ int main(){
     VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
+
+    //setting first slice in layer
+    for(size_t i = 0; i < myLayers.count; i++){
+        MyLayer* myLayer = &myLayers.items[i];
+        Layer* layer = &project.layers.items[i];
+        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return 1;
+        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
+        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
+    }
 
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
