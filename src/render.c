@@ -45,8 +45,6 @@ int render(Project* project){
     MyLayers myLayers = {0};
     MyVfxs myVfxs = {0};
     if(!prepare_project(project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
-    
-    RenderFrame renderFrame = {0};
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
@@ -88,12 +86,12 @@ int render(Project* project){
         vkResetFences(device, 1, &inFlightFence);
         
         vkResetCommandBuffer(cmd, 0);
-        VkCommandBufferBeginInfo commandBufferBeginInfo = {0};
-        commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        commandBufferBeginInfo.pNext = NULL;
-        commandBufferBeginInfo.flags = 0;
-        commandBufferBeginInfo.pInheritanceInfo = NULL;
-        vkBeginCommandBuffer(cmd,&commandBufferBeginInfo);
+        vkBeginCommandBuffer(cmd,&(VkCommandBufferBeginInfo){
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .pInheritanceInfo = NULL,
+        });
 
         Vulkanizer_reset_pool();
 
@@ -131,12 +129,11 @@ int render(Project* project){
 
         vkEndCommandBuffer(cmd);
 
-        VkSubmitInfo submitInfo = {0};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-        
-        vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
+        vkQueueSubmit(graphicsQueue, 1, &(VkSubmitInfo){
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd,
+        }, inFlightFence);
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
         for(size_t y = 0; y < project->height; y++){
@@ -147,10 +144,11 @@ int render(Project* project){
             );
         }
 
-        renderFrame.type = RENDER_FRAME_TYPE_VIDEO;
-        renderFrame.data = outComposedVideoFrame;
-        renderFrame.size = project->width * project->height * sizeof(outComposedVideoFrame[0]);
-        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+        ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
+            .type = RENDER_FRAME_TYPE_VIDEO,
+            .data = outComposedVideoFrame,
+            .size = project->width * project->height * sizeof(outComposedVideoFrame[0]),
+        });
 
         if(enoughSamples){
             av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
@@ -167,10 +165,11 @@ int render(Project* project){
                 assert(read == out_audio_frame_size && "You fucked up smth my bruvskiers");
                 mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
             }
-            renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-            renderFrame.data = composedAudioBuf;
-            renderFrame.size = out_audio_frame_size;
-            ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+            ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
+                .type = RENDER_FRAME_TYPE_AUDIO,
+                .data = composedAudioBuf,
+                .size = out_audio_frame_size,
+            });
         }
 
         projectTime += 1.0 / project->fps;
@@ -216,10 +215,11 @@ int render(Project* project){
                 out_audio_format
             );
         }
-        renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
-        renderFrame.data = composedAudioBuf;
-        renderFrame.size = out_audio_frame_size;
-        ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
+        ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
+            .type = RENDER_FRAME_TYPE_AUDIO,
+            .data = composedAudioBuf,
+            .size = out_audio_frame_size,
+        });
     }
 
     ffmpegMediaRenderFinish(&renderContext);
