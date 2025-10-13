@@ -75,6 +75,5 @@ void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTim
 bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
 bool init_my_project(Project* project, MyLayers* myLayers);
 int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, double projectTime, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
-#define EMPTY_MEDIA (-1)
 
 #endif
