@@ -183,4 +183,6 @@ size_t get_vfxInputTypeSize(VfxInputType type);
 bool extractVFXModuleMetaData(String_View sv, VfxModule* out);
 bool preprocessVFXModule(String_Builder* sb, VfxModule* module);
 
+void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t);
+
 #endif

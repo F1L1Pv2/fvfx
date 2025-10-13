@@ -246,3 +246,40 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
 
     return true;
 }
+
+#define LERP(a,b,t) ((a) + ((b) - (a)) * (t))
+
+void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t) {
+    switch (type) {
+        case VFX_FLOAT:
+            out->as.Float = (float)LERP(a->as.Float, b->as.Float, t);
+            break;
+        case VFX_DOUBLE:
+            out->as.Double = LERP(a->as.Double, b->as.Double, t);
+            break;
+        case VFX_INT:
+            out->as.Int = (int32_t)LERP(a->as.Int, b->as.Int, t);
+            break;
+        case VFX_UINT:
+            out->as.Uint = (uint32_t)LERP(a->as.Uint, b->as.Uint, t);
+            break;
+        case VFX_VEC2:
+            out->as.vec2.x = (float)LERP(a->as.vec2.x, b->as.vec2.x, t);
+            out->as.vec2.y = (float)LERP(a->as.vec2.y, b->as.vec2.y, t);
+            break;
+        case VFX_VEC3:
+            out->as.vec3.x = (float)LERP(a->as.vec3.x, b->as.vec3.x, t);
+            out->as.vec3.y = (float)LERP(a->as.vec3.y, b->as.vec3.y, t);
+            out->as.vec3.z = (float)LERP(a->as.vec3.z, b->as.vec3.z, t);
+            break;
+        case VFX_VEC4:
+            out->as.vec4.x = (float)LERP(a->as.vec4.x, b->as.vec4.x, t);
+            out->as.vec4.y = (float)LERP(a->as.vec4.y, b->as.vec4.y, t);
+            out->as.vec4.z = (float)LERP(a->as.vec4.z, b->as.vec4.z, t);
+            out->as.vec4.w = (float)LERP(a->as.vec4.w, b->as.vec4.w, t);
+            break;
+        default:
+            *out = *a;
+            break;
+    }
+}

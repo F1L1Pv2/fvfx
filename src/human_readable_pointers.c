@@ -1,0 +1,2 @@
+#define HUMAN_READABLE_POINTERS_IMPLEMENTATION
+#include "human_readable_pointers.h"
