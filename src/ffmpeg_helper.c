@@ -3,10 +3,12 @@
 #include <libavutil/audio_fifo.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <assert.h>
 
 void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_channels, enum AVSampleFormat sample_fmt) {
     if (sample_fmt != AV_SAMPLE_FMT_FLTP && sample_fmt != AV_SAMPLE_FMT_FLT) {
         // Only FLTP and FLT supported for now
+        assert(0 && "add this sample format");
         return;
     }
 
