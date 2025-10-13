@@ -118,19 +118,22 @@ int main(){
         return 1;
     }
 
+    enum AVSampleFormat out_audio_format = renderContext.audioCodecContext->sample_fmt;
+    size_t out_audio_frame_size = renderContext.audioCodecContext->frame_size;
+
     MyLayers myLayers = {0};
     MyVfxs myVfxs = {0};
-    if(!prepare_project(&project, &vulkanizer, &myLayers, &myVfxs, renderContext.audioCodecContext->sample_fmt, renderContext.audioCodecContext->frame_size)) return 1;
+    if(!prepare_project(&project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
     
     RenderFrame renderFrame = {0};
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     uint8_t** composedAudioBuf;
     int composedAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size, renderContext.audioCodecContext->sample_fmt, 0);
+    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
@@ -229,23 +232,23 @@ int main(){
         ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
 
         if(enoughSamples){
-            av_samples_set_silence(composedAudioBuf, 0, renderContext.audioCodecContext->frame_size, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+            av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project.stereo ? 2 : 1, out_audio_format);
             for(size_t i = 0; i < myLayers.count; i++){
                 MyLayer* myLayer = &myLayers.items[i];
                 if(!myLayer->audioFifo) continue;
-                int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, renderContext.audioCodecContext->frame_size);
+                int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, out_audio_frame_size);
                 bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
                 if(conditionalMix && read > 0){
-                    mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+                    mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, out_audio_format);
                     continue;
                 }else if(conditionalMix && read == 0) continue;
                 
-                assert(read == renderContext.audioCodecContext->frame_size && "You fucked up smth my bruvskiers");
-                mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, renderContext.audioCodecContext->sample_fmt);
+                assert(read == out_audio_frame_size && "You fucked up smth my bruvskiers");
+                mix_audio(composedAudioBuf, tempAudioBuf, read, project.stereo ? 2 : 1, out_audio_format);
             }
             renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
             renderFrame.data = composedAudioBuf;
-            renderFrame.size = renderContext.audioCodecContext->frame_size;
+            renderFrame.size = out_audio_frame_size;
             ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
         }
 
@@ -268,9 +271,9 @@ int main(){
         av_samples_set_silence(
             composedAudioBuf,
             0,
-            renderContext.audioCodecContext->frame_size,
+            out_audio_frame_size,
             project.stereo ? 2 : 1,
-            renderContext.audioCodecContext->sample_fmt
+            out_audio_format
         );
         for (size_t i = 0; i < myLayers.count; i++) {
             MyLayer* myLayer = &myLayers.items[i];
@@ -278,7 +281,7 @@ int main(){
             int available = av_audio_fifo_size(myLayer->audioFifo);
             if (available <= 0) continue;
 
-            int toRead = FFMIN(available, renderContext.audioCodecContext->frame_size);
+            int toRead = FFMIN(available, out_audio_frame_size);
             int read = av_audio_fifo_read(
                 myLayer->audioFifo,
                 (void**)tempAudioBuf,
@@ -289,12 +292,12 @@ int main(){
                 tempAudioBuf,
                 read,
                 project.stereo ? 2 : 1,
-                renderContext.audioCodecContext->sample_fmt
+                out_audio_format
             );
         }
         renderFrame.type = RENDER_FRAME_TYPE_AUDIO;
         renderFrame.data = composedAudioBuf;
-        renderFrame.size = renderContext.audioCodecContext->frame_size;
+        renderFrame.size = out_audio_frame_size;
         ffmpegMediaRenderPassFrame(&renderContext, &renderFrame);
     }
 
