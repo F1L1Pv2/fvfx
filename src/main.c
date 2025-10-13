@@ -312,6 +312,10 @@ typedef struct{
     MyLayer* items;
     size_t count;
     size_t capacity;
+
+    enum AVSampleFormat fifo_fmt;
+    AVChannelLayout fifo_ch_layout;
+    size_t fifo_frame_size;
 } MyLayers;
 
 VkCommandBuffer cmd;
@@ -474,6 +478,140 @@ int MyInput_compare(const void* a, const void* b) {
     return ((MyInput*)a)->index - ((MyInput*)b)->index;
 }
 
+bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, enum AVSampleFormat expectedSampleFormat, size_t fifo_size){
+    for(size_t j = 0; j < project->layers.count; j++){
+        Layer* layer = &project->layers.items[j];
+        MyLayer myLayer = {0};
+        bool hasAudio = false;
+        for(size_t i = 0; i < layer->mediaInstances.count; i++){
+            MyMedia myMedia = {0};
+    
+            // ffmpeg init
+            if(!ffmpegMediaInit(layer->mediaInstances.items[i].filename, project->sampleRate, project->stereo, expectedSampleFormat, &myMedia.media)){
+                fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", layer->mediaInstances.items[i].filename);
+                return false;
+            }
+    
+            myMedia.duration = ffmpegMediaDuration(&myMedia.media);
+            myMedia.hasAudio = myMedia.media.audioStream != NULL;
+            myMedia.hasVideo = myMedia.media.videoStream != NULL;
+            if(myMedia.hasAudio) hasAudio = true;
+            
+            if(myMedia.hasVideo){
+                if(!Vulkanizer_init_image_for_media(vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return 1;
+            }
+            da_append(&myLayer.myMedias, myMedia);
+        }
+        if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(expectedSampleFormat, project->stereo ? 2 : 1, fifo_size);
+        da_append(myLayers, myLayer);
+    }
+    myLayers->fifo_fmt = expectedSampleFormat;
+    myLayers->fifo_frame_size = fifo_size;
+    myLayers->fifo_ch_layout = project->stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
+
+    for(size_t i = 0; i < project->vfxDescriptors.count; i++){
+        VulkanizerVfx vfx = {0};
+        if(!Vulkanizer_init_vfx(vulkanizer, project->vfxDescriptors.items[i].filename, &vfx)) return false;
+        da_append(myVfxs, vfx);
+    }
+
+    //creating rest of inputs needed + type checking
+    for(size_t i = 0; i < project->layers.count; i++){
+        Layer* layer = &project->layers.items[i];
+        for(size_t j = 0; j < layer->vfxInstances.count; j++){
+            VfxInstance* vfx = &layer->vfxInstances.items[j];
+            assert(vfx->vfx_index < myVfxs->count);
+            VulkanizerVfx* myVfx = &myVfxs->items[vfx->vfx_index];
+
+            if(myVfx->module.inputs.count > 0){
+                size_t origMyInputsCount = vfx->myInputs.count;
+                for(size_t m = 0; m < myVfx->module.inputs.count; m++){
+                    VfxInput* input = &myVfx->module.inputs.items[m];
+
+                    bool needToAdd = true;
+                    for(size_t n = 0; n < origMyInputsCount; n++){
+                        MyInput* myInput = &vfx->myInputs.items[n];
+                        if(myInput->index == m){
+                            if(myInput->type != input->type){
+                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", i, j, m, get_vfxInputTypeName(input->type), get_vfxInputTypeName(myInput->type));
+                                return 1;
+                            }
+                            needToAdd = false;
+                            break;
+                        }
+                    }
+
+                    if(!needToAdd) continue;
+                    da_append(&vfx->myInputs, ((MyInput){
+                        .index = m,
+                        .type = input->type,
+                        .initialValue = (input->defaultValue != NULL ? *input->defaultValue : (VfxInputValue){0}),
+                    }));
+                }
+
+                qsort(vfx->myInputs.items, vfx->myInputs.count, sizeof(vfx->myInputs.items[0]), MyInput_compare);
+            }else{
+                if(vfx->myInputs.count > 0){
+                    fprintf(stderr, "layer %zu vfx instance %zu expected 0 inputs got %zu\n", i, j, vfx->myInputs.count);
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+bool init_my_project(Project* project, MyLayers* myLayers){
+    for(size_t i = 0; i < myLayers->count; i++){
+        MyLayer* myLayer = &myLayers->items[i];
+        Layer* layer = &project->layers.items[i];
+        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return false;
+        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
+        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
+    }
+    return true;
+}
+
+enum {
+    PROCESS_PROJECT_CONTINUE = 0,
+    PROCESS_PROJECT_FINISHED
+};
+
+int process_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, double projectTime, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
+    *enoughSamplesOUT = true;
+    size_t finishedCount = 0;
+    for(size_t i = 0; i < myLayers->count; i++){
+        MyLayer* myLayer = &myLayers->items[i];
+        if(myLayer->finished) {
+            finishedCount++;
+            continue;
+        }
+        Layer* layer = &project->layers.items[i];
+
+        vulkanizerVfxInstances->count = 0;
+        for(size_t j = 0; j < layer->vfxInstances.count; j++){
+            VfxInstance* vfx = &layer->vfxInstances.items[j];
+            if((vfx->duration != -1) && !(projectTime > vfx->offset && projectTime < vfx->offset + vfx->duration)) continue;
+
+            if(vfx->myInputs.count > 0) VfxInstance_Update(myVfxs, vfx, projectTime, push_constants_buf);
+            da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs->items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs->items[vfx->vfx_index].module.pushContantsSize}));
+        }
+
+        int e = getFrame(vulkanizer, project, &layer->slices, &myLayer->myMedias, vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
+        
+        if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
+            av_audio_fifo_add_silence(myLayer->audioFifo, myLayers->fifo_fmt, &myLayers->fifo_ch_layout, project->sampleRate / project->fps);
+        }
+
+        if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < myLayers->fifo_frame_size) *enoughSamplesOUT = false;
+        if(e == -GET_FRAME_ERR) return 1;
+        if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
+        if(e == -GET_FRAME_SKIP) continue;
+    }
+    return finishedCount == myLayers->count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
+}
+
 int main(){
     // ------------------------------ project config code --------------------------------
     Project project = {0};
@@ -576,84 +714,8 @@ int main(){
     }
 
     MyLayers myLayers = {0};
-
-    for(size_t j = 0; j < project.layers.count; j++){
-        Layer* layer = &project.layers.items[j];
-        MyLayer myLayer = {0};
-        bool hasAudio = false;
-        for(size_t i = 0; i < layer->mediaInstances.count; i++){
-            MyMedia myMedia = {0};
-    
-            // ffmpeg init
-            if(!ffmpegMediaInit(layer->mediaInstances.items[i].filename, project.sampleRate, project.stereo, renderContext.audioCodecContext->sample_fmt, &myMedia.media)){
-                fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", layer->mediaInstances.items[i].filename);
-                return 1;
-            }
-    
-            myMedia.duration = ffmpegMediaDuration(&myMedia.media);
-            myMedia.hasAudio = myMedia.media.audioStream != NULL;
-            myMedia.hasVideo = myMedia.media.videoStream != NULL;
-            if(myMedia.hasAudio) hasAudio = true;
-            
-            if(myMedia.hasVideo){
-                if(!Vulkanizer_init_image_for_media(&vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return 1;
-            }
-            da_append(&myLayer.myMedias, myMedia);
-        }
-        if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(renderContext.audioCodecContext->sample_fmt, project.stereo ? 2 : 1, renderContext.audioCodecContext->frame_size);;
-        da_append(&myLayers, myLayer);
-    }
-
     MyVfxs myVfxs = {0};
-    for(size_t i = 0; i < project.vfxDescriptors.count; i++){
-        VulkanizerVfx vfx = {0};
-        if(!Vulkanizer_init_vfx(&vulkanizer, project.vfxDescriptors.items[i].filename, &vfx)) return 1;
-        da_append(&myVfxs, vfx);
-    }
-
-    //creating rest of inputs needed + type checking
-    for(size_t i = 0; i < project.layers.count; i++){
-        Layer* layer = &project.layers.items[i];
-        for(size_t j = 0; j < layer->vfxInstances.count; j++){
-            VfxInstance* vfx = &layer->vfxInstances.items[j];
-            assert(vfx->vfx_index < myVfxs.count);
-            VulkanizerVfx* myVfx = &myVfxs.items[vfx->vfx_index];
-
-            if(myVfx->module.inputs.count > 0){
-                size_t origMyInputsCount = vfx->myInputs.count;
-                for(size_t m = 0; m < myVfx->module.inputs.count; m++){
-                    VfxInput* input = &myVfx->module.inputs.items[m];
-
-                    bool needToAdd = true;
-                    for(size_t n = 0; n < origMyInputsCount; n++){
-                        MyInput* myInput = &vfx->myInputs.items[n];
-                        if(myInput->index == m){
-                            if(myInput->type != input->type){
-                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", i, j, m, get_vfxInputTypeName(input->type), get_vfxInputTypeName(myInput->type));
-                                return 1;
-                            }
-                            needToAdd = false;
-                            break;
-                        }
-                    }
-
-                    if(!needToAdd) continue;
-                    da_append(&vfx->myInputs, ((MyInput){
-                        .index = m,
-                        .type = input->type,
-                        .initialValue = (input->defaultValue != NULL ? *input->defaultValue : (VfxInputValue){0}),
-                    }));
-                }
-
-                qsort(vfx->myInputs.items, vfx->myInputs.count, sizeof(vfx->myInputs.items[0]), MyInput_compare);
-            }else{
-                if(vfx->myInputs.count > 0){
-                    fprintf(stderr, "layer %zu vfx instance %zu expected 0 inputs got %zu\n", i, j, vfx->myInputs.count);
-                    return 1;
-                }
-            }
-        }
-    }
+    if(!prepare_project(&project, &vulkanizer, &myLayers, &myVfxs, renderContext.audioCodecContext->sample_fmt, renderContext.audioCodecContext->frame_size)) return 1;
     
     RenderFrame renderFrame = {0};
 
@@ -690,14 +752,7 @@ int main(){
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
 
-    //setting first slice in layer
-    for(size_t i = 0; i < myLayers.count; i++){
-        MyLayer* myLayer = &myLayers.items[i];
-        Layer* layer = &project.layers.items[i];
-        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return 1;
-        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
-        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
-    }
+    if(!init_my_project(&project, &myLayers)) return false;
 
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -732,37 +787,9 @@ int main(){
 
         vkCmdEndRendering(cmd);
 
-        size_t finishedCount = 0;
-        bool enoughSamples = true;
-        for(size_t i = 0; i < myLayers.count; i++){
-            MyLayer* myLayer = &myLayers.items[i];
-            if(myLayer->finished) {
-                finishedCount++;
-                continue;
-            }
-            Layer* layer = &project.layers.items[i];
-
-            vulkanizerVfxInstances.count = 0;
-            for(size_t j = 0; j < layer->vfxInstances.count; j++){
-                VfxInstance* vfx = &layer->vfxInstances.items[j];
-                if((vfx->duration != -1) && !(projectTime > vfx->offset && projectTime < vfx->offset + vfx->duration)) continue;
-
-                if(vfx->myInputs.count > 0) VfxInstance_Update(&myVfxs, vfx, projectTime, push_constants_buf);
-                da_append(&vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs.items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs.items[vfx->vfx_index].module.pushContantsSize}));
-            }
-
-            int e = getFrame(&vulkanizer, &project, &layer->slices, &myLayer->myMedias, &vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
-            
-            if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
-                av_audio_fifo_add_silence(myLayer->audioFifo, renderContext.audioCodecContext->sample_fmt, &renderContext.audioCodecContext->ch_layout, project.sampleRate / project.fps);
-            }
-
-            if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < renderContext.audioCodecContext->frame_size) enoughSamples = false;
-            if(e == -GET_FRAME_ERR) return 1;
-            if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
-            if(e == -GET_FRAME_SKIP) continue;
-        }
-        if(finishedCount == myLayers.count) break;
+        bool enoughSamples;
+        int result = process_project(&project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
+        if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
             cmd,
