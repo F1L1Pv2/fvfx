@@ -1,0 +1,336 @@
+#include "render.h"
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include "engine/vulkan_simple.h"
+#include "vulkanizer.h"
+#include "ffmpeg_media.h"
+#include "ffmpeg_helper.h"
+#include "myProject.h"
+#include <math.h>
+#include "miniaudio.h"
+
+typedef struct{
+    Project* project;
+    MyLayers* myLayers;
+    uint8_t** tempAudioBuf;
+    enum AVSampleFormat out_audio_format;
+    bool* paused;
+} MiniaudioUserData;
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    (void)pInput;
+    memset(pOutput, 0, frameCount*sizeof(float)*pDevice->playback.channels);
+
+    MiniaudioUserData* data = (MiniaudioUserData*)pDevice->pUserData;
+    if(*data->paused) return;
+    Project* project = data->project;
+    MyLayers* myLayers = data->myLayers;
+    uint8_t** tempAudioBuf = data->tempAudioBuf;
+
+    for(size_t i = 0; i < myLayers->count; i++){
+        MyLayer* myLayer = &myLayers->items[i];
+        if(!myLayer->audioFifo) continue;
+        int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, frameCount);
+        bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
+        if(conditionalMix && read > 0){
+            mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format);
+            continue;
+        }else if(conditionalMix && read == 0) continue;
+        
+        mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format);
+    }
+}
+
+int preview(Project* project){
+    if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
+
+    VkCommandBuffer cmd;
+    if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    },&cmd) != VK_SUCCESS) return 1;
+        
+    VkFence renderingFence;
+    if(vkCreateFence(device, &(VkFenceCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    }, NULL, &renderingFence) != VK_SUCCESS) return 1;
+
+    VkSemaphore swapchainHasImageSemaphore;
+    if(vkCreateSemaphore(device, &(VkSemaphoreCreateInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}, NULL, &swapchainHasImageSemaphore) != VK_SUCCESS) return 1;
+    VkSemaphore readyToSwapYourChainSemaphore;
+    if(vkCreateSemaphore(device, &(VkSemaphoreCreateInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}, NULL, &readyToSwapYourChainSemaphore) != VK_SUCCESS) return 1;
+
+    Vulkanizer vulkanizer = {0};
+    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer)) return 1;
+
+    enum AVSampleFormat out_audio_format = AV_SAMPLE_FMT_FLT;
+    size_t out_audio_frame_size = project->sampleRate/100;
+
+    MyLayers myLayers = {0};
+    MyVfxs myVfxs = {0};
+    if(!prepare_project(project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
+
+    uint8_t** tempAudioBuf;
+    int tempAudioBufLineSize;
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+
+    double projectTime = 0.0;
+    VulkanizerVfxInstances vulkanizerVfxInstances = {0};
+    void* push_constants_buf = calloc(256, sizeof(uint8_t));
+
+    VkImage outComposedImage;
+    VkDeviceMemory outComposedImageMemory;
+    VkImageView outComposedImageView;
+    VkDescriptorSet  outComposedImage_set;
+    uint32_t* outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+
+    if(!createMyImage(device, &outComposedImage, 
+        project->width, project->height, 
+        &outComposedImageMemory, 
+        &outComposedImageView, 
+        NULL, 
+        NULL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        0
+    )) return 1;
+
+    VkPipeline previewPipeline;
+    VkPipelineLayout previewPipelineLayout;
+
+    {
+        VkShaderModule vertexShader;
+        const char* vertexShaderSrc = 
+            "#version 450\n"
+            "layout(location = 0) out vec2 uv;\n"
+            "void main() {"
+                "uint b = 1 << (gl_VertexIndex % 6);"
+                "vec2 baseCoord = vec2((0x1C & b) != 0, (0xE & b) != 0);"
+                "uv = baseCoord;"
+                "gl_Position = vec4(baseCoord * 2 - 1, 0.0f, 1.0f);"
+            "}";
+
+
+        if(!vkCompileShader(device,vertexShaderSrc, shaderc_vertex_shader, &vertexShader)) return 1;
+
+        const char* fragmentShaderSrc =
+            "#version 450\n"
+            "layout(location = 0) out vec4 outColor;\n"
+            "layout(location = 0) in vec2 uv;\n"
+            "layout(set = 0, binding = 0) uniform sampler2D imageIN;\n"
+            "void main() {\n"
+                "outColor = texture(imageIN, uv);\n"
+            "}\n";
+
+        VkShaderModule fragmentShader;
+        if(!vkCompileShader(device,fragmentShaderSrc, shaderc_fragment_shader, &fragmentShader)) return 1;
+
+        if(!vkCreateGraphicPipeline(
+            vertexShader,fragmentShader, 
+            &previewPipeline, 
+            &previewPipelineLayout,
+            swapchainImageFormat,
+            .descriptorSetLayoutCount = 1,
+            .descriptorSetLayouts = &vulkanizer.vfxDescriptorSetLayout,
+        )) return 1;
+
+        if(vkAllocateDescriptorSets(device, &(VkDescriptorSetAllocateInfo){
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &vulkanizer.vfxDescriptorSetLayout,
+        }, &outComposedImage_set) != VK_SUCCESS) return 1;
+
+        vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .dstSet = outComposedImage_set,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .pImageInfo = &(VkDescriptorImageInfo){
+                .sampler = vulkanizer.samplerLinear,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .imageView = outComposedImageView,
+            },
+        }, 0, NULL);
+    }
+
+    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+    vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdEndSingleTime(tempCmd);
+
+    bool paused = false;
+
+    //miniaudio init
+    ma_device audio_device;
+    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.channels = project->stereo ? 2 : 1;
+    deviceConfig.sampleRate        = project->sampleRate;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &(MiniaudioUserData){
+        .project = project,
+        .myLayers = &myLayers,
+        .tempAudioBuf = tempAudioBuf,
+        .out_audio_format = out_audio_format,
+        .paused = &paused,
+    };
+
+    if (ma_device_init(NULL, &deviceConfig, &audio_device) != MA_SUCCESS) {
+        printf("Failed to open playback device.\n");
+        return -3;
+    }
+
+    if (ma_device_start(&audio_device) != MA_SUCCESS) {
+        printf("Failed to start playback device.\n");
+        ma_device_uninit(&audio_device);
+        return -4;
+    }
+
+    if(!init_my_project(project, &myLayers)) return false;
+
+    uint32_t imageIndex;
+    uint64_t oldTime = platform_get_time_nanos();
+    while(platform_still_running()){
+        platform_window_handle_events();
+        if(platform_window_minimized){
+            platform_sleep(1);
+            continue;
+        }
+
+        uint64_t now = platform_get_time_nanos();
+        oldTime = now;
+
+        if(input.keys[KEY_SPACE].justPressed) paused = !paused;
+        if(paused) continue;
+
+        vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &renderingFence);
+        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, swapchainHasImageSemaphore, NULL, &imageIndex);
+        
+        vkResetCommandBuffer(cmd, 0);
+        vkBeginCommandBuffer(cmd,&(VkCommandBufferBeginInfo){
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .pInheritanceInfo = NULL,
+        });
+
+        Vulkanizer_reset_pool();
+
+        vkCmdTransitionImage(
+            cmd,
+            outComposedImage,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        );
+
+        vkCmdBeginRenderingEX(cmd,
+            .colorAttachment = outComposedImageView,
+            .clearColor = COL_BLACK,
+            .renderArea = (
+                (VkExtent2D){.width = project->width, .height= project->height}
+            )
+        );
+
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = project->width,
+            .height = project->height
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent.width = project->width,
+            .extent.height = project->height,
+        });
+
+        vkCmdEndRendering(cmd);
+
+        bool enoughSamples;
+        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
+        if(result == PROCESS_PROJECT_FINISHED) break;
+
+        vkCmdTransitionImage(
+            cmd,
+            outComposedImage,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        );
+
+        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+        vkCmdBeginRenderingEX(cmd,
+            .colorAttachment = swapchainImageViews.items[imageIndex],
+            .clearColor = COL_HEX(0xFF181818),
+            .renderArea = (
+                (VkExtent2D){.width = swapchainExtent.width, .height= swapchainExtent.height}
+            )
+        );
+
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = swapchainExtent.width,
+            .height = swapchainExtent.height
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent.width = swapchainExtent.width,
+            .extent.height = swapchainExtent.height,
+        });
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPipelineLayout, 0, 1, &outComposedImage_set,0,NULL);
+        vkCmdDraw(cmd,6,1,0,0);
+
+        vkCmdEndRendering(cmd);
+
+        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+        vkEndCommandBuffer(cmd);
+
+        vkQueueSubmit(graphicsQueue, 1, &(VkSubmitInfo){
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd,
+            
+            .waitSemaphoreCount = 1,
+            .pWaitDstStageMask = &(VkPipelineStageFlags){VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+            .pWaitSemaphores = &swapchainHasImageSemaphore,
+
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &readyToSwapYourChainSemaphore,
+        }, renderingFence);
+
+        vkQueuePresentKHR(presentQueue, &(VkPresentInfoKHR){
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &readyToSwapYourChainSemaphore,
+
+            .swapchainCount = 1,
+            .pSwapchains = &swapchain,
+            .pImageIndices = &imageIndex
+        });
+
+        projectTime += 1.0 / project->fps;
+
+        uint64_t frameEnd = platform_get_time_nanos();
+        double frameTime = (double)(frameEnd - now) * 1e-9;
+        if (frameTime < (1.0 / project->fps)) {
+            platform_sleep(((1.0 / project->fps) - frameTime)*1000);
+        }
+    }
+
+    ma_device_stop(&audio_device);
+    ma_device_uninit(&audio_device);
+
+    return 0;
+}

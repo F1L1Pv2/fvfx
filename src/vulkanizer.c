@@ -116,8 +116,8 @@ bool createMyImage(VkDevice device, VkImage* image, size_t width, size_t height,
         return false;
     }
 
-    *imageStride = vkGetImageStride(device, *image);
-    vkMapMemory(device,*imageMemory, 0, (*imageStride)*height, 0, imageMapped);
+    if(imageStride) *imageStride = vkGetImageStride(device, *image);
+    if(imageMemory && imageStride) vkMapMemory(device,*imageMemory, 0, (*imageStride)*height, 0, imageMapped);
 
     return true;
 }

@@ -112,6 +112,16 @@ int render(Project* project){
             )
         );
 
+        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+            .width = project->width,
+            .height = project->height
+        });
+            
+        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+            .extent.width = project->width,
+            .extent.height = project->height,
+        });
+
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;

@@ -3,6 +3,7 @@
 #include "project.h"
 #include "loader.h"
 #include "render.h"
+#include "preview.h"
 #include <string.h>
 #include <assert.h>
 
@@ -40,7 +41,7 @@ int main(int argc, char** argv){
     if(mode == MODE_RENDER){
         return render(&project);
     }else if(mode == MODE_PREVIEW){
-        assert(false && "implement this");
+        return preview(&project);
     }else assert(false && "UNREACHABLE");
 
     return 1;
