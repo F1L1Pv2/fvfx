@@ -18,6 +18,7 @@ typedef struct{
     uint8_t** tempAudioBuf;
     enum AVSampleFormat out_audio_format;
     bool* paused;
+    float* global_volume;
 } MiniaudioUserData;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -42,6 +43,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         }else if(conditionalMix && read == 0) continue;
         
         mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format);
+    }
+    for(size_t i = 0; i < frameCount;i++){
+        ((float*)pOutput)[i*2 + 0] *= *data->global_volume;
+        ((float*)pOutput)[i*2 + 1] *= *data->global_volume;
     }
 }
 
@@ -268,6 +273,7 @@ int preview(Project* project){
     vkCmdEndSingleTime(tempCmd);
 
     bool paused = false;
+    float global_volume = 1.0;
 
     //miniaudio init
     ma_device audio_device;
@@ -282,6 +288,7 @@ int preview(Project* project){
         .tempAudioBuf = tempAudioBuf,
         .out_audio_format = out_audio_format,
         .paused = &paused,
+        .global_volume = &global_volume,
     };
 
     if (ma_device_init(NULL, &deviceConfig, &audio_device) != MA_SUCCESS) {
@@ -307,11 +314,21 @@ int preview(Project* project){
     double timeline_y = 0;
     Rect timelineRect = {0};
 
+    bool scrubbed = false;
+
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
             platform_sleep(1);
             continue;
+        }
+
+        scrubbed = false;
+
+        if(input.scroll != 0){
+            global_volume += (double)input.scroll/3000.0;
+            if(global_volume < 0) global_volume = 0;
+            if(global_volume > 3) global_volume = 3;
         }
 
         if(oldSwapchainExtent.width != swapchainExtent.width || oldSwapchainExtent.height != swapchainExtent.height){
@@ -353,12 +370,13 @@ int preview(Project* project){
         uint64_t now = platform_get_time_nanos();
         oldTime = now;
 
-        if(input.keys[KEY_SPACE].justPressed) paused = !paused;
-        if(paused) continue;
-
-        if(input.keys[KEY_MOUSE_LEFT].justPressed && pointInsideRect(input.mouse_x, input.mouse_y, timelineRect)){
+        if(input.keys[KEY_MOUSE_LEFT].isDown && pointInsideRect(input.mouse_x, input.mouse_y, timelineRect)){
             project_seek(project, &myProject,((double)input.mouse_x - timelineRect.x)/timelineRect.width*myProject.duration);
+            scrubbed = true;
         }
+
+        if(input.keys[KEY_SPACE].justPressed) paused = !paused;
+        if(scrubbed == false && paused) continue;
 
         dd_begin();
 
@@ -368,7 +386,7 @@ int preview(Project* project){
 
         {
             char buf[128];
-            snprintf(buf,sizeof(buf),"%.02f/%.02f", myProject.time, myProject.duration);
+            snprintf(buf,sizeof(buf),"%.02f/%.02f volume: %zu%%", myProject.time, myProject.duration, (size_t)(global_volume*100.0));
             double textSize = 20;
             dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
         }
