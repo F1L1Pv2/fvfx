@@ -79,7 +79,6 @@ enum {
 };
 
 bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
-bool init_my_project(Project* project, MyProject* myProject);
 int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
 bool project_seek(Project* project, MyProject* myProject, double time_seconds);
 

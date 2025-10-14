@@ -77,10 +77,7 @@ int render(Project* project){
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
 
-    if(!init_my_project(project, &myProject)) return false;
-
     MyLayers* myLayers = &myProject.myLayers;
-
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFence);

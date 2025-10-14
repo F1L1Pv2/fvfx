@@ -348,12 +348,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
         }
     }
 
-    return true;
-}
-
-bool init_my_project(Project* project, MyProject* myProject){
     myProject->time = 0;
-    MyLayers* myLayers = &myProject->myLayers;
     for(size_t i = 0; i < myLayers->count; i++){
         MyLayer* myLayer = &myLayers->items[i];
         Layer* layer = &project->layers.items[i];

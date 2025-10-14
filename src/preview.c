@@ -282,8 +282,6 @@ int preview(Project* project){
         return -4;
     }
 
-    if(!init_my_project(project, &myProject)) return false;
-
     VkExtent2D oldSwapchainExtent = {0};
     mat4 projView = {0};
     Rect previewRect;
@@ -340,11 +338,11 @@ int preview(Project* project){
 
         // dd_begin();
 
-        // dd_rect((project->time / project->duration)*swapchainExtent.width,timeline_y,5,timeline_height, 0xFFFF0000);
+        // dd_rect((myProject.time / myProject.duration)*swapchainExtent.width,timeline_y,5,timeline_height, 0xFFFF0000);
 
         // {
         //     char buf[128];
-        //     snprintf(buf,sizeof(buf),"%.02f/%.02f", project->time, project->duration);
+        //     snprintf(buf,sizeof(buf),"%.02f/%.02f", myProject.time, myProject.duration);
         //     double textSize = 20;
         //     dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
         // }
