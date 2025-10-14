@@ -54,7 +54,6 @@ int render(Project* project){
     int composedAudioBufLineSize;
     av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
-    double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
@@ -125,7 +124,7 @@ int render(Project* project){
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
@@ -181,8 +180,6 @@ int render(Project* project){
                 .size = out_audio_frame_size,
             });
         }
-
-        projectTime += 1.0 / project->fps;
     }
 
     printf("[FVFX] Draining leftover audio\n");

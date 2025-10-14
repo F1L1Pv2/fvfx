@@ -349,6 +349,7 @@ bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayer
 }
 
 bool init_my_project(Project* project, MyLayers* myLayers){
+    project->time = 0;
     for(size_t i = 0; i < myLayers->count; i++){
         MyLayer* myLayer = &myLayers->items[i];
         Layer* layer = &project->layers.items[i];
@@ -359,7 +360,7 @@ bool init_my_project(Project* project, MyLayers* myLayers){
     return true;
 }
 
-int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, double projectTime, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
+int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
     *enoughSamplesOUT = true;
     size_t finishedCount = 0;
     for(size_t i = 0; i < myLayers->count; i++){
@@ -373,9 +374,9 @@ int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanize
         vulkanizerVfxInstances->count = 0;
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];
-            if((vfx->duration != -1) && !(projectTime > vfx->offset && projectTime < vfx->offset + vfx->duration)) continue;
+            if((vfx->duration != -1) && !(project->time > vfx->offset && project->time < vfx->offset + vfx->duration)) continue;
 
-            if(vfx->inputs.count > 0) VfxInstance_Update(myVfxs, vfx, projectTime, push_constants_buf);
+            if(vfx->inputs.count > 0) VfxInstance_Update(myVfxs, vfx, project->time, push_constants_buf);
             da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs->items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs->items[vfx->vfx_index].module.pushContantsSize}));
         }
 
@@ -390,5 +391,6 @@ int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanize
         if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
         if(e == -GET_FRAME_SKIP) continue;
     }
+    project->time += 1.0 / project->fps;
     return finishedCount == myLayers->count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
 }

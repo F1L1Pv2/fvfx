@@ -74,6 +74,6 @@ enum {
 void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data);
 bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
 bool init_my_project(Project* project, MyLayers* myLayers);
-int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, double projectTime, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
+int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
 
 #endif

@@ -81,7 +81,6 @@ int preview(Project* project){
     int tempAudioBufLineSize;
     av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
-    double projectTime = 0.0;
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
@@ -255,7 +254,7 @@ int preview(Project* project){
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, projectTime, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
@@ -319,8 +318,6 @@ int preview(Project* project){
             .pSwapchains = &swapchain,
             .pImageIndices = &imageIndex
         });
-
-        projectTime += 1.0 / project->fps;
 
         uint64_t frameEnd = platform_get_time_nanos();
         double frameTime = (double)(frameEnd - now) * 1e-9;
