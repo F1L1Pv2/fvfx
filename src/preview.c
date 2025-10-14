@@ -44,6 +44,86 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     }
 }
 
+typedef struct {
+    float v[16];
+} mat4;
+
+static mat4 ortho2D(float width, float height){
+    float left = -width/2;
+    float right = width/2;
+    float top = height/2;
+    float bottom = -height/2;
+
+    return (mat4){
+    2 / (right - left),0                 , 0, -(right + left) / (right - left),
+          0           ,2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+          0           ,     0            ,-1,                 0,
+          0           ,     0            , 0,                 1,
+    };
+}
+
+static mat4 mat4mul(mat4 *a, mat4 *b) {
+    mat4 result;
+
+    // Column-major multiplication: result[i][j] = sum_k a[k][j] * b[i][k]
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; ++k) {
+                // a is row × k, b is k × col
+                float a_elem = a->v[k * 4 + row]; // a[row][k]
+                float b_elem = b->v[col * 4 + k]; // b[k][col]
+                sum += a_elem * b_elem;
+            }
+            result.v[col * 4 + row] = sum; // result[row][col]
+        }
+    }
+
+    return result;
+}
+
+typedef struct{
+    float pos_x;
+    float pos_y;
+    float scale_x;
+    float scale_y;
+    mat4 projView;
+} PreviewPushConstants;
+
+typedef struct{
+    float x;
+    float y;
+    float width;
+    float height;
+} Rect;
+
+static Rect fitRectangle(Rect outer, float innerWidth, float innerHeight){
+    Rect out = {0};
+    out.x = outer.x;
+    out.y = outer.y;
+
+    float innerAspect = (float)innerWidth / (float)innerHeight;
+    float outerAspect = outer.width / outer.height;
+
+    if (outerAspect < innerAspect) {
+        float scaledH = outer.width / innerAspect;
+        float yOffset = (outer.height - scaledH) * 0.5f;
+
+        out.width = outer.width;
+        out.height = scaledH;
+        out.y += yOffset;
+    } else {
+        float scaledW = outer.height * innerAspect;
+        float xOffset = (outer.width - scaledW) * 0.5f;
+        
+        out.width = scaledW;
+        out.height = outer.height;
+        out.x += xOffset;
+    }
+
+    return out;
+}
+
 int preview(Project* project){
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
 
@@ -108,11 +188,17 @@ int preview(Project* project){
         const char* vertexShaderSrc = 
             "#version 450\n"
             "layout(location = 0) out vec2 uv;\n"
+            "layout(push_constant) uniform Constants {\n"
+            "    vec2 position;\n"
+            "    vec2 scale;\n"
+            "    mat4 projView;\n"
+            "} pcs;\n"
             "void main() {"
                 "uint b = 1 << (gl_VertexIndex % 6);"
                 "vec2 baseCoord = vec2((0x1C & b) != 0, (0xE & b) != 0);"
                 "uv = baseCoord;"
-                "gl_Position = vec4(baseCoord * 2 - 1, 0.0f, 1.0f);"
+                "mat4 model = mat4(vec4(pcs.scale.x, 0,0,0),vec4(0,pcs.scale.y,0,0),vec4(0,0,1,0),vec4(pcs.position.x,pcs.position.y,0,1));\n"
+                "gl_Position = pcs.projView * model * vec4(baseCoord, 0.0, 1.0);"
             "}";
 
 
@@ -137,6 +223,7 @@ int preview(Project* project){
             swapchainImageFormat,
             .descriptorSetLayoutCount = 1,
             .descriptorSetLayouts = &vulkanizer.vfxDescriptorSetLayout,
+            .pushConstantsSize = sizeof(PreviewPushConstants),
         )) return 1;
 
         if(vkAllocateDescriptorSets(device, &(VkDescriptorSetAllocateInfo){
@@ -195,6 +282,11 @@ int preview(Project* project){
 
     if(!init_my_project(project, &myLayers)) return false;
 
+    VkExtent2D oldSwapchainExtent = {0};
+    mat4 projView = {0};
+    Rect previewRect;
+    PreviewPushConstants pcs;
+
     uint32_t imageIndex;
     uint64_t oldTime = platform_get_time_nanos();
     while(platform_still_running()){
@@ -202,6 +294,32 @@ int preview(Project* project){
         if(platform_window_minimized){
             platform_sleep(1);
             continue;
+        }
+
+        if(oldSwapchainExtent.width != swapchainExtent.width || oldSwapchainExtent.height != swapchainExtent.height){
+            oldSwapchainExtent = swapchainExtent;
+            mat4 proj = ortho2D(swapchainExtent.width,swapchainExtent.height); 
+            projView = mat4mul(&proj, &(mat4){
+                1,0,0,0,
+                0,1,0,0,
+                0,0,1,0,
+                -((float)swapchainExtent.width)/2, -((float)swapchainExtent.height)/2, 0, 1,
+            });
+
+            previewRect = fitRectangle((Rect){
+                .x = 0,
+                .y = 0,
+                .width = swapchainExtent.width,
+                .height = swapchainExtent.height,
+            }, project->width, project->height);
+
+            pcs = (PreviewPushConstants){
+                .pos_x = previewRect.x,
+                .pos_y = previewRect.y,
+                .scale_x = previewRect.width,
+                .scale_y = previewRect.height,
+                .projView = projView,
+            };
         }
 
         uint64_t now = platform_get_time_nanos();
@@ -290,6 +408,7 @@ int preview(Project* project){
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPipelineLayout, 0, 1, &outComposedImage_set,0,NULL);
+        vkCmdPushConstants(cmd, previewPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PreviewPushConstants),&pcs);
         vkCmdDraw(cmd,6,1,0,0);
 
         vkCmdEndRendering(cmd);
