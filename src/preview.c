@@ -255,7 +255,9 @@ int preview(Project* project){
 
         bool enoughSamples;
         int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
-        if(result == PROCESS_PROJECT_FINISHED) break;
+        if(result == PROCESS_PROJECT_FINISHED) {
+            if(!project_seek(project, &myLayers,0)) break;
+        }
 
         vkCmdTransitionImage(
             cmd,

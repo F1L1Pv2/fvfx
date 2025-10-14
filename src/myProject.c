@@ -394,3 +394,64 @@ int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanize
     project->time += 1.0 / project->fps;
     return finishedCount == myLayers->count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
 }
+
+bool project_seek(Project* project, MyLayers* myLayers, double time_seconds) {
+    project->time = time_seconds;
+
+    for (size_t i = 0; i < myLayers->count; i++) {
+        MyLayer* myLayer = &myLayers->items[i];
+        Layer* layer = &project->layers.items[i];
+
+        // Reset layer state
+        myLayer->args.currentSlice = 0;
+        myLayer->args.currentMediaIndex = EMPTY_MEDIA;
+        myLayer->args.checkDuration = 0;
+        myLayer->args.localTime = 0;
+        myLayer->args.video_skip_count = 0;
+        myLayer->args.times_to_catch_up_target_framerate = 0;
+        myLayer->finished = false;
+
+        if(myLayer->audioFifo) av_audio_fifo_reset(myLayer->audioFifo);
+
+        // Find the slice that contains the target time
+        double accumulatedTime = 0.0;
+        bool sliceFound = false;
+        for (size_t s = 0; s < layer->slices.count; s++) {
+            Slice* slice = &layer->slices.items[s];
+            double sliceStart = accumulatedTime;
+            double sliceEnd = accumulatedTime + (slice->duration >= 0 ? slice->duration : ffmpegMediaDuration(&myLayer->myMedias.items[slice->media_index].media) - slice->offset);
+
+            if (time_seconds >= sliceStart && time_seconds < sliceEnd) {
+                myLayer->args.currentSlice = s;
+                myLayer->args.currentMediaIndex = slice->media_index;
+                myLayer->args.checkDuration = sliceEnd - sliceStart;
+                myLayer->args.localTime = time_seconds - sliceStart;
+
+                // Seek the media to the correct time
+                if (myLayer->args.currentMediaIndex != EMPTY_MEDIA) {
+                    MyMedia* media = &myLayer->myMedias.items[myLayer->args.currentMediaIndex];
+                    ffmpegMediaSeek(&media->media, slice->offset + myLayer->args.localTime);
+
+                    if (media->hasVideo) {
+                        myLayer->args.lastVideoPts = (slice->offset + myLayer->args.localTime) / av_q2d(media->media.videoStream->time_base);
+                    }
+                }
+
+                sliceFound = true;
+                break;
+            }
+
+            accumulatedTime = sliceEnd;
+        }
+
+        if (!sliceFound) {
+            // If we are past the end, mark layer finished
+            myLayer->finished = true;
+            myLayer->args.currentSlice = layer->slices.count;
+            myLayer->args.currentMediaIndex = EMPTY_MEDIA;
+            myLayer->args.localTime = 0;
+        }
+    }
+
+    return true;
+}
