@@ -125,8 +125,21 @@ static Rect fitRectangle(Rect outer, float innerWidth, float innerHeight){
     return out;
 }
 
+static bool pointInsideRect(float x, float y, Rect rect){
+    return !(
+        (x < rect.x) ||
+        (x > rect.x + rect.width) ||
+        (y < rect.y) ||
+        (y > rect.y + rect.height)
+    );
+}
+
 int preview(Project* project){
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
+
+    // TODO: optimize this byh even more
+    project->width *= 0.75;
+    project->height *= 0.75;
 
     VkCommandBuffer cmd;
     if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
@@ -292,6 +305,7 @@ int preview(Project* project){
 
     double timeline_height = 0;
     double timeline_y = 0;
+    Rect timelineRect = {0};
 
     while(platform_still_running()){
         platform_window_handle_events();
@@ -310,9 +324,15 @@ int preview(Project* project){
                 -((float)swapchainExtent.width)/2, -((float)swapchainExtent.height)/2, 0, 1,
             });
 
-            // timeline_height = swapchainExtent.height/8;
-            timeline_height = 0;
+            timeline_height = swapchainExtent.height/8;
             timeline_y = swapchainExtent.height - timeline_height;
+
+            timelineRect = (Rect){
+                .x = 0,
+                .y = timeline_y,
+                .width = swapchainExtent.width,
+                .height = timeline_height,
+            };
 
             previewRect = fitRectangle((Rect){
                 .x = 0,
@@ -336,18 +356,24 @@ int preview(Project* project){
         if(input.keys[KEY_SPACE].justPressed) paused = !paused;
         if(paused) continue;
 
-        // dd_begin();
+        if(input.keys[KEY_MOUSE_LEFT].justPressed && pointInsideRect(input.mouse_x, input.mouse_y, timelineRect)){
+            project_seek(project, &myProject,((double)input.mouse_x - timelineRect.x)/timelineRect.width*myProject.duration);
+        }
 
-        // dd_rect((myProject.time / myProject.duration)*swapchainExtent.width,timeline_y,5,timeline_height, 0xFFFF0000);
+        dd_begin();
 
-        // {
-        //     char buf[128];
-        //     snprintf(buf,sizeof(buf),"%.02f/%.02f", myProject.time, myProject.duration);
-        //     double textSize = 20;
-        //     dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
-        // }
+        dd_rect(timelineRect.x, timelineRect.y, timelineRect.width, timelineRect.height, 0xFF101010);
 
-        // dd_end();
+        dd_rect((myProject.time / myProject.duration)*swapchainExtent.width,timeline_y,5,timeline_height, 0xFFFF0000);
+
+        {
+            char buf[128];
+            snprintf(buf,sizeof(buf),"%.02f/%.02f", myProject.time, myProject.duration);
+            double textSize = 20;
+            dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
+        }
+
+        dd_end();
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &renderingFence);
@@ -434,7 +460,7 @@ int preview(Project* project){
 
         vkCmdEndRendering(cmd);
 
-        // dd_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
+        dd_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
 
         vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 

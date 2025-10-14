@@ -47,15 +47,14 @@ bool project_load(Project* project, const char* filename){
         { // layer 2
             MEDIER("D:\\videos\\gradient descentive incometrigger (remastered v3).mp4");
             MEDIER("C:\\Users\\mlodz\\Downloads\\whywelose.mp3");
-            MEDIER("C:\\Users\\mlodz\\Downloads\\shrek.gif");
+            //TODO: gifs have wrong duration
+            MEDIER("D:\\videos\\IMG_2754.MOV");
             MEDIER("C:\\Users\\mlodz\\Downloads\\jessie.jpg");
             SLICER(1, 60.0 + 30, 4);
             SLICER(0, 30.0, 5);
             SLICER(2, 0.0, -1);
             SLICER(2, 0.0, -1);
-            SLICER(2, 0.0, -1);
-            SLICER(2, 0.0, -1);
-            SLICER(3, 0.0, 2);
+            SLICER(3, 0.0, 2.5);
     
             VFXER(1, 7, 5);
             
@@ -65,7 +64,7 @@ bool project_load(Project* project, const char* filename){
             VFXER_ARG(0, VFX_VEC2,                ((VfxInputValue){.as.vec2 = {.x =  0.0, .y =  0.0}}));
             VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, 1, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
     
-            VFXER(2, 18.1, 2);
+            VFXER(2, 20.6, 2);
             VFXER_ARG(0, VFX_VEC2,                 ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
             VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y =  0.5}}));
             VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y = -0.5}}));

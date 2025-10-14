@@ -101,7 +101,7 @@ static bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, s
     *checkDuration = slices->items[currentSlice].duration;
     if(*currentMediaIndex == EMPTY_MEDIA) return true;
     MyMedia* media = &medias->items[*currentMediaIndex];
-    if(*checkDuration == -1) *checkDuration = media->duration - slices->items[currentSlice].offset;
+    assert(checkDuration > 0 && "You fucked up");
     ffmpegMediaSeek(&media->media, slices->items[currentSlice].offset);
     return true;
 }
@@ -168,7 +168,7 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
     assert(!myMedia->hasVideo && "You used wrong function!");
 
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
     }
     while(args->localTime < args->checkDuration){    
 
@@ -197,7 +197,7 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
 
 static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, VkImageView composedOutView){
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
         args->localTime = args->checkDuration;
     }
 
@@ -223,7 +223,7 @@ static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
 
 static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, GetVideoFrameArgs* args){
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = slices->items[args->currentSlice].duration / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
         args->localTime = args->checkDuration;
     }
 
@@ -349,6 +349,37 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     }
 
     myProject->time = 0;
+    myProject->duration = 0;
+
+    //setting everything from -1
+    for(size_t i  = 0; i < myLayers->count; i++){
+        Layer* layer = &project->layers.items[i];
+        MyLayer* myLayer = &myLayers->items[i];
+        double layerDuration = 0;
+        for(size_t j = 0; j < layer->slices.count; j++){
+            Slice* slice = &layer->slices.items[j];
+            if(slice->duration == -1){
+                if(slice->media_index == EMPTY_MEDIA){
+                    fprintf(stderr, "You cannot have duration of -1 in Empty media\n");
+                    return false;
+                }
+                if(slice->media_index >= myLayer->myMedias.count){
+                    fprintf(stderr, "Media %zu doesnt exist\n", slice->media_index);
+                    return false;
+                }
+                MyMedia* media = &myLayer->myMedias.items[slice->media_index];
+                if(media->media.isImage){
+                    fprintf(stderr, "You cannot have duration of -1 in Image media\n");
+                    return false;
+                }
+
+                slice->duration = media->duration - slice->offset;
+            }
+            layerDuration += slice->duration;
+        }
+        if(layerDuration > myProject->duration) myProject->duration = layerDuration;
+    }
+
     for(size_t i = 0; i < myLayers->count; i++){
         MyLayer* myLayer = &myLayers->items[i];
         Layer* layer = &project->layers.items[i];
@@ -404,7 +435,6 @@ bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
         MyLayer* myLayer = &myLayers->items[i];
         Layer* layer = &project->layers.items[i];
 
-        // Reset layer state
         myLayer->args.currentSlice = 0;
         myLayer->args.currentMediaIndex = EMPTY_MEDIA;
         myLayer->args.checkDuration = 0;
@@ -415,27 +445,31 @@ bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
 
         if(myLayer->audioFifo) av_audio_fifo_reset(myLayer->audioFifo);
 
-        // Find the slice that contains the target time
         double accumulatedTime = 0.0;
         bool sliceFound = false;
         for (size_t s = 0; s < layer->slices.count; s++) {
             Slice* slice = &layer->slices.items[s];
             double sliceStart = accumulatedTime;
-            double sliceEnd = accumulatedTime + (slice->duration >= 0 ? slice->duration : ffmpegMediaDuration(&myLayer->myMedias.items[slice->media_index].media) - slice->offset);
+            double sliceEnd = accumulatedTime + slice->duration;
 
             if (time_seconds >= sliceStart && time_seconds < sliceEnd) {
                 myLayer->args.currentSlice = s;
                 myLayer->args.currentMediaIndex = slice->media_index;
-                myLayer->args.checkDuration = sliceEnd - sliceStart;
+                myLayer->args.checkDuration = slice->duration;
                 myLayer->args.localTime = time_seconds - sliceStart;
 
-                // Seek the media to the correct time
                 if (myLayer->args.currentMediaIndex != EMPTY_MEDIA) {
                     MyMedia* media = &myLayer->myMedias.items[myLayer->args.currentMediaIndex];
-                    ffmpegMediaSeek(&media->media, slice->offset + myLayer->args.localTime);
 
-                    if (media->hasVideo) {
-                        myLayer->args.lastVideoPts = (slice->offset + myLayer->args.localTime) / av_q2d(media->media.videoStream->time_base);
+                    if (!media->media.isImage) {
+                        if(!ffmpegMediaSeek(&media->media, slice->offset + myLayer->args.localTime)) {
+                            fprintf(stderr, "ffmpegMediaSeek failed while seeking layer %zu media %zu\n", i, myLayer->args.currentMediaIndex);
+                            return false;
+                        }
+
+                        if (media->hasVideo) {
+                            myLayer->args.lastVideoPts = (slice->offset + myLayer->args.localTime) / av_q2d(media->media.videoStream->time_base);
+                        }
                     }
                 }
 
@@ -447,7 +481,6 @@ bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
         }
 
         if (!sliceFound) {
-            // If we are past the end, mark layer finished
             myLayer->finished = true;
             myLayer->args.currentSlice = layer->slices.count;
             myLayer->args.currentMediaIndex = EMPTY_MEDIA;
