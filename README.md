@@ -32,9 +32,6 @@
 
 ## Things of note
 
-> [!NOTE]
-> If you are using compiler different than `clang` specify it in nob.c in `COMPILER_NAME` macro
-
 > [!NOTE] 
 > If you dont specify `release` in during running nob it will build with debug information and `run` option will run app after successfull compilation
 
