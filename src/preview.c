@@ -9,11 +9,12 @@
 #include "ffmpeg_helper.h"
 #include "myProject.h"
 #include <math.h>
-#include "miniaudio.h"
+#include "thirdparty/miniaudio.h"
+#include "dd.h"
 
 typedef struct{
     Project* project;
-    MyLayers* myLayers;
+    MyProject* myProject;
     uint8_t** tempAudioBuf;
     enum AVSampleFormat out_audio_format;
     bool* paused;
@@ -27,7 +28,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     MiniaudioUserData* data = (MiniaudioUserData*)pDevice->pUserData;
     if(*data->paused) return;
     Project* project = data->project;
-    MyLayers* myLayers = data->myLayers;
+    MyLayers* myLayers = &data->myProject->myLayers;
     uint8_t** tempAudioBuf = data->tempAudioBuf;
 
     for(size_t i = 0; i < myLayers->count; i++){
@@ -150,12 +151,13 @@ int preview(Project* project){
     Vulkanizer vulkanizer = {0};
     if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer)) return 1;
 
+    if(!dd_init(device, swapchainImageFormat, descriptorPool)) return 1;
+
     enum AVSampleFormat out_audio_format = AV_SAMPLE_FMT_FLT;
     size_t out_audio_frame_size = project->sampleRate/100;
 
-    MyLayers myLayers = {0};
-    MyVfxs myVfxs = {0};
-    if(!prepare_project(project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
+    MyProject myProject = {0};
+    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
@@ -263,7 +265,7 @@ int preview(Project* project){
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = &(MiniaudioUserData){
         .project = project,
-        .myLayers = &myLayers,
+        .myProject = &myProject,
         .tempAudioBuf = tempAudioBuf,
         .out_audio_format = out_audio_format,
         .paused = &paused,
@@ -280,7 +282,7 @@ int preview(Project* project){
         return -4;
     }
 
-    if(!init_my_project(project, &myLayers)) return false;
+    if(!init_my_project(project, &myProject)) return false;
 
     VkExtent2D oldSwapchainExtent = {0};
     mat4 projView = {0};
@@ -289,6 +291,10 @@ int preview(Project* project){
 
     uint32_t imageIndex;
     uint64_t oldTime = platform_get_time_nanos();
+
+    double timeline_height = 0;
+    double timeline_y = 0;
+
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
@@ -306,11 +312,15 @@ int preview(Project* project){
                 -((float)swapchainExtent.width)/2, -((float)swapchainExtent.height)/2, 0, 1,
             });
 
+            // timeline_height = swapchainExtent.height/8;
+            timeline_height = 0;
+            timeline_y = swapchainExtent.height - timeline_height;
+
             previewRect = fitRectangle((Rect){
                 .x = 0,
                 .y = 0,
                 .width = swapchainExtent.width,
-                .height = swapchainExtent.height,
+                .height = timeline_y,
             }, project->width, project->height);
 
             pcs = (PreviewPushConstants){
@@ -327,6 +337,19 @@ int preview(Project* project){
 
         if(input.keys[KEY_SPACE].justPressed) paused = !paused;
         if(paused) continue;
+
+        // dd_begin();
+
+        // dd_rect((project->time / project->duration)*swapchainExtent.width,timeline_y,5,timeline_height, 0xFFFF0000);
+
+        // {
+        //     char buf[128];
+        //     snprintf(buf,sizeof(buf),"%.02f/%.02f", project->time, project->duration);
+        //     double textSize = 20;
+        //     dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
+        // }
+
+        // dd_end();
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &renderingFence);
@@ -372,9 +395,9 @@ int preview(Project* project){
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &myProject, &vulkanizer, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) {
-            if(!project_seek(project, &myLayers,0)) break;
+            if(!project_seek(project, &myProject,0)) break;
         }
 
         vkCmdTransitionImage(
@@ -412,6 +435,8 @@ int preview(Project* project){
         vkCmdDraw(cmd,6,1,0,0);
 
         vkCmdEndRendering(cmd);
+
+        // dd_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
 
         vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 

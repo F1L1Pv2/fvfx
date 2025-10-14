@@ -42,9 +42,8 @@ int render(Project* project){
     enum AVSampleFormat out_audio_format = renderContext.audioCodecContext->sample_fmt;
     size_t out_audio_frame_size = renderContext.audioCodecContext->frame_size;
 
-    MyLayers myLayers = {0};
-    MyVfxs myVfxs = {0};
-    if(!prepare_project(project, &vulkanizer, &myLayers, &myVfxs, out_audio_format, out_audio_frame_size)) return 1;
+    MyProject myProject = {0};
+    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
@@ -78,7 +77,9 @@ int render(Project* project){
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
 
-    if(!init_my_project(project, &myLayers)) return false;
+    if(!init_my_project(project, &myProject)) return false;
+
+    MyLayers* myLayers = &myProject.myLayers;
 
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -124,7 +125,7 @@ int render(Project* project){
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &vulkanizer, &myLayers, &myVfxs, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &myProject, &vulkanizer, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
@@ -161,8 +162,8 @@ int render(Project* project){
 
         if(enoughSamples){
             av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
-            for(size_t i = 0; i < myLayers.count; i++){
-                MyLayer* myLayer = &myLayers.items[i];
+            for(size_t i = 0; i < myLayers->count; i++){
+                MyLayer* myLayer = &myLayers->items[i];
                 if(!myLayer->audioFifo) continue;
                 int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, out_audio_frame_size);
                 bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
@@ -186,8 +187,8 @@ int render(Project* project){
     bool audioLeft = true;
     while (audioLeft) {
         audioLeft = false;
-        for (size_t i = 0; i < myLayers.count; i++) {
-            MyLayer* myLayer = &myLayers.items[i];
+        for (size_t i = 0; i < myLayers->count; i++) {
+            MyLayer* myLayer = &myLayers->items[i];
             if(!myLayer->audioFifo) continue;
             if (av_audio_fifo_size(myLayer->audioFifo) > 0) {
                 audioLeft = true;
@@ -202,8 +203,8 @@ int render(Project* project){
             project->stereo ? 2 : 1,
             out_audio_format
         );
-        for (size_t i = 0; i < myLayers.count; i++) {
-            MyLayer* myLayer = &myLayers.items[i];
+        for (size_t i = 0; i < myLayers->count; i++) {
+            MyLayer* myLayer = &myLayers->items[i];
             if(!myLayer->audioFifo) continue;
             int available = av_audio_fifo_size(myLayer->audioFifo);
             if (available <= 0) continue;

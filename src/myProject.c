@@ -264,7 +264,10 @@ static int VfxInstanceInput_compare(const void* a, const void* b) {
     return ((VfxInstanceInput*)a)->index - ((VfxInstanceInput*)b)->index;
 }
 
-bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, enum AVSampleFormat expectedSampleFormat, size_t fifo_size){
+bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size){
+    MyLayers* myLayers = &myProject->myLayers;
+    MyVfxs* myVfxs = &myProject->myVfxs;
+
     for(size_t j = 0; j < project->layers.count; j++){
         Layer* layer = &project->layers.items[j];
         MyLayer myLayer = {0};
@@ -348,8 +351,9 @@ bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayer
     return true;
 }
 
-bool init_my_project(Project* project, MyLayers* myLayers){
-    project->time = 0;
+bool init_my_project(Project* project, MyProject* myProject){
+    myProject->time = 0;
+    MyLayers* myLayers = &myProject->myLayers;
     for(size_t i = 0; i < myLayers->count; i++){
         MyLayer* myLayer = &myLayers->items[i];
         Layer* layer = &project->layers.items[i];
@@ -360,7 +364,9 @@ bool init_my_project(Project* project, MyLayers* myLayers){
     return true;
 }
 
-int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
+int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
+    MyLayers* myLayers = &myProject->myLayers;
+    MyVfxs* myVfxs = &myProject->myVfxs;
     *enoughSamplesOUT = true;
     size_t finishedCount = 0;
     for(size_t i = 0; i < myLayers->count; i++){
@@ -374,9 +380,9 @@ int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanize
         vulkanizerVfxInstances->count = 0;
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];
-            if((vfx->duration != -1) && !(project->time > vfx->offset && project->time < vfx->offset + vfx->duration)) continue;
+            if((vfx->duration != -1) && !(myProject->time > vfx->offset && myProject->time < vfx->offset + vfx->duration)) continue;
 
-            if(vfx->inputs.count > 0) VfxInstance_Update(myVfxs, vfx, project->time, push_constants_buf);
+            if(vfx->inputs.count > 0) VfxInstance_Update(myVfxs, vfx, myProject->time, push_constants_buf);
             da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs->items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs->items[vfx->vfx_index].module.pushContantsSize}));
         }
 
@@ -391,12 +397,13 @@ int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanize
         if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
         if(e == -GET_FRAME_SKIP) continue;
     }
-    project->time += 1.0 / project->fps;
+    myProject->time += 1.0 / project->fps;
     return finishedCount == myLayers->count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
 }
 
-bool project_seek(Project* project, MyLayers* myLayers, double time_seconds) {
-    project->time = time_seconds;
+bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
+    MyLayers* myLayers = &myProject->myLayers;
+    myProject->time = time_seconds;
 
     for (size_t i = 0; i < myLayers->count; i++) {
         MyLayer* myLayer = &myLayers->items[i];

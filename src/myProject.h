@@ -66,15 +66,21 @@ typedef struct{
     size_t fifo_frame_size;
 } MyLayers;
 
+typedef struct{
+    MyLayers myLayers;
+    MyVfxs myVfxs;
+    double time;
+    double duration;
+} MyProject;
+
 enum {
     PROCESS_PROJECT_CONTINUE = 0,
     PROCESS_PROJECT_FINISHED
 };
 
-void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data);
-bool prepare_project(Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
-bool init_my_project(Project* project, MyLayers* myLayers);
-int process_project(VkCommandBuffer cmd, Project* project, Vulkanizer* vulkanizer, MyLayers* myLayers, MyVfxs* myVfxs, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
-bool project_seek(Project* project, MyLayers* myLayers, double time_seconds);
+bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
+bool init_my_project(Project* project, MyProject* myProject);
+int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
+bool project_seek(Project* project, MyProject* myProject, double time_seconds);
 
 #endif

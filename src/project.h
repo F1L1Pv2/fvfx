@@ -253,7 +253,6 @@ typedef struct{
     bool stereo;
     Layers layers;
     VfxDescriptors vfxDescriptors;
-    double time;
 } Project;
 
 #endif
