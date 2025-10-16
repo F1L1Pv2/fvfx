@@ -23,7 +23,7 @@
         (da)->items[(da)->count++]=value;\
    } while(0)
 
-EXPORT_FN bool project_init(Project* project, int argc, const char** argv){
+bool project_init(Project* project, int argc, const char** argv){
     (void)argc;
     (void)argv;
     
