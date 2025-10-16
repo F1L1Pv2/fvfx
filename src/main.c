@@ -13,22 +13,22 @@ enum {
     MODE_PREVIEW,
 };
 
-int main(int argc, char** argv){
+int main(int argc, const char** argv){
+    const char* filename = argv[0];
+
+    if(argc < 3){
+        fprintf(stderr, "Usage: %s (render|preview) (project filepath) [aditional args for project]\n", filename);
+        return 1;
+    }
+
     // ------------------------------ project config code --------------------------------
     Project project = {0};
-    if(!project_load(&project, NULL)) {
+    if(!project_load(&project, argv[2], argc > 3 ? argc - 3 : 0, argc > 3 ? argv+3 : NULL)) {
         fprintf(stderr, "Couldn't load project\n");
         return 1;
     }
 
     // ------------------------------------------- editor code -----------------------------------------------------
-    char* filename = argv[0];
-
-    if(argc < 2){
-        fprintf(stderr, "specify mode %s render|preview\n", filename);
-        return 1;
-    }
-
     int mode = MODE_NONE;
     if(strcmp(argv[1], "render") == 0) mode = MODE_RENDER;
     else if(strcmp(argv[1], "preview") == 0) mode = MODE_PREVIEW;

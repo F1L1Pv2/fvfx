@@ -8,3 +8,14 @@ nob.old
 cache.bin
 cache.png
 *.mp4
+*.pdb
+*.ilk
+*.spv
+*.dll
+*.exp
+*.lib
+*.old
+*.o
+*.d
+*.a
+*.so

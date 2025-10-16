@@ -443,6 +443,26 @@ void platform_release_drag_and_drop(char** files, int count){
     free(files);
 }
 
+bool platform_free_dynamic_library(void* dll)
+{
+  BOOL freeResult = FreeLibrary((HMODULE)dll);
+
+  return (bool)freeResult;
+}
+
+void* platform_load_dynamic_library(const char* dll)
+{
+  HMODULE result = LoadLibraryA(dll);
+
+  return result;
+}
+
+void* platform_load_dynamic_function(void* dll, const char* funName)
+{
+  FARPROC proc = GetProcAddress((HMODULE)dll, funName);
+
+  return (void*)proc;
+}
 
 #ifndef DEBUG
 

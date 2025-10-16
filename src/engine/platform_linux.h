@@ -350,3 +350,26 @@ void platform_release_drag_and_drop(char** files, int count) {
     dropped_files = NULL;
     dropped_file_count = 0;
 }
+
+bool platform_free_dynamic_library(void* dll){
+    int freeResult = dlclose(dll);
+
+    return (bool)freeResult;
+}
+void* platform_load_dynamic_library(const char* dll){
+    char path[256] = {};
+    sprintf(path, "./%s", dll);
+    void* lib = dlopen(path, RTLD_NOW);
+    char *errstr = dlerror(); 
+    if (errstr != NULL) 
+    {
+    }
+
+    return lib;
+
+}
+void* platform_load_dynamic_function(void* dll, const char* funName){
+    void* proc = dlsym(dll, funName);
+
+    return proc;
+}

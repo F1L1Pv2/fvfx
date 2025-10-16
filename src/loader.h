@@ -4,6 +4,6 @@
 #include "project.h"
 #include <stdbool.h>
 
-bool project_load(Project* project, const char* filename);
+bool project_load(Project* project, const char* filename, int argc, const char** argv);
 
 #endif

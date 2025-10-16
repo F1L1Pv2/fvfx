@@ -366,6 +366,113 @@ static void change_sb_extension(String_Builder* sb, const char* new_ext) {
     sb_append_cstr(sb, new_ext);
 }
 
+bool collect_all_c_files(const char* filepath, Nob_File_Paths* src_paths, Nob_File_Paths* c_files){
+    src_paths->count = 0;
+    c_files->count = 0;
+    if (!collect_source_files(filepath, src_paths)) {
+        nob_log(NOB_ERROR, "Failed to collect source files");
+        return false;
+    }
+
+    for (size_t i = 0; i < src_paths->count; i++) {
+        const char* ext = nob_get_ext(src_paths->items[i]);
+        if (ext && strcmp(ext, "c") == 0) {
+            nob_da_append(c_files, nob_temp_strdup(src_paths->items[i]));
+        }
+    }
+
+    return true;
+}
+
+int build_needed_c_files_and_check_if_rebuild_needed(
+    bool debug,
+    bool* needsRebuild, 
+    Nob_File_Paths* c_files, 
+    Nob_Cmd* cmd, 
+    Nob_String_Builder* sb,
+    Nob_File_Paths* deps
+){
+    *needsRebuild = false;
+    cmd->count = 0;
+    sb->count = 0;
+    deps->count = 0;
+    for (size_t i = 0; i < c_files->count; i++) {
+        const char* src_file = c_files->items[i];
+        
+        Nob_String_Builder obj_path = {0};
+        sb_append_cstr(&obj_path, BUILD_PATH(debug));
+        if (!change_extension(&obj_path, src_file, "o")) {
+            nob_log(NOB_ERROR, "Failed to change extension for %s", src_file);
+            return 1;
+        }
+        sb_append_null(&obj_path);
+        const char* obj_file = nob_temp_strdup(obj_path.items);
+
+        if (nob_c_needs_rebuild(sb, deps, obj_file, src_file)) {
+            *needsRebuild = true;
+            if (!build(cmd, src_file, debug)) {
+                nob_log(NOB_ERROR, "Failed to build %s", src_file);
+                return 1;
+            }
+        }
+        nob_sb_free(obj_path);
+    }
+
+    return 0;
+}
+
+int build_c_proj(
+    bool debug,
+    const char* filepath, 
+    const char* output_filename, 
+    Nob_File_Paths* src_paths, 
+    Nob_File_Paths* c_files, 
+    Nob_Cmd* cmd, 
+    Nob_String_Builder* sb,
+    Nob_File_Paths* deps
+){
+    src_paths->count = 0;
+    c_files->count = 0;
+    cmd->count = 0;
+    sb->count = 0;
+    deps->count = 0;
+
+    if(!collect_all_c_files(filepath, src_paths, c_files)) return 1;
+
+    bool needsRebuild;
+    int e = build_needed_c_files_and_check_if_rebuild_needed(debug, &needsRebuild, c_files, cmd, sb, deps);
+    if(e != 0) return e;
+
+    if (needsRebuild || !file_exists(output_filename)) {
+        if (!link_files(cmd, output_filename, c_files, debug)) {
+            nob_log(NOB_ERROR, "Linking failed");
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+int build_example(Nob_Cmd* cmd, const char* filename, const char* output_filepath){
+    int e = needs_rebuild1(output_filepath, filename);
+    if(e <= 0) return e;
+
+    cmd->count = 0;
+    nob_cc(cmd);
+    nob_cmd_append(cmd, 
+        "-shared", 
+        #ifndef _WIN32
+        "-fPIC",
+        #endif
+        filename, 
+        "-o", output_filepath, 
+    );
+    nob_cmd_append(cmd, COMPILER_ARGS);
+
+    if(!nob_cmd_run_sync_and_reset(cmd)) return 1;
+    return 0;
+}
+
 int main(int argc, char** argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
@@ -439,53 +546,26 @@ int main(int argc, char** argv) {
 #endif
     );
 
-    Nob_File_Paths src_paths = {0};
-    if (!collect_source_files("src", &src_paths)) {
-        nob_log(NOB_ERROR, "Failed to collect source files");
-        return 1;
-    }
-
-    Nob_File_Paths c_files = {0};
-    for (size_t i = 0; i < src_paths.count; i++) {
-        const char* ext = nob_get_ext(src_paths.items[i]);
-        if (ext && strcmp(ext, "c") == 0) {
-            nob_da_append(&c_files, nob_temp_strdup(src_paths.items[i]));
-        }
-    }
-
-    bool needs_rebuild = false;
+    // building fvfx
     Nob_Cmd cmd = {0};
+    Nob_File_Paths src_paths = {0};
+    Nob_File_Paths c_files = {0};
     Nob_String_Builder sb = {0};
     Nob_File_Paths deps = {0};
+    int e = build_c_proj(debug,"src", output_filename,&src_paths, &c_files, &cmd, &sb, &deps);
+    if(e != 0) return e;
 
-    for (size_t i = 0; i < c_files.count; i++) {
-        const char* src_file = c_files.items[i];
-        
-        Nob_String_Builder obj_path = {0};
-        sb_append_cstr(&obj_path, BUILD_PATH(debug));
-        if (!change_extension(&obj_path, src_file, "o")) {
-            nob_log(NOB_ERROR, "Failed to change extension for %s", src_file);
-            return 1;
-        }
-        sb_append_null(&obj_path);
-        const char* obj_file = nob_temp_strdup(obj_path.items);
-
-        if (nob_c_needs_rebuild(&sb, &deps, obj_file, src_file)) {
-            needs_rebuild = true;
-            if (!build(&cmd, src_file, debug)) {
-                nob_log(NOB_ERROR, "Failed to build %s", src_file);
-                return 1;
-            }
-        }
-        nob_sb_free(obj_path);
-    }
-
-    if (needs_rebuild || !file_exists(output_filename)) {
-        if (!link_files(&cmd, output_filename, &c_files, debug)) {
-            nob_log(NOB_ERROR, "Linking failed");
-            return 1;
-        }
-    }
+    //building examples
+    e = build_example(
+        &cmd,
+        "examples/example.c", 
+        "examples/example."
+        #ifdef _WIN32
+        "dll"
+        #else
+        "so"
+        #endif
+    );
 
     if (run_after) {
         cmd.count = 0;

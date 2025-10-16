@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "engine/platform_exporter.h"
 
 #define EMPTY_MEDIA (-1)
 
@@ -254,5 +255,7 @@ typedef struct{
     Layers layers;
     VfxDescriptors vfxDescriptors;
 } Project;
+
+EXPORT_FN bool project_init(Project* project, int argc, const char** argv); // for dlls
 
 #endif
