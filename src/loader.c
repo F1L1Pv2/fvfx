@@ -3,10 +3,14 @@
 
 #include "loader.h"
 #include "engine/platform.h"
+#include "string_alloc.h"
 
 typedef bool (*project_init_type)(Project* project, int argc, const char** argv);
+typedef void (*project_clean_type)(Project* project);
 
-bool project_load(Project* project, const char* filename, int argc, const char** argv){
+static StringAllocator sa = {0};
+
+bool project_loader_load(Project* project, const char* filename, int argc, const char** argv){
     void* dll = platform_load_dynamic_library(filename);
     if (dll == NULL) {
         fprintf(stderr, "Couldn't load project %s\n", filename);
@@ -27,8 +31,27 @@ bool project_load(Project* project, const char* filename, int argc, const char**
         return false;
     }
 
-    //TODO: i cannot free it because then it frees strings inside
-    //TODO: so just dup the strings or do something else
-    // platform_free_dynamic_library(dll);
+    //duping strings so they are not lost after unloading dll
+    project->outputFilename = sa_strdup(&sa, project->outputFilename);
+
+    for(size_t i = 0; i < project->layers.count; i++){
+        Layer* layer = &project->layers.items[i];
+        for(size_t j = 0; j < layer->mediaInstances.count; j++){
+            MediaInstance* media_instance = &layer->mediaInstances.items[j];
+            media_instance->filename = sa_strdup(&sa, media_instance->filename);
+        }
+    }
+
+    for(size_t i = 0; i < project->vfxDescriptors.count; i++){
+        VfxDescriptor* vfx_descriptor = &project->vfxDescriptors.items[i];
+        vfx_descriptor->filename = sa_strdup(&sa, vfx_descriptor->filename);
+    }
+
+    //cleaning up project (if it does any runtime allocation) in case of function not existing we just dont care
+    project_clean_type project_clean_ptr = (project_clean_type)
+        platform_load_dynamic_function(dll, "project_clean");
+    if (project_clean_ptr != NULL) project_clean_ptr(project);
+
+    platform_free_dynamic_library(dll);
     return true;
 }

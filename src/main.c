@@ -23,7 +23,7 @@ int main(int argc, const char** argv){
 
     // ------------------------------ project config code --------------------------------
     Project project = {0};
-    if(!project_load(&project, argv[2], argc > 3 ? argc - 3 : 0, argc > 3 ? argv+3 : NULL)) {
+    if(!project_loader_load(&project, argv[2], argc > 3 ? argc - 3 : 0, argc > 3 ? argv+3 : NULL)) {
         fprintf(stderr, "Couldn't load project\n");
         return 1;
     }

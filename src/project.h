@@ -257,5 +257,6 @@ typedef struct{
 } Project;
 
 EXPORT_FN bool project_init(Project* project, int argc, const char** argv); // for dlls
+EXPORT_FN void project_clean(Project* project); // for dlls (not mandatory doesnt need to exist)
 
 #endif
