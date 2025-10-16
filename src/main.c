@@ -23,7 +23,10 @@ int main(int argc, const char** argv){
 
     // ------------------------------ project config code --------------------------------
     Project project = {0};
-    if(!project_loader_load(&project, argv[2], argc > 3 ? argc - 3 : 0, argc > 3 ? argv+3 : NULL)) {
+    const char* proj_filename = argv[2];
+    size_t proj_argc = argc > 3 ? argc - 3 : 0;
+    const char** proj_argv = argc > 3 ? argv+3 : NULL;
+    if(!project_loader_load(&project, proj_filename, proj_argc, proj_argv)) {
         fprintf(stderr, "Couldn't load project\n");
         return 1;
     }
@@ -41,7 +44,7 @@ int main(int argc, const char** argv){
     if(mode == MODE_RENDER){
         return render(&project);
     }else if(mode == MODE_PREVIEW){
-        return preview(&project);
+        return preview(&project, proj_filename, proj_argc, proj_argv);
     }else assert(false && "UNREACHABLE");
 
     return 1;

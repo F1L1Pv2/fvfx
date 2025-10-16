@@ -23,7 +23,7 @@ bool initDescriptorPool(){
     descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptorPoolCreateInfo.pNext = NULL;
     // Update after bind is needed here, for each binding and in the descriptor set layout creation.
-    descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT | VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     descriptorPoolCreateInfo.maxSets = k_max_bindless_resources;
     descriptorPoolCreateInfo.poolSizeCount = 1;
     descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;

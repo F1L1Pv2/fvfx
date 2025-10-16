@@ -11,6 +11,7 @@
 #include <math.h>
 #include "thirdparty/miniaudio.h"
 #include "dd.h"
+#include "loader.h"
 
 typedef struct{
     Project* project;
@@ -139,12 +140,15 @@ static bool pointInsideRect(float x, float y, Rect rect){
     );
 }
 
-int preview(Project* project){
+#define PREVIEW_WIDTH_SCALER (0.75)
+#define PREVIEW_HEIGHT_SCALER (0.75)
+
+int preview(Project* project, const char* project_filename, int argc, const char** argv){
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
 
     // TODO: optimize this byh even more
-    project->width *= 0.75;
-    project->height *= 0.75;
+    project->width *= PREVIEW_WIDTH_SCALER;
+    project->height *= PREVIEW_HEIGHT_SCALER;
 
     VkCommandBuffer cmd;
     if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
@@ -177,18 +181,14 @@ int preview(Project* project){
     MyProject myProject = {0};
     if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
 
-    uint8_t** tempAudioBuf;
-    int tempAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
-
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
-    VkImage outComposedImage;
-    VkDeviceMemory outComposedImageMemory;
-    VkImageView outComposedImageView;
+    VkImage          outComposedImage;
+    VkDeviceMemory   outComposedImageMemory;
+    VkImageView      outComposedImageView;
     VkDescriptorSet  outComposedImage_set;
-    uint32_t* outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+    uint32_t*        outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
 
     if(!createMyImage(device, &outComposedImage, 
         project->width, project->height, 
@@ -268,12 +268,18 @@ int preview(Project* project){
         }, 0, NULL);
     }
 
-    VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    vkCmdEndSingleTime(tempCmd);
+    {
+        VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+        vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        vkCmdEndSingleTime(tempCmd);
+    }
 
     bool paused = false;
     float global_volume = 1.0;
+
+    uint8_t** tempAudioBuf;
+    int tempAudioBufLineSize;
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     //miniaudio init
     ma_device audio_device;
@@ -315,6 +321,7 @@ int preview(Project* project){
     Rect timelineRect = {0};
 
     bool scrubbed = false;
+    bool hotReloaded = false;
 
     while(platform_still_running()){
         platform_window_handle_events();
@@ -322,6 +329,9 @@ int preview(Project* project){
             platform_sleep(1);
             continue;
         }
+
+        hotReloaded = false;
+        if(input.keys[KEY_R].justPressed) hotReloaded = true;
 
         scrubbed = false;
 
@@ -376,7 +386,7 @@ int preview(Project* project){
         }
 
         if(input.keys[KEY_SPACE].justPressed) paused = !paused;
-        if(scrubbed == false && paused) continue;
+        if(scrubbed == false && hotReloaded == false && paused) continue;
 
         dd_begin();
 
@@ -395,6 +405,102 @@ int preview(Project* project){
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &renderingFence);
+
+        if(hotReloaded){
+            ma_device_stop(&audio_device);
+            ma_device_uninit(&audio_device);
+            double time = myProject.time;
+            project_uninit(&vulkanizer, &myProject);
+            project_loader_clean(project);
+            if (tempAudioBuf) {
+                av_freep(&tempAudioBuf[0]); // Frees the actual audio buffer(s)
+                av_freep(&tempAudioBuf);    // Frees the array of pointers
+            }
+            
+            /*
+            outComposedImage
+            outComposedImageMemory
+            outComposedImageView
+            outComposedImage_set
+            outComposedVideoFrame
+            */
+
+            vkDestroyImageView(device, outComposedImageView, NULL);
+            vkDestroyImage(device, outComposedImage, NULL);
+            vkFreeMemory(device, outComposedImageMemory, NULL);
+            free(outComposedVideoFrame);
+
+            if(!project_loader_load(project, project_filename, argc, argv)) return 1;
+            project->width *= PREVIEW_WIDTH_SCALER;
+            project->height *= PREVIEW_HEIGHT_SCALER;
+
+            vulkanizer.videoOutWidth = project->width;
+            vulkanizer.videoOutHeight = project->height;
+
+            out_audio_frame_size = project->sampleRate/100;
+            if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
+
+            if(!createMyImage(device, &outComposedImage, 
+                project->width, project->height, 
+                &outComposedImageMemory, 
+                &outComposedImageView, 
+                NULL, 
+                NULL,
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                0
+            )) return 1;
+            outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+
+            vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .dstSet = outComposedImage_set,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .pImageInfo = &(VkDescriptorImageInfo){
+                    .sampler = vulkanizer.samplerLinear,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .imageView = outComposedImageView,
+                },
+            }, 0, NULL);
+
+            VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
+            vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            vkCmdEndSingleTime(tempCmd);
+
+            av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+            
+            deviceConfig = ma_device_config_init(ma_device_type_playback);
+            deviceConfig.playback.format   = ma_format_f32;
+            deviceConfig.playback.channels = project->stereo ? 2 : 1;
+            deviceConfig.sampleRate        = project->sampleRate;
+            deviceConfig.dataCallback      = data_callback;
+            deviceConfig.pUserData         = &(MiniaudioUserData){
+                .project = project,
+                .myProject = &myProject,
+                .tempAudioBuf = tempAudioBuf,
+                .out_audio_format = out_audio_format,
+                .paused = &paused,
+                .global_volume = &global_volume,
+            };
+
+            if (ma_device_init(NULL, &deviceConfig, &audio_device) != MA_SUCCESS) {
+                printf("Failed to open playback device.\n");
+                return -3;
+            }
+
+            if (ma_device_start(&audio_device) != MA_SUCCESS) {
+                printf("Failed to start playback device.\n");
+                ma_device_uninit(&audio_device);
+                return -4;
+            }
+
+            if(time < myProject.duration) {
+                project_seek(project, &myProject, time);
+            }
+        }
+
         vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, swapchainHasImageSemaphore, NULL, &imageIndex);
         
         vkResetCommandBuffer(cmd, 0);

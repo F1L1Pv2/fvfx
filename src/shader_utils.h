@@ -38,4 +38,6 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module);
 
 void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t);
 
+void shader_utils_reset_string_allocator();
+
 #endif

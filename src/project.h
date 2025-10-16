@@ -259,4 +259,11 @@ typedef struct{
 EXPORT_FN bool project_init(Project* project, int argc, const char** argv); // for dlls
 EXPORT_FN void project_clean(Project* project); // for dlls (not mandatory doesnt need to exist)
 
+#define VFX_COL_HEX(c) ((Vec4){ \
+    .x = ((float)(((c) >> 16) & 0xFF) / 255.0f), \
+    .y = ((float)(((c) >>  8) & 0xFF) / 255.0f), \
+    .z = ((float)(((c) >>  0) & 0xFF) / 255.0f), \
+    .w = ((float)(((c) >> 24) & 0xFF) / 255.0f)  \
+})
+
 #endif

@@ -55,3 +55,33 @@ bool project_loader_load(Project* project, const char* filename, int argc, const
     platform_free_dynamic_library(dll);
     return true;
 }
+
+void project_loader_clean(Project* project){
+    sa_reset(&sa);
+    Layers layers = project->layers;
+    for(size_t i = 0; i < layers.count; i++){
+        Layer* layer = &layers.items[i];
+        if(layer->slices.items) free(layer->slices.items);
+        if(layer->mediaInstances.items) free(layer->mediaInstances.items);
+
+        for(size_t j = 0; j < layer->vfxInstances.count; j++){
+            VfxInstance* vfx_instance = &layer->vfxInstances.items[j];
+            for(size_t m = 0; m < vfx_instance->inputs.count; m++){
+                VfxInstanceInput* vfx_instance_input = &vfx_instance->inputs.items[m];
+                if(vfx_instance_input->keys.items) free(vfx_instance_input->keys.items);
+            }
+            if(vfx_instance->inputs.items) free(vfx_instance->inputs.items);
+        }
+        if(layer->vfxInstances.items) free(layer->vfxInstances.items);
+    }
+    layers.count = 0;
+
+    VfxDescriptors vfxDescriptors = project->vfxDescriptors;
+    vfxDescriptors.count = 0;
+
+    *project = (Project){
+        .layers = layers,
+        .vfxDescriptors = vfxDescriptors,
+    };
+
+}

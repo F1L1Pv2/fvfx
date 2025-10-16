@@ -490,3 +490,85 @@ bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
 
     return true;
 }
+
+static void freeMyMedia(VkDevice device, VkDescriptorPool descriptorPool, MyMedia* media) {
+    if (!media) return;
+
+    ffmpegMediaUninit(&media->media);
+
+    // Free Vulkan image resources
+    if (media->mediaImageView)
+        vkDestroyImageView(device, media->mediaImageView, NULL);
+    if (media->mediaImage)
+        vkDestroyImage(device, media->mediaImage, NULL);
+    if (media->mediaImageMemory)
+        vkFreeMemory(device, media->mediaImageMemory, NULL);
+    if (media->mediaDescriptorSet)
+        vkFreeDescriptorSets(device, descriptorPool, 1, &media->mediaDescriptorSet);
+
+    // Reset structure (optional safety)
+    *media = (MyMedia){0};
+}
+
+static void freeMyMedias(VkDevice device, VkDescriptorPool descriptorPool, MyMedias* medias) {
+    if (!medias) return;
+
+    for (size_t i = 0; i < medias->count; ++i)
+        freeMyMedia(device, descriptorPool, &medias->items[i]);
+
+    free(medias->items);
+    *medias = (MyMedias){0};
+}
+
+static void freeMyLayer(VkDevice device, VkDescriptorPool descriptorPool, MyLayer* layer) {
+    if (!layer) return;
+
+    // Free media collection
+    freeMyMedias(device, descriptorPool, &layer->myMedias);
+
+    // Free audio FIFO
+    if (layer->audioFifo)
+        av_audio_fifo_free(layer->audioFifo);
+
+    *layer = (MyLayer){0};
+}
+
+static void freeMyLayers(VkDevice device, VkDescriptorPool descriptorPool, MyLayers* layers) {
+    if (!layers) return;
+
+    for (size_t i = 0; i < layers->count; ++i)
+        freeMyLayer(device, descriptorPool, &layers->items[i]);
+
+    free(layers->items);
+    *layers = (MyLayers){0};
+}
+
+static void freeVulkanizerVfx(VkDevice device, VulkanizerVfx* vfx){
+    vkDestroyPipelineLayout(device, vfx->pipelineLayout, NULL);
+    vkDestroyPipeline(device, vfx->pipeline, NULL);
+    for(size_t i = 0; i < vfx->module.inputs.count; i++){
+        VfxInput* vfx_input = &vfx->module.inputs.items[i];
+        if(vfx_input->defaultValue) free(vfx_input->defaultValue);
+    }
+    if(vfx->module.inputs.items) free(vfx->module.inputs.items);
+}
+
+static void freeMyVfxs(VkDevice device, MyVfxs* vfxs) {
+    if (!vfxs) return;
+
+    for(size_t i = 0; i < vfxs->count; i++)
+        freeVulkanizerVfx(device, &vfxs->items[i]);
+
+    free(vfxs->items);
+    *vfxs = (MyVfxs){0};
+}
+
+void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject){
+    if (!myProject) return;
+
+    freeMyLayers(vulkanizer->device, vulkanizer->descriptorPool, &myProject->myLayers);
+    freeMyVfxs(vulkanizer->device, &myProject->myVfxs);
+    shader_utils_reset_string_allocator();
+
+    *myProject = (MyProject){0};
+}

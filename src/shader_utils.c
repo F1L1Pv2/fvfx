@@ -283,3 +283,7 @@ void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxIn
             break;
     }
 }
+
+void shader_utils_reset_string_allocator(){
+    sa_reset(&sa);
+}

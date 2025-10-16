@@ -528,6 +528,8 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
     )) return false;
 
+    vkDestroyShaderModule(vulkanizer->device, fragmentShader, NULL);
+
     outVfx->module.filepath = filename;
     return true;
 }
