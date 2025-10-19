@@ -11,7 +11,7 @@
 #include "myProject.h"
 #include <math.h>
 
-int render(Project* project){
+int render(Project* project, StringAllocator* sa){
     if(!vulkan_init_headless()) return 1;
 
     VkCommandBuffer cmd;
@@ -30,7 +30,7 @@ int render(Project* project){
     }, NULL, &inFlightFence) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer, sa)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};

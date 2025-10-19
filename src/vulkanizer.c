@@ -243,7 +243,8 @@ static void VulkanizerImagesOutPool_reset(VulkanizerImagesOutPool* pool){
 
 static VulkanizerImagesOutPool vulkanizerImagesOutPool = {0};
 
-bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer){
+bool Vulkanizer_init(VkDevice deviceIN, VkDescriptorPool descriptorPoolIN, size_t outWidth, size_t outHeight, Vulkanizer* vulkanizer, StringAllocator* sa){
+    vulkanizer->sa = sa;
     vulkanizer->device = deviceIN;
     vulkanizer->descriptorPool = descriptorPoolIN;
 
@@ -505,7 +506,7 @@ static String_Builder sb = {0};
 bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx){
     sb.count = 0;
     if(!read_entire_file(filename,&sb)) return false;
-    if(!extractVFXModuleMetaData(nob_sb_to_sv(sb),&outVfx->module)) return false;
+    if(!extractVFXModuleMetaData(nob_sb_to_sv(sb),&outVfx->module, vulkanizer->sa)) return false;
     if(!preprocessVFXModule(&sb, &outVfx->module)) return false;
     sb_append_null(&sb);
 

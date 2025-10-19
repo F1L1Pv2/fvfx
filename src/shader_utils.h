@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "project.h"
+#include "string_alloc.h"
 
 typedef struct{
     size_t push_constant_offset;
@@ -33,11 +34,9 @@ typedef struct {
 
 char* get_vfxInputTypeName(VfxInputType type);
 size_t get_vfxInputTypeSize(VfxInputType type);
-bool extractVFXModuleMetaData(String_View sv, VfxModule* out);
+bool extractVFXModuleMetaData(String_View sv, VfxModule* out, StringAllocator* sa);
 bool preprocessVFXModule(String_Builder* sb, VfxModule* module);
 
 void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t);
-
-void shader_utils_reset_string_allocator();
 
 #endif

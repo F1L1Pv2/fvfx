@@ -2,6 +2,7 @@
 #define FVFX_RENDER
 
 #include "project.h"
-int render(Project* project);
+#include "string_alloc.h"
+int render(Project* project, StringAllocator* sa);
 
 #endif
