@@ -1,7 +1,7 @@
 #include "shader_utils.h"
 #include <stdio.h>
 
-#include "string_alloc.h"
+#include "arena_alloc.h"
 
 char* get_vfxInputTypeName(VfxInputType type){
     switch (type)
@@ -59,7 +59,7 @@ size_t get_vfxInputTypeSize(VfxInputType type){
     }
 }
 
-bool extractVFXModuleMetaData(String_View sv, VfxModule* out, StringAllocator* sa){
+bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa){
     sv = sv_trim_left(sv);
     if(sv.count < 2) {
         printf("Empty file!");
@@ -89,19 +89,19 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, StringAllocator* s
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->name = sa_strdup(sa, sb.items);
+            out->name = aa_strdup(aa, sb.items);
         }
         else if(sv_eq(leftSide, sv_from_cstr("Description"))){
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->description = sa_strdup(sa, sb.items);
+            out->description = aa_strdup(aa, sb.items);
         }
         else if(sv_eq(leftSide, sv_from_cstr("Author"))){
             sb.count = 0;
             sb_append_buf(&sb, arg.data, arg.count);
             sb_append_null(&sb);
-            out->author = sa_strdup(sa, sb.items);
+            out->author = aa_strdup(aa, sb.items);
         }
         else if(sv_eq(leftSide, sv_from_cstr("Input"))){
             String_View inputArg = sv_trim_left(arg);
@@ -154,7 +154,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, StringAllocator* s
             sb.count = 0;
             sb_append_buf(&sb, inputName.data, inputName.count);
             sb_append_null(&sb);
-            input.name = sa_strdup(sa, sb.items);
+            input.name = aa_strdup(aa, sb.items);
 
             if(inputArg.count > 0){
                 sb.count = 0;

@@ -143,7 +143,7 @@ static bool pointInsideRect(float x, float y, Rect rect){
 #define PREVIEW_WIDTH_SCALER (0.75)
 #define PREVIEW_HEIGHT_SCALER (0.75)
 
-int preview(Project* project, const char* project_filename, int argc, const char** argv, StringAllocator* sa){
+int preview(Project* project, const char* project_filename, int argc, const char** argv, ArenaAllocator* aa){
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
 
     // TODO: optimize this byh even more
@@ -171,7 +171,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
     if(vkCreateSemaphore(device, &(VkSemaphoreCreateInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}, NULL, &readyToSwapYourChainSemaphore) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer, sa)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer, aa)) return 1;
 
     if(!dd_init(device, swapchainImageFormat, descriptorPool)) return 1;
 
@@ -410,8 +410,8 @@ int preview(Project* project, const char* project_filename, int argc, const char
             ma_device_stop(&audio_device);
             ma_device_uninit(&audio_device);
             double time = myProject.time;
-            project_uninit(&vulkanizer, &myProject, sa);
-            project_loader_clean(project, sa);
+            project_uninit(&vulkanizer, &myProject, aa);
+            project_loader_clean(project, aa);
             if (tempAudioBuf) {
                 av_freep(&tempAudioBuf[0]); // Frees the actual audio buffer(s)
                 av_freep(&tempAudioBuf);    // Frees the array of pointers
@@ -430,7 +430,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
             vkFreeMemory(device, outComposedImageMemory, NULL);
             free(outComposedVideoFrame);
 
-            if(!project_loader_load(project, project_filename, argc, argv, sa)) return 1;
+            if(!project_loader_load(project, project_filename, argc, argv, aa)) return 1;
             project->width *= PREVIEW_WIDTH_SCALER;
             project->height *= PREVIEW_HEIGHT_SCALER;
 

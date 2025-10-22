@@ -7,7 +7,7 @@
 typedef bool (*project_init_type)(Project* project, int argc, const char** argv);
 typedef void (*project_clean_type)(Project* project);
 
-bool project_loader_load(Project* project, const char* filename, int argc, const char** argv, StringAllocator* sa){
+bool project_loader_load(Project* project, const char* filename, int argc, const char** argv, ArenaAllocator* aa){
     void* dll = platform_load_dynamic_library(filename);
     if (dll == NULL) {
         fprintf(stderr, "Couldn't load project %s\n", filename);
@@ -29,19 +29,19 @@ bool project_loader_load(Project* project, const char* filename, int argc, const
     }
 
     //duping strings so they are not lost after unloading dll
-    project->outputFilename = sa_strdup(sa, project->outputFilename);
+    project->outputFilename = aa_strdup(aa, project->outputFilename);
 
     for(size_t i = 0; i < project->layers.count; i++){
         Layer* layer = &project->layers.items[i];
         for(size_t j = 0; j < layer->mediaInstances.count; j++){
             MediaInstance* media_instance = &layer->mediaInstances.items[j];
-            media_instance->filename = sa_strdup(sa, media_instance->filename);
+            media_instance->filename = aa_strdup(aa, media_instance->filename);
         }
     }
 
     for(size_t i = 0; i < project->vfxDescriptors.count; i++){
         VfxDescriptor* vfx_descriptor = &project->vfxDescriptors.items[i];
-        vfx_descriptor->filename = sa_strdup(sa, vfx_descriptor->filename);
+        vfx_descriptor->filename = aa_strdup(aa, vfx_descriptor->filename);
     }
 
     //cleaning up project (if it does any runtime allocation) in case of function not existing we just dont care
@@ -53,8 +53,8 @@ bool project_loader_load(Project* project, const char* filename, int argc, const
     return true;
 }
 
-void project_loader_clean(Project* project, StringAllocator* sa){
-    sa_reset(sa);
+void project_loader_clean(Project* project, ArenaAllocator* aa){
+    aa_reset(aa);
     Layers layers = project->layers;
     for(size_t i = 0; i < layers.count; i++){
         Layer* layer = &layers.items[i];

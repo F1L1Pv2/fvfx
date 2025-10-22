@@ -6,7 +6,7 @@
 #include "preview.h"
 #include <string.h>
 #include <assert.h>
-#include "string_alloc.h"
+#include "arena_alloc.h"
 
 enum {
     MODE_NONE = 0,
@@ -23,12 +23,12 @@ int main(int argc, const char** argv){
     }
 
     // ------------------------------ project config code --------------------------------
-    StringAllocator sa = {0};
+    ArenaAllocator aa = {0};
     Project project = {0};
     const char* proj_filename = argv[2];
     size_t proj_argc = argc > 3 ? argc - 3 : 0;
     const char** proj_argv = argc > 3 ? argv+3 : NULL;
-    if(!project_loader_load(&project, proj_filename, proj_argc, proj_argv, &sa)) {
+    if(!project_loader_load(&project, proj_filename, proj_argc, proj_argv, &aa)) {
         fprintf(stderr, "Couldn't load project\n");
         return 1;
     }
@@ -44,9 +44,9 @@ int main(int argc, const char** argv){
     }
 
     if(mode == MODE_RENDER){
-        return render(&project, &sa);
+        return render(&project, &aa);
     }else if(mode == MODE_PREVIEW){
-        return preview(&project, proj_filename, proj_argc, proj_argv, &sa);
+        return preview(&project, proj_filename, proj_argc, proj_argv, &aa);
     }else assert(false && "UNREACHABLE");
 
     return 1;

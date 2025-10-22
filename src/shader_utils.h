@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "project.h"
-#include "string_alloc.h"
+#include "arena_alloc.h"
 
 typedef struct{
     size_t push_constant_offset;
@@ -34,7 +34,7 @@ typedef struct {
 
 char* get_vfxInputTypeName(VfxInputType type);
 size_t get_vfxInputTypeSize(VfxInputType type);
-bool extractVFXModuleMetaData(String_View sv, VfxModule* out, StringAllocator* sa);
+bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa);
 bool preprocessVFXModule(String_Builder* sb, VfxModule* module);
 
 void lerpVfxValue(VfxInputType type, VfxInputValue* out, VfxInputValue* a, VfxInputValue* b, double t);

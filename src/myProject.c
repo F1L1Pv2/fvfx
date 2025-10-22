@@ -563,13 +563,13 @@ static void freeMyVfxs(VkDevice device, MyVfxs* vfxs) {
     *vfxs = (MyVfxs){0};
 }
 
-void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject, StringAllocator* sa){
+void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject, ArenaAllocator* aa){
     if (!myProject) return;
 
     freeMyLayers(vulkanizer->device, vulkanizer->descriptorPool, &myProject->myLayers);
     freeMyVfxs(vulkanizer->device, &myProject->myVfxs);
 
-    sa_reset(sa);
+    aa_reset(aa);
 
     *myProject = (MyProject){0};
 }
