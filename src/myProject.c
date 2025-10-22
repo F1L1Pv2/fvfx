@@ -110,17 +110,7 @@ static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
     MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
     assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
-        if(args->localTime >= args->checkDuration){
-            args->currentSlice++;
-            if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
-            printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
-            args->localTime = 0;
-            args->video_skip_count = 0;
-            args->times_to_catch_up_target_framerate = 0;
-            if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
-            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
-            return -GET_FRAME_NEXT_MEDIA;
-        }
+        if(args->localTime >= args->checkDuration) return -GET_FRAME_NEXT_MEDIA;
     
         
         if(args->times_to_catch_up_target_framerate > 0){
@@ -184,14 +174,6 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
         return -GET_FRAME_SKIP;
     }
 
-    args->currentSlice++;
-    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
-    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
-    args->localTime = 0;
-    args->video_skip_count = 0;
-    args->times_to_catch_up_target_framerate = 0;
-    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
-    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
     return -GET_FRAME_NEXT_MEDIA;
 }
 
@@ -210,14 +192,6 @@ static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
         return 0;
     }
 
-    args->currentSlice++;
-    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
-    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
-    args->localTime = 0;
-    args->video_skip_count = 0;
-    args->times_to_catch_up_target_framerate = 0;
-    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
-    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
     return -GET_FRAME_NEXT_MEDIA;
 }
 
@@ -232,14 +206,6 @@ static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
         return -GET_FRAME_SKIP;
     }
 
-    args->currentSlice++;
-    if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
-    printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
-    args->localTime = 0;
-    args->video_skip_count = 0;
-    args->times_to_catch_up_target_framerate = 0;
-    if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
-    if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
     return -GET_FRAME_NEXT_MEDIA;
 }
 
@@ -256,7 +222,17 @@ static int getFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* projec
             else assert(false && "Unreachable");
         }
 
-        if(e != -GET_FRAME_NEXT_MEDIA) return e;
+        if(e == -GET_FRAME_NEXT_MEDIA){
+            args->currentSlice++;
+            if(args->currentSlice >= slices->count) return -GET_FRAME_FINISHED;
+            printf("[FVFX] Processing Layer %s Slice %zu/%zu!\n", hrp_name(args),args->currentSlice+1, slices->count);
+            args->localTime = 0;
+            args->video_skip_count = 0;
+            args->times_to_catch_up_target_framerate = 0;
+            if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
+            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+        }
+        return e;
     }
 }
 
