@@ -231,6 +231,7 @@ static int getFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* projec
             args->times_to_catch_up_target_framerate = 0;
             if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
             if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+            continue;
         }
         return e;
     }
