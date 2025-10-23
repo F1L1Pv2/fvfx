@@ -10,6 +10,7 @@
 #include "ffmpeg_helper.h"
 #include "myProject.h"
 #include <math.h>
+#include "ll.h"
 
 int render(Project* project, ArenaAllocator* aa){
     if(!vulkan_init_headless()) return 1;
@@ -43,7 +44,7 @@ int render(Project* project, ArenaAllocator* aa){
     size_t out_audio_frame_size = renderContext.audioCodecContext->frame_size;
 
     MyProject myProject = {0};
-    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
+    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
@@ -77,7 +78,7 @@ int render(Project* project, ArenaAllocator* aa){
     vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     vkCmdEndSingleTime(tempCmd);
 
-    MyLayers* myLayers = &myProject.myLayers;
+    MyLayer* myLayers = myProject.myLayers;
     while(true){
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFence);
@@ -159,11 +160,11 @@ int render(Project* project, ArenaAllocator* aa){
 
         if(enoughSamples){
             av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
-            for(size_t i = 0; i < myLayers->count; i++){
-                MyLayer* myLayer = &myLayers->items[i];
+            for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
                 if(!myLayer->audioFifo) continue;
                 int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, out_audio_frame_size);
-                bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
+                MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
+                bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio);
                 if(conditionalMix && read > 0){
                     mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
                     continue;
@@ -184,8 +185,7 @@ int render(Project* project, ArenaAllocator* aa){
     bool audioLeft = true;
     while (audioLeft) {
         audioLeft = false;
-        for (size_t i = 0; i < myLayers->count; i++) {
-            MyLayer* myLayer = &myLayers->items[i];
+        for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
             if(!myLayer->audioFifo) continue;
             if (av_audio_fifo_size(myLayer->audioFifo) > 0) {
                 audioLeft = true;
@@ -200,8 +200,7 @@ int render(Project* project, ArenaAllocator* aa){
             project->stereo ? 2 : 1,
             out_audio_format
         );
-        for (size_t i = 0; i < myLayers->count; i++) {
-            MyLayer* myLayer = &myLayers->items[i];
+        for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
             if(!myLayer->audioFifo) continue;
             int available = av_audio_fifo_size(myLayer->audioFifo);
             if (available <= 0) continue;

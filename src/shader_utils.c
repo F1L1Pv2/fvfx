@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "arena_alloc.h"
+#include "ll.h"
 
 char* get_vfxInputTypeName(VfxInputType type){
     switch (type)
@@ -59,6 +60,10 @@ size_t get_vfxInputTypeSize(VfxInputType type){
     }
 }
 
+static void* ll_arena_allocator(size_t size, void* caller_data){
+    return aa_alloc((ArenaAllocator*)caller_data,size);
+}
+
 bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa){
     sv = sv_trim_left(sv);
     if(sv.count < 2) {
@@ -79,6 +84,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa
     String_Builder sb = {0};
     size_t push_constant_offset = 0;
 
+    out->inputs = NULL;
     while(sv.data[0] != '*' && sv.data[1] != '/' && sv.count > 0){
         String_View leftSide = sv_chop_by_delim(&sv, ':');
         sv = sv_trim_left(sv);
@@ -161,7 +167,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa
                 sb_append_buf(&sb, inputArg.data, inputArg.count);
                 sb_append_null(&sb);
 
-                input.defaultValue = calloc(1, sizeof(*input.defaultValue));
+                input.defaultValue = aa_alloc(aa, sizeof(*input.defaultValue));
                 out->hasDefaultValues = true;
 
                 switch (input.type)
@@ -178,7 +184,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa
             input.push_constant_offset = push_constant_offset;
             push_constant_offset += get_vfxInputTypeSize(input.type);
 
-            da_append(&out->inputs, input);
+            ll_push(&out->inputs, input, ll_arena_allocator, aa);
         }
         else{
             printf("Unknown metadata attribute: "SV_Fmt"\n", SV_Arg(leftSide));
@@ -225,11 +231,11 @@ bool preprocessVFXModule(String_Builder* sb, VfxModule* module){
     sb_append_cstr(&newSB,"vec2 renderArea;\n");
     sb_append_cstr(&newSB,"vec2 mediaArea;\n");
 
-    for(size_t i = 0; i < module->inputs.count; i++){
-        assert(module->inputs.items[i].type != VFX_NONE);
-        sb_append_cstr(&newSB, get_vfxInputTypeName(module->inputs.items[i].type));
+    for(VfxInput* input = module->inputs; input != NULL; input = input->next){
+        assert(input->type != VFX_NONE);
+        sb_append_cstr(&newSB, get_vfxInputTypeName(input->type));
         sb_append_cstr(&newSB, " ");
-        sb_append_cstr(&newSB, module->inputs.items[i].name);
+        sb_append_cstr(&newSB, input->name);
         sb_append_cstr(&newSB, ";\n");
     }
 

@@ -2,12 +2,11 @@
 #include "human_readable_pointers.h"
 #include "ffmpeg_helper.h"
 
-#define NOB_STRIP_PREFIX
-#include "nob.h"
+#include "ll.h"
 
 #define FVFX_YES
 #ifdef FVFX_YES
-static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
+static void VfxInstance_Update(MyVfx* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
     for (size_t i = 0; i < instance->inputs.count; i++) {
         VfxInstanceInput* myInput = &instance->inputs.items[i];
 
@@ -45,8 +44,9 @@ static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double cur
             }
         }
 
-        void* dst = (uint8_t*)push_constants_data +
-            myVfxs->items[instance->vfx_index].module.inputs.items[myInput->index].push_constant_offset;
+        MyVfx* myVfx = ll_at(myVfxs,instance->vfx_index);
+        VfxInput* vfxInput = ll_at(myVfx->vfx.module.inputs, myInput->index);
+        void* dst = (uint8_t*)push_constants_data + vfxInput->push_constant_offset;
 
         memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
     }
@@ -96,18 +96,18 @@ static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double cur
 }
 #endif
 
-static bool updateSlice(MyMedias* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
+static bool updateSlice(MyMedia* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
     *checkDuration = slices->items[currentSlice].duration;
     if(*currentMediaIndex == EMPTY_MEDIA) return true;
-    MyMedia* media = &medias->items[*currentMediaIndex];
+    MyMedia* media = ll_at(medias,*currentMediaIndex);
     assert(checkDuration > 0 && "You fucked up");
     ffmpegMediaSeek(&media->media, slices->items[currentSlice].offset);
     return true;
 }
 
-static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
-    MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
+    MyMedia* myMedia = ll_at(myMedias, args->currentMediaIndex);
     assert(myMedia->hasVideo && "You used wrong function!");
     while(true){
         if(args->localTime >= args->checkDuration) return -GET_FRAME_NEXT_MEDIA;
@@ -122,13 +122,13 @@ static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         
         if(frame->type == FRAME_TYPE_VIDEO){
-            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base)  - slices->items[args->currentSlice].offset;
+            args->localTime = frame->pts * av_q2d(myMedia->media.videoStream->time_base)  - slices->items[args->currentSlice].offset;
             if(args->video_skip_count > 0){
                 args->video_skip_count--;
                 return -GET_FRAME_SKIP;
             }
     
-            double framerate = 1.0 / ((double)(frame->pts - args->lastVideoPts) * av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base));
+            double framerate = 1.0 / ((double)(frame->pts - args->lastVideoPts) * av_q2d(myMedia->media.videoStream->time_base));
             args->lastVideoPts = frame->pts;
     
             args->times_to_catch_up_target_framerate = 1;
@@ -143,7 +143,7 @@ static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
             args->times_to_catch_up_target_framerate--;
             return 0;
         }else{
-            args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
+            args->localTime = frame->pts * av_q2d(myMedia->media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
             av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
         }
     }
@@ -151,9 +151,9 @@ static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
     return -GET_FRAME_ERR;
 }
 
-static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args){
+static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args){
     assert(audioFifo);
-    MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+    MyMedia* myMedia = ll_at(myMedias, args->currentMediaIndex);
     assert(myMedia->hasAudio && "You used wrong function!");
     assert(!myMedia->hasVideo && "You used wrong function!");
 
@@ -165,7 +165,7 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_AUDIO && "You fucked up");
         
-        args->localTime = frame->pts * av_q2d(myMedias->items[args->currentMediaIndex].media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
+        args->localTime = frame->pts * av_q2d(myMedia->media.audioStream->time_base)  - slices->items[args->currentSlice].offset;
         av_audio_fifo_write(audioFifo, (void**)frame->audio.data, frame->audio.nb_samples);
     }
 
@@ -177,14 +177,14 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, VkImageView composedOutView){
+static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, VkImageView composedOutView){
     if(args->localTime < args->checkDuration){
         args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
         args->localTime = args->checkDuration;
     }
 
     if(args->times_to_catch_up_target_framerate > 0){
-        MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
+        MyMedia* myMedia = ll_at(myMedias, args->currentMediaIndex);
         args->times_to_catch_up_target_framerate--;
         if(!ffmpegMediaGetFrame(&myMedia->media, frame)) {args->localTime = args->checkDuration; return -GET_FRAME_NEXT_MEDIA;};
         assert(frame->type == FRAME_TYPE_VIDEO && "You used wrong function");
@@ -195,7 +195,7 @@ static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, GetVideoFrameArgs* args){
+static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, GetVideoFrameArgs* args){
     if(args->localTime < args->checkDuration){
         args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
         args->localTime = args->checkDuration;
@@ -209,13 +209,13 @@ static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
     return -GET_FRAME_NEXT_MEDIA;
 }
 
-static int getFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedias* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
+static int getFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, AVAudioFifo* audioFifo, GetVideoFrameArgs* args, VkImageView composedOutView){
     int e;
+    MyMedia* myMedia = ll_at(myMedias, args->currentMediaIndex);
     while(true){
         if(args->currentMediaIndex == EMPTY_MEDIA){
             e = getEmptyFrame(vulkanizer,project,slices,myMedias,args);
         }else{
-            MyMedia* myMedia = &myMedias->items[args->currentMediaIndex];
             if(myMedia->media.isImage) e = getImageFrame(cmd, vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,args,composedOutView);
             else if(myMedia->hasVideo) e = getVideoFrame(cmd, vulkanizer,project,slices,myMedias,vulkanizerVfxInstances,frame,audioFifo,args,composedOutView);
             else if(myMedia->hasAudio && !myMedia->hasVideo) e = getAudioFrame(vulkanizer,project,slices,myMedias,frame, audioFifo, args);
@@ -230,7 +230,9 @@ static int getFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* projec
             args->video_skip_count = 0;
             args->times_to_catch_up_target_framerate = 0;
             if(!updateSlice(myMedias,slices, args->currentSlice, &args->currentMediaIndex, &args->checkDuration)) return -GET_FRAME_ERR;
-            if(myMedias->items[args->currentMediaIndex].hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedias->items[args->currentMediaIndex].media.videoStream->time_base);
+            if(args->currentMediaIndex == EMPTY_MEDIA) continue;
+            myMedia = ll_at(myMedias, args->currentMediaIndex);
+            if(myMedia->hasVideo) args->lastVideoPts = slices->items[args->currentSlice].offset / av_q2d(myMedia->media.videoStream->time_base);
             continue;
         }
         return e;
@@ -241,10 +243,11 @@ static int VfxInstanceInput_compare(const void* a, const void* b) {
     return ((VfxInstanceInput*)a)->index - ((VfxInstanceInput*)b)->index;
 }
 
-bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size){
-    MyLayers* myLayers = &myProject->myLayers;
-    MyVfxs* myVfxs = &myProject->myVfxs;
+static void* ll_arena_allocator(size_t size, void* caller_data){
+    return aa_alloc((ArenaAllocator*)caller_data,size);
+}
 
+bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size, ArenaAllocator* aa){
     for(size_t j = 0; j < project->layers.count; j++){
         Layer* layer = &project->layers.items[j];
         MyLayer myLayer = {0};
@@ -266,19 +269,19 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             if(myMedia.hasVideo){
                 if(!Vulkanizer_init_image_for_media(vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return 1;
             }
-            da_append(&myLayer.myMedias, myMedia);
+            ll_push(&myLayer.myMedias, myMedia, ll_arena_allocator, aa);
         }
         if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(expectedSampleFormat, project->stereo ? 2 : 1, fifo_size);
-        da_append(myLayers, myLayer);
+        ll_push(&myProject->myLayers, myLayer, ll_arena_allocator, aa);
     }
-    myLayers->fifo_fmt = expectedSampleFormat;
-    myLayers->fifo_frame_size = fifo_size;
-    myLayers->fifo_ch_layout = project->stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
+    myProject->myLayers_fifo_fmt = expectedSampleFormat;
+    myProject->myLayers_fifo_frame_size = fifo_size;
+    myProject->myLayers_fifo_ch_layout = project->stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
 
     for(size_t i = 0; i < project->vfxDescriptors.count; i++){
-        VulkanizerVfx vfx = {0};
-        if(!Vulkanizer_init_vfx(vulkanizer, project->vfxDescriptors.items[i].filename, &vfx)) return false;
-        da_append(myVfxs, vfx);
+        MyVfx vfx = {0};
+        if(!Vulkanizer_init_vfx(vulkanizer, project->vfxDescriptors.items[i].filename, &vfx.vfx)) return false;
+        ll_push(&myProject->myVfxs, vfx, ll_arena_allocator, aa);
     }
 
     //creating rest of inputs needed + type checking
@@ -286,14 +289,14 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
         Layer* layer = &project->layers.items[i];
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];
-            assert(vfx->vfx_index < myVfxs->count);
-            VulkanizerVfx* myVfx = &myVfxs->items[vfx->vfx_index];
+            assert(vfx->vfx_index < project->vfxDescriptors.count);
+            MyVfx* myVfx_ref = ll_at(myProject->myVfxs,vfx->vfx_index);
+            VulkanizerVfx* myVfx = &myVfx_ref->vfx;
 
-            if(myVfx->module.inputs.count > 0){
+            if(myVfx->module.inputs != NULL){
                 size_t originputsCount = vfx->inputs.count;
-                for(size_t m = 0; m < myVfx->module.inputs.count; m++){
-                    VfxInput* input = &myVfx->module.inputs.items[m];
-
+                size_t m = 0;
+                for(VfxInput* input = myVfx->module.inputs; input != NULL; input = input->next,m++){
                     bool needToAdd = true;
                     for(size_t n = 0; n < originputsCount; n++){
                         VfxInstanceInput* myInput = &vfx->inputs.items[n];
@@ -329,87 +332,94 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     myProject->duration = 0;
 
     //setting everything from -1
-    for(size_t i  = 0; i < myLayers->count; i++){
-        Layer* layer = &project->layers.items[i];
-        MyLayer* myLayer = &myLayers->items[i];
-        double layerDuration = 0;
-        for(size_t j = 0; j < layer->slices.count; j++){
-            Slice* slice = &layer->slices.items[j];
-            if(slice->duration == -1){
-                if(slice->media_index == EMPTY_MEDIA){
-                    fprintf(stderr, "You cannot have duration of -1 in Empty media\n");
-                    return false;
-                }
-                if(slice->media_index >= myLayer->myMedias.count){
-                    fprintf(stderr, "Media %zu doesnt exist\n", slice->media_index);
-                    return false;
-                }
-                MyMedia* media = &myLayer->myMedias.items[slice->media_index];
-                if(media->media.isImage){
-                    fprintf(stderr, "You cannot have duration of -1 in Image media\n");
-                    return false;
-                }
+    {
+        size_t i = 0;
+        for(MyLayer* myLayer = myProject->myLayers; myLayer != NULL; myLayer = myLayer->next, i++){
+            size_t myMedias_count = 0;
+            for(MyMedia* myMedia = myLayer->myMedias; myMedia != NULL; myMedia = myMedia->next) myMedias_count++;
 
-                slice->duration = media->duration - slice->offset;
+            Layer* layer = &project->layers.items[i];
+            double layerDuration = 0;
+            for(size_t j = 0; j < layer->slices.count; j++){
+                Slice* slice = &layer->slices.items[j];
+                if(slice->duration == -1){
+                    if(slice->media_index == EMPTY_MEDIA){
+                        fprintf(stderr, "You cannot have duration of -1 in Empty media\n");
+                        return false;
+                    }
+                    if(slice->media_index >= myMedias_count){
+                        fprintf(stderr, "Media %zu doesnt exist\n", slice->media_index);
+                        return false;
+                    }
+                    MyMedia* media = ll_at(myLayer->myMedias, slice->media_index);
+                    if(media->media.isImage){
+                        fprintf(stderr, "You cannot have duration of -1 in Image media\n");
+                        return false;
+                    }
+
+                    slice->duration = media->duration - slice->offset;
+                }
+                layerDuration += slice->duration;
             }
-            layerDuration += slice->duration;
+            if(layerDuration > myProject->duration) myProject->duration = layerDuration;
         }
-        if(layerDuration > myProject->duration) myProject->duration = layerDuration;
     }
 
-    for(size_t i = 0; i < myLayers->count; i++){
-        MyLayer* myLayer = &myLayers->items[i];
-        Layer* layer = &project->layers.items[i];
-        if(!updateSlice(&myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return false;
-        if(myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myLayer->myMedias.items[myLayer->args.currentMediaIndex].media.videoStream->time_base);
-        printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);
+    {
+        size_t i = 0;
+        for(MyLayer* myLayer = myProject->myLayers; myLayer != NULL; myLayer = myLayer->next, i++){
+            Layer* layer = &project->layers.items[i];
+            if(!updateSlice(myLayer->myMedias,&layer->slices, myLayer->args.currentSlice, &myLayer->args.currentMediaIndex, &myLayer->args.checkDuration)) return false;
+            if(myLayer->args.currentMediaIndex == EMPTY_MEDIA) continue;
+            MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
+            if(myMedia->hasVideo) myLayer->args.lastVideoPts = layer->slices.items[myLayer->args.currentSlice].offset / av_q2d(myMedia->media.videoStream->time_base);
+            printf("[FVFX] Processing Layer %s Slice 1/%zu!\n", hrp_name(&myLayer->args), layer->slices.count);    
+        }
     }
     return true;
 }
 
 int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
-    MyLayers* myLayers = &myProject->myLayers;
-    MyVfxs* myVfxs = &myProject->myVfxs;
     *enoughSamplesOUT = true;
     size_t finishedCount = 0;
-    for(size_t i = 0; i < myLayers->count; i++){
-        MyLayer* myLayer = &myLayers->items[i];
+    size_t i = 0;
+    for(MyLayer* myLayer = myProject->myLayers; myLayer != NULL; myLayer = myLayer->next, i++){
         if(myLayer->finished) {
             finishedCount++;
             continue;
         }
         Layer* layer = &project->layers.items[i];
-
         vulkanizerVfxInstances->count = 0;
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];
             if((vfx->duration != -1) && !(myProject->time > vfx->offset && myProject->time < vfx->offset + vfx->duration)) continue;
 
-            if(vfx->inputs.count > 0) VfxInstance_Update(myVfxs, vfx, myProject->time, push_constants_buf);
-            da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfxs->items[vfx->vfx_index], .push_constants_data = push_constants_buf, .push_constants_size = myVfxs->items[vfx->vfx_index].module.pushContantsSize}));
+            if(vfx->inputs.count > 0) VfxInstance_Update(myProject->myVfxs, vfx, myProject->time, push_constants_buf);
+            MyVfx* myVfx = ll_at(myProject->myVfxs, vfx->vfx_index);
+            da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfx->vfx, .push_constants_data = push_constants_buf, .push_constants_size = myVfx->vfx.module.pushContantsSize}));
         }
 
-        int e = getFrame(cmd, vulkanizer, project, &layer->slices, &myLayer->myMedias, vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
+        int e = getFrame(cmd, vulkanizer, project, &layer->slices, myLayer->myMedias, vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
         
-        if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio))){
-            av_audio_fifo_add_silence(myLayer->audioFifo, myLayers->fifo_fmt, &myLayers->fifo_ch_layout, project->sampleRate / project->fps);
+        MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
+        if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio))){
+            av_audio_fifo_add_silence(myLayer->audioFifo, myProject->myLayers_fifo_fmt, &myProject->myLayers_fifo_ch_layout, project->sampleRate / project->fps);
         }
 
-        if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < myLayers->fifo_frame_size) *enoughSamplesOUT = false;
+        if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < myProject->myLayers_fifo_frame_size) *enoughSamplesOUT = false;
         if(e == -GET_FRAME_ERR) return 1;
         if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
         if(e == -GET_FRAME_SKIP) continue;
     }
     myProject->time += 1.0 / project->fps;
-    return finishedCount == myLayers->count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
+    return finishedCount == project->layers.count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
 }
 
 bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
-    MyLayers* myLayers = &myProject->myLayers;
     myProject->time = time_seconds;
 
-    for (size_t i = 0; i < myLayers->count; i++) {
-        MyLayer* myLayer = &myLayers->items[i];
+    size_t i = 0;
+    for(MyLayer* myLayer = myProject->myLayers; myLayer != NULL; myLayer = myLayer->next, i++){
         Layer* layer = &project->layers.items[i];
 
         myLayer->args.currentSlice = 0;
@@ -436,7 +446,7 @@ bool project_seek(Project* project, MyProject* myProject, double time_seconds) {
                 myLayer->args.localTime = time_seconds - sliceStart;
 
                 if (myLayer->args.currentMediaIndex != EMPTY_MEDIA) {
-                    MyMedia* media = &myLayer->myMedias.items[myLayer->args.currentMediaIndex];
+                    MyMedia* media = ll_at(myLayer->myMedias,myLayer->args.currentMediaIndex);
 
                     if (!media->media.isImage) {
                         if(!ffmpegMediaSeek(&media->media, slice->offset + myLayer->args.localTime)) {
@@ -482,70 +492,50 @@ static void freeMyMedia(VkDevice device, VkDescriptorPool descriptorPool, MyMedi
         vkFreeMemory(device, media->mediaImageMemory, NULL);
     if (media->mediaDescriptorSet)
         vkFreeDescriptorSets(device, descriptorPool, 1, &media->mediaDescriptorSet);
-
-    // Reset structure (optional safety)
-    *media = (MyMedia){0};
 }
 
-static void freeMyMedias(VkDevice device, VkDescriptorPool descriptorPool, MyMedias* medias) {
+static void freeMyMedias(VkDevice device, VkDescriptorPool descriptorPool, MyMedia* medias) {
     if (!medias) return;
 
-    for (size_t i = 0; i < medias->count; ++i)
-        freeMyMedia(device, descriptorPool, &medias->items[i]);
-
-    free(medias->items);
-    *medias = (MyMedias){0};
+    for(MyMedia* myMedia = medias; myMedia != NULL; myMedia = myMedia->next)
+        freeMyMedia(device, descriptorPool, myMedia);
 }
 
 static void freeMyLayer(VkDevice device, VkDescriptorPool descriptorPool, MyLayer* layer) {
     if (!layer) return;
 
     // Free media collection
-    freeMyMedias(device, descriptorPool, &layer->myMedias);
+    freeMyMedias(device, descriptorPool, layer->myMedias);
 
     // Free audio FIFO
     if (layer->audioFifo)
         av_audio_fifo_free(layer->audioFifo);
-
-    *layer = (MyLayer){0};
 }
 
-static void freeMyLayers(VkDevice device, VkDescriptorPool descriptorPool, MyLayers* layers) {
+static void freeMyLayers(VkDevice device, VkDescriptorPool descriptorPool, MyLayer* layers) {
     if (!layers) return;
 
-    for (size_t i = 0; i < layers->count; ++i)
-        freeMyLayer(device, descriptorPool, &layers->items[i]);
-
-    free(layers->items);
-    *layers = (MyLayers){0};
+    for(MyLayer* myLayer = layers; myLayer != NULL; myLayer = myLayer->next)
+        freeMyLayer(device, descriptorPool, myLayer);
 }
 
 static void freeVulkanizerVfx(VkDevice device, VulkanizerVfx* vfx){
     vkDestroyPipelineLayout(device, vfx->pipelineLayout, NULL);
     vkDestroyPipeline(device, vfx->pipeline, NULL);
-    for(size_t i = 0; i < vfx->module.inputs.count; i++){
-        VfxInput* vfx_input = &vfx->module.inputs.items[i];
-        if(vfx_input->defaultValue) free(vfx_input->defaultValue);
-    }
-    if(vfx->module.inputs.items) free(vfx->module.inputs.items);
 }
 
-static void freeMyVfxs(VkDevice device, MyVfxs* vfxs) {
+static void freeMyVfxs(VkDevice device, MyVfx* vfxs) {
     if (!vfxs) return;
 
-    for(size_t i = 0; i < vfxs->count; i++)
-        freeVulkanizerVfx(device, &vfxs->items[i]);
-
-    free(vfxs->items);
-    *vfxs = (MyVfxs){0};
+    for(MyVfx* myVfx = vfxs; myVfx != NULL; myVfx = myVfx->next)
+        freeVulkanizerVfx(device, &myVfx->vfx);
 }
 
 void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject, ArenaAllocator* aa){
     if (!myProject) return;
 
-    freeMyLayers(vulkanizer->device, vulkanizer->descriptorPool, &myProject->myLayers);
-    freeMyVfxs(vulkanizer->device, &myProject->myVfxs);
-
+    freeMyLayers(vulkanizer->device, vulkanizer->descriptorPool, myProject->myLayers);
+    freeMyVfxs(vulkanizer->device, myProject->myVfxs);
     aa_reset(aa);
 
     *myProject = (MyProject){0};

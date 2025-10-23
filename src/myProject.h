@@ -6,7 +6,9 @@
 #include <libavutil/audio_fifo.h>
 #include "arena_alloc.h"
 
-typedef struct{
+typedef struct MyMedia MyMedia;
+
+struct MyMedia{
     Media media;
     bool hasAudio;
     bool hasVideo;
@@ -18,19 +20,15 @@ typedef struct{
     void* mediaImageData;
     VkDescriptorSet mediaDescriptorSet;
     double duration;
-} MyMedia;
+    MyMedia* next;
+};
 
-typedef struct{
-    MyMedia* items;
-    size_t count;
-    size_t capacity;
-} MyMedias;
+typedef struct MyVfx MyVfx;
 
-typedef struct{
-    VulkanizerVfx* items;
-    size_t count;
-    size_t capacity;
-} MyVfxs;
+struct MyVfx{
+    VulkanizerVfx vfx;
+    MyVfx* next;
+};
 
 enum {
     GET_FRAME_ERR = 1,
@@ -49,27 +47,23 @@ typedef struct{
     int64_t lastVideoPts;
 } GetVideoFrameArgs;
 
-typedef struct{
-    MyMedias myMedias;
+typedef struct MyLayer MyLayer;
+
+struct MyLayer{
+    MyMedia* myMedias;
     AVAudioFifo* audioFifo;
     Frame frame;
     GetVideoFrameArgs args;
     bool finished;
-} MyLayer;
+    MyLayer* next;
+};
 
 typedef struct{
-    MyLayer* items;
-    size_t count;
-    size_t capacity;
-
-    enum AVSampleFormat fifo_fmt;
-    AVChannelLayout fifo_ch_layout;
-    size_t fifo_frame_size;
-} MyLayers;
-
-typedef struct{
-    MyLayers myLayers;
-    MyVfxs myVfxs;
+    MyLayer* myLayers;
+    enum AVSampleFormat myLayers_fifo_fmt;
+    AVChannelLayout myLayers_fifo_ch_layout;
+    size_t myLayers_fifo_frame_size;
+    MyVfx* myVfxs;
     double time;
     double duration;
 } MyProject;
@@ -79,7 +73,7 @@ enum {
     PROCESS_PROJECT_FINISHED
 };
 
-bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size);
+bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size, ArenaAllocator* aa);
 int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
 bool project_seek(Project* project, MyProject* myProject, double time_seconds);
 void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject, ArenaAllocator* aa);

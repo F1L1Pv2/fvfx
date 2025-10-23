@@ -12,6 +12,7 @@
 #include "thirdparty/miniaudio.h"
 #include "dd.h"
 #include "loader.h"
+#include "ll.h"
 
 typedef struct{
     Project* project;
@@ -30,14 +31,14 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     MiniaudioUserData* data = (MiniaudioUserData*)pDevice->pUserData;
     if(*data->paused) return;
     Project* project = data->project;
-    MyLayers* myLayers = &data->myProject->myLayers;
+    MyLayer* myLayers = data->myProject->myLayers;
     uint8_t** tempAudioBuf = data->tempAudioBuf;
 
-    for(size_t i = 0; i < myLayers->count; i++){
-        MyLayer* myLayer = &myLayers->items[i];
+    for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
         if(!myLayer->audioFifo) continue;
         int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, frameCount);
-        bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myLayer->myMedias.items[myLayer->args.currentMediaIndex].hasAudio);
+        MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
+        bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio);
         if(conditionalMix && read > 0){
             mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format);
             continue;
@@ -179,7 +180,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
     size_t out_audio_frame_size = project->sampleRate/100;
 
     MyProject myProject = {0};
-    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
+    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
@@ -438,7 +439,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
             vulkanizer.videoOutHeight = project->height;
 
             out_audio_frame_size = project->sampleRate/100;
-            if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size)) return 1;
+            if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
             if(!createMyImage(device, &outComposedImage, 
                 project->width, project->height, 

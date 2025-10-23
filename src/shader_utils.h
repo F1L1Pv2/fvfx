@@ -9,25 +9,22 @@
 #include "project.h"
 #include "arena_alloc.h"
 
-typedef struct{
+typedef struct VfxInput VfxInput;
+
+struct VfxInput{
     size_t push_constant_offset;
     VfxInputType type;
     const char* name;
     VfxInputValue* defaultValue;
-} VfxInput;
-
-typedef struct{
-    VfxInput* items;
-    size_t count;
-    size_t capacity;
-} VfxInputs;
+    VfxInput* next;
+};
 
 typedef struct {
     const char* filepath;
     const char* name;
     const char* description;
     const char* author;
-    VfxInputs inputs;
+    VfxInput* inputs;
     size_t pushContantsSize;
     bool hasDefaultValues;
 } VfxModule;

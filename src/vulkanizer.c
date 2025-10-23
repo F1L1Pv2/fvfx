@@ -513,8 +513,8 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
     VkShaderModule fragmentShader;
     if(!vkCompileShader(vulkanizer->device,sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
 
-    for(size_t i = 0; i < outVfx->module.inputs.count; i++){
-        outVfx->module.pushContantsSize += get_vfxInputTypeSize(outVfx->module.inputs.items[i].type);
+    for(VfxInput* input = outVfx->module.inputs; input != NULL; input = input->next){
+        outVfx->module.pushContantsSize += get_vfxInputTypeSize(input->type);
     }
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
