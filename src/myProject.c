@@ -4,8 +4,6 @@
 
 #include "ll.h"
 
-#define FVFX_YES
-#ifdef FVFX_YES
 static void VfxInstance_Update(MyVfx* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
     for (size_t i = 0; i < instance->inputs.count; i++) {
         VfxInstanceInput* myInput = &instance->inputs.items[i];
@@ -51,50 +49,6 @@ static void VfxInstance_Update(MyVfx* myVfxs, VfxInstance* instance, double curr
         memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
     }
 }
-#else
-static void VfxInstance_Update(MyVfxs* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
-    for (size_t i = 0; i < instance->inputs.count; i++) {
-        VfxInstanceInput* myInput = &instance->inputs.items[i];
-
-        int shouldUpdate = 0;
-
-        VfxInputValue result = myInput->initialValue;
-
-        if (myInput->keys.count > 0) {
-            double localTime = currentTime - instance->offset;
-            double accumulated = 0.0;
-
-            VfxInputValue prevValue = myInput->initialValue;
-            for (size_t k = 0; k < myInput->keys.count; k++) {
-                VfxAutomationKey* key = &myInput->keys.items[k];
-                double keyStart = accumulated;
-                double keyEnd = accumulated + key->len;
-
-                if (localTime <= keyEnd) {
-                    shouldUpdate = 1;
-                    double t = (key->len > 0) ? (localTime - keyStart) / key->len : 1.0;
-                    if (key->type == VFX_AUTO_KEY_STEP) {
-                        result = key->targetValue;
-                    } else {
-                        interpolateValue(myInput->type, &result, &prevValue, &key->targetValue, t);
-                    }
-                    break;
-                }
-
-                prevValue = key->targetValue;
-                accumulated = keyEnd;
-            }
-        }
-
-        if (shouldUpdate) {
-            void* dst = (uint8_t*)push_constants_data +
-                myVfxs->items[instance->vfx_index].module.inputs.items[myInput->index].push_constant_offset;
-
-            memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
-        }
-    }
-}
-#endif
 
 static bool updateSlice(MyMedia* medias, Slices* slices, size_t currentSlice, size_t* currentMediaIndex,double* checkDuration){
     *currentMediaIndex = slices->items[currentSlice].media_index;
