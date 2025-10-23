@@ -177,6 +177,18 @@ bool ffmpegMediaSeek(Media* media, double time_seconds) {
 
 
 void ffmpegMediaUninit(Media* media) {
+    if (!media) return;
+
+    if(media->videoStream && media->tempFrame.video.data){
+        free(media->tempFrame.video.data);
+        media->tempFrame.video.data = NULL;
+    }
+    if(media->audioStream && media->tempFrame.audio.data){
+        av_freep(&media->tempFrame.audio.data[0]);
+        av_freep(&media->tempFrame.audio.data);
+        media->tempFrame.audio.data = NULL;
+    }
+
     if (media->swsContext) sws_freeContext(media->swsContext);
     if (media->videoCodecContext) avcodec_free_context(&media->videoCodecContext);
     if (media->videoFrame) av_frame_free(&media->videoFrame);
@@ -187,10 +199,11 @@ void ffmpegMediaUninit(Media* media) {
         avformat_close_input(&media->formatContext);
         avformat_free_context(media->formatContext);
     }
-    if(media->swrContext) swr_free(&media->swrContext);
-    
+    if (media->swrContext) swr_free(&media->swrContext);
+
     memset(media, 0, sizeof(Media));
 }
+
 
 static bool initializeMediaContext(Media* media, const char* filename) {
     media->formatContext = avformat_alloc_context();

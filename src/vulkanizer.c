@@ -502,9 +502,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
     return true;
 }
 
-static String_Builder sb = {0};
 bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx){
-    sb.count = 0;
+    String_Builder sb = {0};
     if(!read_entire_file(filename,&sb)) return false;
     if(!extractVFXModuleMetaData(nob_sb_to_sv(sb),&outVfx->module, vulkanizer->aa)) return false;
     if(!preprocessVFXModule(&sb, &outVfx->module)) return false;
@@ -532,5 +531,6 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
     vkDestroyShaderModule(vulkanizer->device, fragmentShader, NULL);
 
     outVfx->module.filepath = filename;
+    nob_da_free(sb);
     return true;
 }
