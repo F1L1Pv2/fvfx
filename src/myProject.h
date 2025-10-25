@@ -55,6 +55,7 @@ struct MyLayer{
     Frame frame;
     GetVideoFrameArgs args;
     bool finished;
+    double volume;
     MyLayer* next;
 };
 

@@ -166,12 +166,12 @@ int render(Project* project, ArenaAllocator* aa){
                 MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
                 bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio);
                 if(conditionalMix && read > 0){
-                    mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
+                    mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format, myLayer->volume);
                     continue;
                 }else if(conditionalMix && read == 0) continue;
                 
                 assert(read == out_audio_frame_size && "You fucked up smth my bruvskiers");
-                mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format);
+                mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format, myLayer->volume);
             }
             ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
                 .type = RENDER_FRAME_TYPE_AUDIO,
@@ -216,7 +216,8 @@ int render(Project* project, ArenaAllocator* aa){
                 tempAudioBuf,
                 read,
                 project->stereo ? 2 : 1,
-                out_audio_format
+                out_audio_format,
+                myLayer->volume
             );
         }
         ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){

@@ -4,45 +4,96 @@
 
 #include "ll.h"
 
+static double VfxLayerSoundVolume_Evaluate(const VfxLayerSoundVolume* volume, double localTime) {
+    double result = volume->initialValue;
+
+    if (volume->keys.count == 0)
+        return result;
+
+    double accumulated = 0.0;
+    double prevValue = volume->initialValue;
+    int found = 0;
+
+    for (size_t k = 0; k < volume->keys.count; k++) {
+        VfxLayerSoundVolumeAutomationKey* key = &volume->keys.items[k];
+        double keyStart = accumulated;
+        double keyEnd = accumulated + key->len;
+
+        if (localTime <= keyEnd) {
+            double t = (key->len > 0.0) ? (localTime - keyStart) / key->len : 1.0;
+
+            if (key->type == VFX_AUTO_KEY_STEP) {
+                result = key->targetValue;
+            } else {
+                result = prevValue + (key->targetValue - prevValue) * t;
+            }
+
+            found = 1;
+            break;
+        }
+
+        prevValue = key->targetValue;
+        accumulated = keyEnd;
+    }
+
+    if (!found) {
+        result = volume->keys.items[volume->keys.count - 1].targetValue;
+    }
+
+    return result;
+}
+
+static void VfxAutomation_Evaluate(
+    VfxInputType type,
+    const VfxInputValue* initialValue,
+    const VfxAutomationKeys* keys,
+    double localTime,
+    VfxInputValue* outValue
+) {
+    *outValue = *initialValue;
+
+    if (keys->count == 0) return;
+
+    double accumulated = 0.0;
+    VfxInputValue prevValue = *initialValue;
+    int found = 0;
+
+    for (size_t k = 0; k < keys->count; k++) {
+        VfxAutomationKey* key = &keys->items[k];
+        double keyStart = accumulated;
+        double keyEnd = accumulated + key->len;
+
+        if (localTime <= keyEnd) {
+            double t = (key->len > 0) ? (localTime - keyStart) / key->len : 1.0;
+
+            if (key->type == VFX_AUTO_KEY_STEP) {
+                *outValue = key->targetValue;
+            } else {
+                lerpVfxValue(type, outValue, &prevValue, &key->targetValue, t);
+            }
+
+            found = 1;
+            break;
+        }
+
+        prevValue = key->targetValue;
+        accumulated = keyEnd;
+    }
+
+    if (!found) {
+        *outValue = keys->items[keys->count - 1].targetValue;
+    }
+}
+
 static void VfxInstance_Update(MyVfx* myVfxs, VfxInstance* instance, double currentTime, void* push_constants_data) {
     for (size_t i = 0; i < instance->inputs.count; i++) {
         VfxInstanceInput* myInput = &instance->inputs.items[i];
+        VfxInputValue result;
 
-        VfxInputValue result = myInput->initialValue;
+        double localTime = currentTime - instance->offset;
+        VfxAutomation_Evaluate(myInput->type, &myInput->initialValue, &myInput->keys, localTime, &result);
 
-        if (myInput->keys.count > 0) {
-            double localTime = currentTime - instance->offset;
-            double accumulated = 0.0;
-            VfxInputValue prevValue = myInput->initialValue;
-            int found = 0;
-
-            for (size_t k = 0; k < myInput->keys.count; k++) {
-                VfxAutomationKey* key = &myInput->keys.items[k];
-                double keyStart = accumulated;
-                double keyEnd = accumulated + key->len;
-
-                if (localTime <= keyEnd) {
-                    double t = (key->len > 0) ? (localTime - keyStart) / key->len : 1.0;
-                    if (key->type == VFX_AUTO_KEY_STEP) {
-                        result = key->targetValue;
-                    } else {
-                        lerpVfxValue(myInput->type, &result, &prevValue, &key->targetValue, t);
-                    }
-                    found = 1;
-                    break;
-                }
-
-                prevValue = key->targetValue;
-                accumulated = keyEnd;
-            }
-
-            // If time is after the last key, hold the last key’s value
-            if (!found) {
-                result = myInput->keys.items[myInput->keys.count - 1].targetValue;
-            }
-        }
-
-        MyVfx* myVfx = ll_at(myVfxs,instance->vfx_index);
+        MyVfx* myVfx = ll_at(myVfxs, instance->vfx_index);
         VfxInput* vfxInput = ll_at(myVfx->vfx.module.inputs, myInput->index);
         void* dst = (uint8_t*)push_constants_data + vfxInput->push_constant_offset;
 
@@ -205,6 +256,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     for(size_t j = 0; j < project->layers.count; j++){
         Layer* layer = &project->layers.items[j];
         MyLayer myLayer = {0};
+        myLayer.volume = layer->volume.initialValue;
         bool hasAudio = false;
         for(size_t i = 0; i < layer->mediaInstances.count; i++){
             MyMedia myMedia = {0};
@@ -343,6 +395,7 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
             continue;
         }
         Layer* layer = &project->layers.items[i];
+        myLayer->volume = VfxLayerSoundVolume_Evaluate(&layer->volume, myProject->time);
         vulkanizerVfxInstances->count = 0;
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];

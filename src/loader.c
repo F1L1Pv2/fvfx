@@ -70,6 +70,8 @@ void project_loader_clean(Project* project, ArenaAllocator* aa){
             if(vfx_instance->inputs.items) free(vfx_instance->inputs.items);
         }
         if(layer->vfxInstances.items) free(layer->vfxInstances.items);
+
+        if(layer->volume.keys.items) free(layer->volume.keys.items);
     }
     layers.count = 0;
 

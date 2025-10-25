@@ -5,9 +5,9 @@
 #include <stdint.h>
 #include <assert.h>
 
-void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_channels, enum AVSampleFormat sample_fmt) {
+void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_channels, enum AVSampleFormat sample_fmt, double volume)
+{
     if (sample_fmt != AV_SAMPLE_FMT_FLTP && sample_fmt != AV_SAMPLE_FMT_FLT) {
-        // Only FLTP and FLT supported for now
         assert(0 && "add this sample format");
         return;
     }
@@ -19,7 +19,7 @@ void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_ch
             float *added_ch = (float*) added[ch];
 
             for (size_t i = 0; i < nb_samples; i++) {
-                float mixed = base_ch[i] + added_ch[i];
+                float mixed = base_ch[i] + (added_ch[i] * (float)volume);
 
                 // Clamp to [-1.0, 1.0]
                 if (mixed > 1.0f)  mixed = 1.0f;
@@ -35,7 +35,7 @@ void mix_audio(uint8_t** base, uint8_t** added, size_t nb_samples, size_t num_ch
         size_t total_samples = nb_samples * num_channels;
 
         for (size_t i = 0; i < total_samples; i++) {
-            float mixed = base_packed[i] + added_packed[i];
+            float mixed = base_packed[i] + (added_packed[i] * (float)volume);
 
             // Clamp to [-1.0, 1.0]
             if (mixed > 1.0f)  mixed = 1.0f;
