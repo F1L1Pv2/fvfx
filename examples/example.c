@@ -46,7 +46,10 @@ bool project_init(Project* project, int argc, const char** argv){
         #define VFXO(filenameIN) da_push(&project->vfxDescriptors, ((VfxDescriptor){.filename = (filenameIN)}))
         #define LAYERO() do {da_push(&project->layers, layer); layer = blank_layer();} while(0)
         #define LAYERO_VOLUME(VAL) layer.volume.initialValue = (VAL)
-        #define LAYERO_VOLUME_KEY(TYPE, LEN, VAL) da_push(&layer.volume.keys, ((VfxLayerSoundVolumeAutomationKey){.type = (TYPE), .len = (LEN), .targetValue = (VAL)}))
+        #define LAYERO_VOLUME_KEY(TYPE, LEN, VAL) da_push(&layer.volume.keys, ((VfxLayerSoundAutomationKey){.type = (TYPE), .len = (LEN), .targetValue = (VAL)}))
+        #define LAYERO_PAN(VAL) layer.pan.initialValue = (VAL)
+        #define LAYERO_PAN_KEY(TYPE, LEN, VAL) da_push(&layer.pan.keys, ((VfxLayerSoundAutomationKey){.type = (TYPE), .len = (LEN), .targetValue = (VAL)}))
+
         #define MEDIER(filenameIN) da_push(&layer.mediaInstances, ((MediaInstance){.filename = (filenameIN)}))
         #define SLICER(mediaIndex, offsetIN,durationIN) da_push(&layer.slices,((Slice){.media_index = (mediaIndex),.offset = (offsetIN), .duration = (durationIN)}))
         #define EMPIER(durationIN) da_push(&layer.slices,((Slice){.media_index = EMPTY_MEDIA, .duration = (durationIN)}))
@@ -101,6 +104,15 @@ bool project_init(Project* project, int argc, const char** argv){
             VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x = -0.5, .y = -0.5}}));
             VFXER_ARG_KEY(VFX_AUTO_KEY_LINEAR, .5, ((VfxInputValue){.as.vec2 = {.x =  0.5, .y =  0.5}}));
     
+            LAYERO_PAN(-1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,-1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,-1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,-1);
+            LAYERO_PAN_KEY(VFX_AUTO_KEY_LINEAR,.5,0);
+
             LAYERO_VOLUME(.1);
             LAYERO_VOLUME_KEY(VFX_AUTO_KEY_LINEAR, .5, .5);
             LAYERO_VOLUME_KEY(VFX_AUTO_KEY_LINEAR, .1, .05);

@@ -4,7 +4,7 @@
 
 #include "ll.h"
 
-static double VfxLayerSoundVolume_Evaluate(const VfxLayerSoundVolume* volume, double localTime) {
+static double VfxLayerSoundParameter_Evaluate(const VfxLayerSoundParameter* volume, double localTime) {
     double result = volume->initialValue;
 
     if (volume->keys.count == 0)
@@ -15,7 +15,7 @@ static double VfxLayerSoundVolume_Evaluate(const VfxLayerSoundVolume* volume, do
     int found = 0;
 
     for (size_t k = 0; k < volume->keys.count; k++) {
-        VfxLayerSoundVolumeAutomationKey* key = &volume->keys.items[k];
+        VfxLayerSoundAutomationKey* key = &volume->keys.items[k];
         double keyStart = accumulated;
         double keyEnd = accumulated + key->len;
 
@@ -257,6 +257,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
         Layer* layer = &project->layers.items[j];
         MyLayer myLayer = {0};
         myLayer.volume = layer->volume.initialValue;
+        myLayer.pan = layer->pan.initialValue;
         bool hasAudio = false;
         for(size_t i = 0; i < layer->mediaInstances.count; i++){
             MyMedia myMedia = {0};
@@ -395,7 +396,8 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
             continue;
         }
         Layer* layer = &project->layers.items[i];
-        myLayer->volume = VfxLayerSoundVolume_Evaluate(&layer->volume, myProject->time);
+        myLayer->volume = VfxLayerSoundParameter_Evaluate(&layer->volume, myProject->time);
+        myLayer->pan = VfxLayerSoundParameter_Evaluate(&layer->pan, myProject->time);
         vulkanizerVfxInstances->count = 0;
         for(size_t j = 0; j < layer->vfxInstances.count; j++){
             VfxInstance* vfx = &layer->vfxInstances.items[j];

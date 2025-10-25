@@ -56,6 +56,7 @@ struct MyLayer{
     GetVideoFrameArgs args;
     bool finished;
     double volume;
+    double pan;
     MyLayer* next;
 };
 

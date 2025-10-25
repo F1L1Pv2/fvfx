@@ -207,18 +207,18 @@ typedef struct{
     VfxAutomationKeyType type;
     double len;
     double targetValue;
-} VfxLayerSoundVolumeAutomationKey;
+} VfxLayerSoundAutomationKey;
 
 typedef struct{
-    VfxLayerSoundVolumeAutomationKey* items;
+    VfxLayerSoundAutomationKey* items;
     size_t count;
     size_t capacity;
-} VfxLayerSoundVolumeAutomationKeys;
+} VfxLayerSoundAutomationKeys;
 
 typedef struct{
     double initialValue;
-    VfxLayerSoundVolumeAutomationKeys keys;
-} VfxLayerSoundVolume;
+    VfxLayerSoundAutomationKeys keys;
+} VfxLayerSoundParameter;
 
 typedef struct{
     VfxInstanceInput* items;
@@ -243,7 +243,8 @@ typedef struct{
     MediaInstances mediaInstances;
     Slices slices;
     VfxInstances vfxInstances;
-    VfxLayerSoundVolume volume;
+    VfxLayerSoundParameter volume;
+    VfxLayerSoundParameter pan;
 } Layer;
 
 typedef struct{
