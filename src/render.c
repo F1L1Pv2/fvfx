@@ -11,6 +11,7 @@
 #include "myProject.h"
 #include <math.h>
 #include "ll.h"
+#include "fvfx_helper.h"
 
 int render(Project* project, ArenaAllocator* aa){
     if(!vulkan_init_headless()) return 1;
@@ -160,19 +161,14 @@ int render(Project* project, ArenaAllocator* aa){
 
         if(enoughSamples){
             av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
-            for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
-                if(!myLayer->audioFifo) continue;
-                int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, out_audio_frame_size);
-                MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
-                bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio);
-                if(conditionalMix && read > 0){
-                    mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format, myLayer->volume, myLayer->pan);
-                    continue;
-                }else if(conditionalMix && read == 0) continue;
-                
-                assert(read == out_audio_frame_size && "You fucked up smth my bruvskiers");
-                mix_audio(composedAudioBuf, tempAudioBuf, read, project->stereo ? 2 : 1, out_audio_format, myLayer->volume, myLayer->pan);
-            }
+            mix_all_layers(
+                composedAudioBuf,
+                tempAudioBuf,
+                myLayers,
+                out_audio_frame_size,
+                out_audio_format,
+                project
+            );
             ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
                 .type = RENDER_FRAME_TYPE_AUDIO,
                 .data = composedAudioBuf,
@@ -200,27 +196,14 @@ int render(Project* project, ArenaAllocator* aa){
             project->stereo ? 2 : 1,
             out_audio_format
         );
-        for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
-            if(!myLayer->audioFifo) continue;
-            int available = av_audio_fifo_size(myLayer->audioFifo);
-            if (available <= 0) continue;
-
-            int toRead = FFMIN(available, out_audio_frame_size);
-            int read = av_audio_fifo_read(
-                myLayer->audioFifo,
-                (void**)tempAudioBuf,
-                toRead
-            );
-            mix_audio(
-                composedAudioBuf,
-                tempAudioBuf,
-                read,
-                project->stereo ? 2 : 1,
-                out_audio_format,
-                myLayer->volume,
-                myLayer->pan
-            );
-        }
+        mix_all_layers(
+            composedAudioBuf,
+            tempAudioBuf,
+            myLayers,
+            out_audio_frame_size,
+            out_audio_format,
+            project
+        );
         ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
             .type = RENDER_FRAME_TYPE_AUDIO,
             .data = composedAudioBuf,

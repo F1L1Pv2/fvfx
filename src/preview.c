@@ -13,6 +13,7 @@
 #include "dd.h"
 #include "loader.h"
 #include "ll.h"
+#include "fvfx_helper.h"
 
 typedef struct{
     Project* project;
@@ -34,18 +35,14 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     MyLayer* myLayers = data->myProject->myLayers;
     uint8_t** tempAudioBuf = data->tempAudioBuf;
 
-    for(MyLayer* myLayer = myLayers; myLayer != NULL; myLayer = myLayer->next){
-        if(!myLayer->audioFifo) continue;
-        int read = av_audio_fifo_read(myLayer->audioFifo, (void**)tempAudioBuf, frameCount);
-        MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
-        bool conditionalMix = (myLayer->finished) || (myLayer->args.currentMediaIndex == EMPTY_MEDIA) || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio);
-        if(conditionalMix && read > 0){
-            mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format, myLayer->volume, myLayer->pan);
-            continue;
-        }else if(conditionalMix && read == 0) continue;
-        
-        mix_audio((uint8_t **)&pOutput, tempAudioBuf, read, project->stereo ? 2 : 1, data->out_audio_format, myLayer->volume, myLayer->pan);
-    }
+    mix_all_layers(
+        (uint8_t **)&pOutput,
+        tempAudioBuf,myLayers,
+        frameCount,
+        AV_SAMPLE_FMT_FLT,
+        project
+    );
+    
     for(size_t i = 0; i < frameCount;i++){
         ((float*)pOutput)[i*2 + 0] *= *data->global_volume;
         ((float*)pOutput)[i*2 + 1] *= *data->global_volume;
