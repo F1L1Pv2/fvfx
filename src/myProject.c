@@ -137,11 +137,11 @@ static int getVideoFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
             args->lastVideoPts = frame->pts;
     
             args->times_to_catch_up_target_framerate = 1;
-            if(framerate < project->fps){
-                args->times_to_catch_up_target_framerate = (size_t)(project->fps/framerate);
+            if(framerate < project->settings.fps){
+                args->times_to_catch_up_target_framerate = (size_t)(project->settings.fps/framerate);
                 if(args->times_to_catch_up_target_framerate == 0) args->times_to_catch_up_target_framerate = 1;
-            }else if(framerate > project->fps){
-                args->video_skip_count = (size_t)(framerate / project->fps);
+            }else if(framerate > project->settings.fps){
+                args->video_skip_count = (size_t)(framerate / project->settings.fps);
             }
     
             if(!Vulkanizer_apply_vfx_on_frame_and_compose(cmd, vulkanizer, vulkanizerVfxInstances, myMedia->mediaImageView, myMedia->mediaImageData, myMedia->mediaImageStride, myMedia->mediaDescriptorSet, frame, composedOutView)) return -GET_FRAME_ERR;
@@ -163,7 +163,7 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
     assert(!myMedia->hasVideo && "You used wrong function!");
 
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->settings.fps);
     }
     while(args->localTime < args->checkDuration){    
 
@@ -184,7 +184,7 @@ static int getAudioFrame(Vulkanizer* vulkanizer, Project* project, Slices* slice
 
 static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, VulkanizerVfxInstances* vulkanizerVfxInstances, Frame* frame, GetVideoFrameArgs* args, VkImageView composedOutView){
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->settings.fps);
         args->localTime = args->checkDuration;
     }
 
@@ -202,7 +202,7 @@ static int getImageFrame(VkCommandBuffer cmd, Vulkanizer* vulkanizer, Project* p
 
 static int getEmptyFrame(Vulkanizer* vulkanizer, Project* project, Slices* slices, MyMedia* myMedias, GetVideoFrameArgs* args){
     if(args->localTime < args->checkDuration){
-        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->fps);
+        args->times_to_catch_up_target_framerate = (slices->items[args->currentSlice].duration - args->localTime) / (1/project->settings.fps);
         args->localTime = args->checkDuration;
     }
 
@@ -263,7 +263,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             MyMedia myMedia = {0};
     
             // ffmpeg init
-            if(!ffmpegMediaInit(layer->mediaInstances.items[i].filename, project->sampleRate, project->stereo, expectedSampleFormat, &myMedia.media)){
+            if(!ffmpegMediaInit(layer->mediaInstances.items[i].filename, project->settings.sampleRate, project->settings.stereo, expectedSampleFormat, &myMedia.media)){
                 fprintf(stderr, "Couldn't initialize ffmpeg media at %s!\n", layer->mediaInstances.items[i].filename);
                 return false;
             }
@@ -278,12 +278,12 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             }
             ll_push(&myLayer.myMedias, myMedia, ll_arena_allocator, aa);
         }
-        if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(expectedSampleFormat, project->stereo ? 2 : 1, fifo_size);
+        if(hasAudio) myLayer.audioFifo = av_audio_fifo_alloc(expectedSampleFormat, project->settings.stereo ? 2 : 1, fifo_size);
         ll_push(&myProject->myLayers, myLayer, ll_arena_allocator, aa);
     }
     myProject->myLayers_fifo_fmt = expectedSampleFormat;
     myProject->myLayers_fifo_frame_size = fifo_size;
-    myProject->myLayers_fifo_ch_layout = project->stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
+    myProject->myLayers_fifo_ch_layout = project->settings.stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
 
     for(size_t i = 0; i < project->vfxDescriptors.count; i++){
         MyVfx vfx = {0};
@@ -412,7 +412,7 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
         
         MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
         if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio))){
-            av_audio_fifo_add_silence(myLayer->audioFifo, myProject->myLayers_fifo_fmt, &myProject->myLayers_fifo_ch_layout, project->sampleRate / project->fps);
+            av_audio_fifo_add_silence(myLayer->audioFifo, myProject->myLayers_fifo_fmt, &myProject->myLayers_fifo_ch_layout, project->settings.sampleRate / project->settings.fps);
         }
 
         if(myLayer->audioFifo && myLayer->args.currentMediaIndex != EMPTY_MEDIA && av_audio_fifo_size(myLayer->audioFifo) < myProject->myLayers_fifo_frame_size) *enoughSamplesOUT = false;
@@ -420,7 +420,7 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
         if(e == -GET_FRAME_FINISHED) {printf("[FVFX] Layer %s finished\n", hrp_name(&myLayer->args));myLayer->finished = true; finishedCount++; continue;}
         if(e == -GET_FRAME_SKIP) continue;
     }
-    myProject->time += 1.0 / project->fps;
+    myProject->time += 1.0 / project->settings.fps;
     return finishedCount == project->layers.count ? PROCESS_PROJECT_FINISHED : PROCESS_PROJECT_CONTINUE;
 }
 

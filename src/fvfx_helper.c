@@ -22,7 +22,7 @@ void mix_all_layers(
             tempAudioBuf,
             0,
             out_audio_frame_size,
-            project->stereo ? 2 : 1,
+            project->settings.stereo ? 2 : 1,
             out_audio_format
         );
 
@@ -47,7 +47,7 @@ void mix_all_layers(
             composedAudioBuf,
             tempAudioBuf,
             read,
-            project->stereo ? 2 : 1,
+            project->settings.stereo ? 2 : 1,
             out_audio_format,
             myLayer->volume,
             myLayer->pan

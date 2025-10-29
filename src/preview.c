@@ -145,8 +145,8 @@ int preview(Project* project, const char* project_filename, int argc, const char
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
 
     // TODO: optimize this byh even more
-    project->width *= PREVIEW_WIDTH_SCALER;
-    project->height *= PREVIEW_HEIGHT_SCALER;
+    project->settings.width *= PREVIEW_WIDTH_SCALER;
+    project->settings.height *= PREVIEW_HEIGHT_SCALER;
 
     VkCommandBuffer cmd;
     if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
@@ -169,12 +169,12 @@ int preview(Project* project, const char* project_filename, int argc, const char
     if(vkCreateSemaphore(device, &(VkSemaphoreCreateInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}, NULL, &readyToSwapYourChainSemaphore) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer, aa)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->settings.width, project->settings.height, &vulkanizer, aa)) return 1;
 
     if(!dd_init(device, swapchainImageFormat, descriptorPool)) return 1;
 
     enum AVSampleFormat out_audio_format = AV_SAMPLE_FMT_FLT;
-    size_t out_audio_frame_size = project->sampleRate/100;
+    size_t out_audio_frame_size = project->settings.sampleRate/100;
 
     MyProject myProject = {0};
     if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
@@ -186,10 +186,10 @@ int preview(Project* project, const char* project_filename, int argc, const char
     VkDeviceMemory   outComposedImageMemory;
     VkImageView      outComposedImageView;
     VkDescriptorSet  outComposedImage_set;
-    uint32_t*        outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+    uint32_t*        outComposedVideoFrame = malloc(project->settings.width*project->settings.height*sizeof(uint32_t));
 
     if(!createMyImage(device, &outComposedImage, 
-        project->width, project->height, 
+        project->settings.width, project->settings.height, 
         &outComposedImageMemory, 
         &outComposedImageView, 
         NULL, 
@@ -277,14 +277,14 @@ int preview(Project* project, const char* project_filename, int argc, const char
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     //miniaudio init
     ma_device audio_device;
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = ma_format_f32;
-    deviceConfig.playback.channels = project->stereo ? 2 : 1;
-    deviceConfig.sampleRate        = project->sampleRate;
+    deviceConfig.playback.channels = project->settings.stereo ? 2 : 1;
+    deviceConfig.sampleRate        = project->settings.sampleRate;
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = &(MiniaudioUserData){
         .project = project,
@@ -364,7 +364,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
                 .y = 0,
                 .width = swapchainExtent.width,
                 .height = timeline_y,
-            }, project->width, project->height);
+            }, project->settings.width, project->settings.height);
 
             pcs = (PreviewPushConstants){
                 .pos_x = previewRect.x,
@@ -429,17 +429,17 @@ int preview(Project* project, const char* project_filename, int argc, const char
             free(outComposedVideoFrame);
 
             if(!project_loader_load(project, project_filename, argc, argv, aa)) return 1;
-            project->width *= PREVIEW_WIDTH_SCALER;
-            project->height *= PREVIEW_HEIGHT_SCALER;
+            project->settings.width *= PREVIEW_WIDTH_SCALER;
+            project->settings.height *= PREVIEW_HEIGHT_SCALER;
 
-            vulkanizer.videoOutWidth = project->width;
-            vulkanizer.videoOutHeight = project->height;
+            vulkanizer.videoOutWidth = project->settings.width;
+            vulkanizer.videoOutHeight = project->settings.height;
 
-            out_audio_frame_size = project->sampleRate/100;
+            out_audio_frame_size = project->settings.sampleRate/100;
             if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
             if(!createMyImage(device, &outComposedImage, 
-                project->width, project->height, 
+                project->settings.width, project->settings.height, 
                 &outComposedImageMemory, 
                 &outComposedImageView, 
                 NULL, 
@@ -447,7 +447,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 0
             )) return 1;
-            outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+            outComposedVideoFrame = malloc(project->settings.width*project->settings.height*sizeof(uint32_t));
 
             vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -467,12 +467,12 @@ int preview(Project* project, const char* project_filename, int argc, const char
             vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             vkCmdEndSingleTime(tempCmd);
 
-            av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+            av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
             
             deviceConfig = ma_device_config_init(ma_device_type_playback);
             deviceConfig.playback.format   = ma_format_f32;
-            deviceConfig.playback.channels = project->stereo ? 2 : 1;
-            deviceConfig.sampleRate        = project->sampleRate;
+            deviceConfig.playback.channels = project->settings.stereo ? 2 : 1;
+            deviceConfig.sampleRate        = project->settings.sampleRate;
             deviceConfig.dataCallback      = data_callback;
             deviceConfig.pUserData         = &(MiniaudioUserData){
                 .project = project,
@@ -524,18 +524,18 @@ int preview(Project* project, const char* project_filename, int argc, const char
             .colorAttachment = outComposedImageView,
             .clearColor = COL_BLACK,
             .renderArea = (
-                (VkExtent2D){.width = project->width, .height= project->height}
+                (VkExtent2D){.width = project->settings.width, .height= project->settings.height}
             )
         );
 
         vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-            .width = project->width,
-            .height = project->height
+            .width = project->settings.width,
+            .height = project->settings.height
         });
             
         vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-            .extent.width = project->width,
-            .extent.height = project->height,
+            .extent.width = project->settings.width,
+            .extent.height = project->settings.height,
         });
 
         vkCmdEndRendering(cmd);
@@ -613,8 +613,8 @@ int preview(Project* project, const char* project_filename, int argc, const char
 
         uint64_t frameEnd = platform_get_time_nanos();
         double frameTime = (double)(frameEnd - now) * 1e-9;
-        if (frameTime < (1.0 / project->fps)) {
-            platform_sleep(((1.0 / project->fps) - frameTime)*1000);
+        if (frameTime < (1.0 / project->settings.fps)) {
+            platform_sleep(((1.0 / project->settings.fps) - frameTime)*1000);
         }
     }
 

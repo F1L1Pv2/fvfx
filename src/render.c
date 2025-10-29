@@ -32,11 +32,11 @@ int render(Project* project, ArenaAllocator* aa){
     }, NULL, &inFlightFence) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project->width, project->height, &vulkanizer, aa)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->settings.width, project->settings.height, &vulkanizer, aa)) return 1;
 
     //init renderer
     MediaRenderContext renderContext = {0};
-    if(!ffmpegMediaRenderInit(project->outputFilename, project->width, project->height, project->fps, project->sampleRate, project->stereo, project->hasAudio, &renderContext)){
+    if(!ffmpegMediaRenderInit(project->settings.outputFilename, project->settings.width, project->settings.height, project->settings.fps, project->settings.sampleRate, project->settings.stereo, project->settings.hasAudio, &renderContext)){
         fprintf(stderr, "Couldn't initialize ffmpeg media renderer!\n");
         return 1;
     }
@@ -49,11 +49,11 @@ int render(Project* project, ArenaAllocator* aa){
 
     uint8_t** tempAudioBuf;
     int tempAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+    av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     uint8_t** composedAudioBuf;
     int composedAudioBufLineSize;
-    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project->stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
+    av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
     VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
@@ -63,10 +63,10 @@ int render(Project* project, ArenaAllocator* aa){
     VkImageView outComposedImageView;
     size_t outComposedImage_stride;
     void* outComposedImage_mapped;
-    uint32_t* outComposedVideoFrame = malloc(project->width*project->height*sizeof(uint32_t));
+    uint32_t* outComposedVideoFrame = malloc(project->settings.width*project->settings.height*sizeof(uint32_t));
 
     if(!createMyImage(device, &outComposedImage, 
-        project->width, project->height, 
+        project->settings.width, project->settings.height, 
         &outComposedImageMemory, 
         &outComposedImageView, 
         &outComposedImage_stride, 
@@ -107,18 +107,18 @@ int render(Project* project, ArenaAllocator* aa){
             .colorAttachment = outComposedImageView,
             .clearColor = COL_EMPTY,
             .renderArea = (
-                (VkExtent2D){.width = project->width, .height= project->height}
+                (VkExtent2D){.width = project->settings.width, .height= project->settings.height}
             )
         );
 
         vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-            .width = project->width,
-            .height = project->height
+            .width = project->settings.width,
+            .height = project->settings.height
         });
             
         vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-            .extent.width = project->width,
-            .extent.height = project->height,
+            .extent.width = project->settings.width,
+            .extent.height = project->settings.height,
         });
 
         vkCmdEndRendering(cmd);
@@ -145,22 +145,22 @@ int render(Project* project, ArenaAllocator* aa){
         }, inFlightFence);
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
-        for(size_t y = 0; y < project->height; y++){
+        for(size_t y = 0; y < project->settings.height; y++){
             memcpy(
-                ((uint8_t*)outComposedVideoFrame) + y*project->width*sizeof(uint32_t),
+                ((uint8_t*)outComposedVideoFrame) + y*project->settings.width*sizeof(uint32_t),
                 ((uint8_t*)outComposedImage_mapped) + y*outComposedImage_stride,
-                project->width*sizeof(uint32_t)
+                project->settings.width*sizeof(uint32_t)
             );
         }
 
         ffmpegMediaRenderPassFrame(&renderContext, &(RenderFrame){
             .type = RENDER_FRAME_TYPE_VIDEO,
             .data = outComposedVideoFrame,
-            .size = project->width * project->height * sizeof(outComposedVideoFrame[0]),
+            .size = project->settings.width * project->settings.height * sizeof(outComposedVideoFrame[0]),
         });
 
         if(enoughSamples){
-            av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->stereo ? 2 : 1, out_audio_format);
+            av_samples_set_silence(composedAudioBuf, 0, out_audio_frame_size, project->settings.stereo ? 2 : 1, out_audio_format);
             mix_all_layers(
                 composedAudioBuf,
                 tempAudioBuf,
@@ -193,7 +193,7 @@ int render(Project* project, ArenaAllocator* aa){
             composedAudioBuf,
             0,
             out_audio_frame_size,
-            project->stereo ? 2 : 1,
+            project->settings.stereo ? 2 : 1,
             out_audio_format
         );
         mix_all_layers(
