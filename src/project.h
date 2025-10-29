@@ -4,120 +4,85 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "project_module.h"
+#include "arena_alloc.h"
 
 #define EMPTY_MEDIA (-1)
 
-typedef struct{
+typedef struct Slice Slice;
+struct Slice{
     size_t media_index;
     double offset;
     double duration;
-} Slice;
+    Slice* next;
+};
 
-typedef struct{
-    Slice* items;
-    size_t count;
-    size_t capacity;
-} Slices;
-
-typedef struct{
+typedef struct MediaInstance MediaInstance;
+struct MediaInstance{
     const char* filename;
-} MediaInstance;
+    MediaInstance* next;
+};
 
-typedef struct{
-    MediaInstance* items;
-    size_t count;
-    size_t capacity;
-} MediaInstances;
-
-typedef struct{
+typedef struct VfxAutomationKey VfxAutomationKey;
+struct VfxAutomationKey{
     VfxAutomationKeyType type;
     double len;
     VfxInputValue targetValue;
-} VfxAutomationKey;
+    VfxAutomationKey* next;
+};
 
-typedef struct{
-    VfxAutomationKey* items;
-    size_t count;
-    size_t capacity;
-} VfxAutomationKeys;
-
-typedef struct{
+typedef struct VfxInstanceInput VfxInstanceInput;
+struct VfxInstanceInput{
     size_t index;
     VfxInputType type;
     VfxInputValue initialValue;
-    VfxAutomationKeys keys;
-} VfxInstanceInput;
+    VfxAutomationKey* keys;
+    VfxInstanceInput* next;
+};
 
-typedef struct{
+typedef struct VfxLayerSoundAutomationKey VfxLayerSoundAutomationKey;
+struct VfxLayerSoundAutomationKey{
     VfxAutomationKeyType type;
     double len;
     double targetValue;
-} VfxLayerSoundAutomationKey;
-
-typedef struct{
-    VfxLayerSoundAutomationKey* items;
-    size_t count;
-    size_t capacity;
-} VfxLayerSoundAutomationKeys;
+    VfxLayerSoundAutomationKey* next;
+};
 
 typedef struct{
     double initialValue;
-    VfxLayerSoundAutomationKeys keys;
+    VfxLayerSoundAutomationKey* keys;
 } VfxLayerSoundParameter;
 
-typedef struct{
-    VfxInstanceInput* items;
-    size_t count;
-    size_t capacity;
-} VfxInstanceInputs;
-
 typedef struct VfxInstance VfxInstance;
-
 struct VfxInstance{
     size_t vfx_index;
     double offset;
     double duration;
-    VfxInstanceInputs inputs;
+    VfxInstanceInput* inputs;
+    VfxInstance* next;
 };
-
-typedef struct{
-    VfxInstance* items;
-    size_t count;
-    size_t capacity;
-} VfxInstances;
 
 typedef struct Layer Layer;
-
 struct Layer{
-    MediaInstances mediaInstances;
-    Slices slices;
-    VfxInstances vfxInstances;
+    MediaInstance* mediaInstances;
+    Slice* slices;
+    VfxInstance* vfxInstances;
     VfxLayerSoundParameter volume;
     VfxLayerSoundParameter pan;
+    Layer* next;
 };
 
-typedef struct{
-    Layer* items;
-    size_t count;
-    size_t capacity;
-} Layers;
-
-typedef struct{
+typedef struct VfxDescriptor VfxDescriptor;
+struct VfxDescriptor{
     const char* filename;
-} VfxDescriptor;
-
-typedef struct{
-    VfxDescriptor* items;
-    size_t count; 
-    size_t capacity;
-} VfxDescriptors;
+    VfxDescriptor* next;
+};
 
 typedef struct Project Project;
-
 struct Project{
     Project_Settings settings;
-    Layers layers;
-    VfxDescriptors vfxDescriptors;
+    Layer* layers;
+    VfxDescriptor* vfxDescriptors;
+    ArenaAllocator* aa;
 };
 
 #endif

@@ -3,6 +3,11 @@
 
 #include "loader.h"
 #include "engine/platform.h"
+#include "ll.h"
+
+static void* arena_alloc_func(size_t size, void* caller_data){
+    return aa_alloc((ArenaAllocator*)caller_data, size);
+}
 
 typedef bool (*project_init_type)(Module* module, int argc, const char** argv);
 
@@ -10,91 +15,92 @@ void project_set_settings(Project* project, Project_Settings settings){
     project->settings = settings;
 }
 size_t project_add_vfx(Project* project, const char* filename){
-    da_append(&project->vfxDescriptors, (VfxDescriptor){.filename = filename});
-    return project->vfxDescriptors.count - 1;
+    ll_push(&project->vfxDescriptors, (VfxDescriptor){.filename = filename}, arena_alloc_func, project->aa);
+    size_t count = 0;
+    for(VfxDescriptor* desc = project->vfxDescriptors; desc != NULL; desc = desc->next) count++;
+    return count - 1;
 }
 Layer* project_create_and_add_layer(Project* project, double initial_volume, double initial_panning){
-    da_append(&project->layers, ((Layer){
+    Layer* out = ll_push(&project->layers, ((Layer){
         .volume = initial_volume,
         .pan = initial_panning,
-    }));
-    return &project->layers.items[project->layers.count-1];
+    }), arena_alloc_func, project->aa);
+    return out;
 }
-size_t layer_add_media(Layer* layer, const char* filename){
-    da_append(&layer->mediaInstances, ((MediaInstance){
+size_t layer_add_media(Project* project, Layer* layer, const char* filename){
+    ll_push(&layer->mediaInstances, ((MediaInstance){
         .filename = filename,
-    }));
-    return layer->mediaInstances.count - 1;
+    }), arena_alloc_func, project->aa);
+    size_t count = 0;
+    for(MediaInstance* media_instance = layer->mediaInstances; media_instance != NULL; media_instance = media_instance->next) count++;
+    return count - 1;
 }
-void layer_add_slice(Layer* layer, size_t media_index, double media_start_from, double slice_duration){
-    da_append(&layer->slices, ((Slice){
+void layer_add_slice(Project* project, Layer* layer, size_t media_index, double media_start_from, double slice_duration){
+    ll_push(&layer->slices, ((Slice){
         .media_index = media_index,
         .offset = media_start_from,
         .duration = slice_duration,
-    }));
+    }), arena_alloc_func, project->aa);
 }
-void layer_add_empty(Layer* layer, double empty_duration){
-    da_append(&layer->slices, ((Slice){
+void layer_add_empty(Project* project, Layer* layer, double empty_duration){
+    ll_push(&layer->slices, ((Slice){
         .media_index = EMPTY_MEDIA,
         .duration = empty_duration,
-    }));
+    }), arena_alloc_func, project->aa);
 }
-VfxInstance* layer_create_and_add_vfx_instance(Layer* layer, size_t vfx_index, double instance_when, double instance_duration){
-    da_append(&layer->vfxInstances, ((VfxInstance){
+VfxInstance* layer_create_and_add_vfx_instance(Project* project, Layer* layer, size_t vfx_index, double instance_when, double instance_duration){
+    VfxInstance* out = ll_push(&layer->vfxInstances, ((VfxInstance){
         .vfx_index = vfx_index,
         .offset = instance_when,
         .duration = instance_duration,
-    }));
-    return &layer->vfxInstances.items[layer->vfxInstances.count-1];
+    }), arena_alloc_func, project->aa);
+    return out;
 }
-void layer_add_volume_automation_key(Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value){
-    da_append(&layer->volume.keys, ((VfxLayerSoundAutomationKey){
+void layer_add_volume_automation_key(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value){
+    ll_push(&layer->volume.keys, ((VfxLayerSoundAutomationKey){
         .type = automation_key_type,
         .len = automation_duration,
         .targetValue = target_value,
-    }));
+    }), arena_alloc_func, project->aa);
 }
-void layer_add_pan_automation_key(Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value){
-    da_append(&layer->pan.keys, ((VfxLayerSoundAutomationKey){
+void layer_add_pan_automation_key(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value){
+    ll_push(&layer->pan.keys, ((VfxLayerSoundAutomationKey){
         .type = automation_key_type,
         .len = automation_duration,
         .targetValue = target_value,
-    }));
+    }), arena_alloc_func, project->aa);
 }
-void vfx_instance_set_arg(VfxInstance* vfx_instance, size_t input_index, VfxInputType input_type, VfxInputValue input_value){
+void vfx_instance_set_arg(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxInputType input_type, VfxInputValue input_value){
     VfxInstanceInput* exists = NULL;
-    for(size_t i = 0; i < vfx_instance->inputs.count; i++){
-        VfxInstanceInput* vfx_input = &vfx_instance->inputs.items[i];
+    for(VfxInstanceInput* vfx_input = vfx_instance->inputs; vfx_input != NULL; vfx_input = vfx_input->next){
         if(vfx_input->index == input_index) {
             exists = vfx_input;
             break;
         }
     }
-    if(exists == NULL) {
-        da_append(&vfx_instance->inputs, ((VfxInstanceInput){.index = input_index}));
-        exists = &vfx_instance->inputs.items[vfx_instance->inputs.count-1];
-    }
+    if(exists == NULL) exists = ll_push(&vfx_instance->inputs, ((VfxInstanceInput){.index = input_index}), arena_alloc_func, project->aa);
     exists->initialValue = input_value;
     exists->type = input_type;
 }
-void vfx_instance_add_automation_key(VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputValue target_value){
+void vfx_instance_add_automation_key(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputValue target_value){
     VfxInstanceInput* exists = NULL;
-    for(size_t i = 0; i < vfx_instance->inputs.count; i++){
-        VfxInstanceInput* vfx_input = &vfx_instance->inputs.items[i];
+    for(VfxInstanceInput* vfx_input = vfx_instance->inputs; vfx_input != NULL; vfx_input = vfx_input->next){
         if(vfx_input->index == input_index) {
             exists = vfx_input;
             break;
         }
     }
     if(exists == NULL) return;
-    da_append(&exists->keys, ((VfxAutomationKey){
+    ll_push(&exists->keys, ((VfxAutomationKey){
         .type = automation_key_type,
         .len = automation_duration,
         .targetValue = target_value,
-    }));
+    }), arena_alloc_func, project->aa);
 }
 
 bool project_loader_load(Project* project, const char* filename, int argc, const char** argv, ArenaAllocator* aa){
+    project->aa = aa;
+
     void* dll = platform_load_dynamic_library(filename);
     if (dll == NULL) {
         fprintf(stderr, "Couldn't load project %s\n", filename);
@@ -131,16 +137,13 @@ bool project_loader_load(Project* project, const char* filename, int argc, const
     //duping strings so they are not lost after unloading dll
     project->settings.outputFilename = aa_strdup(aa, project->settings.outputFilename);
 
-    for(size_t i = 0; i < project->layers.count; i++){
-        Layer* layer = &project->layers.items[i];
-        for(size_t j = 0; j < layer->mediaInstances.count; j++){
-            MediaInstance* media_instance = &layer->mediaInstances.items[j];
+    for(Layer* layer = project->layers; layer != NULL; layer = layer->next){
+        for(MediaInstance* media_instance = layer->mediaInstances; media_instance != NULL; media_instance = media_instance->next){
             media_instance->filename = aa_strdup(aa, media_instance->filename);
         }
     }
 
-    for(size_t i = 0; i < project->vfxDescriptors.count; i++){
-        VfxDescriptor* vfx_descriptor = &project->vfxDescriptors.items[i];
+    for(VfxDescriptor* vfx_descriptor = project->vfxDescriptors; vfx_descriptor != NULL; vfx_descriptor = vfx_descriptor->next){
         vfx_descriptor->filename = aa_strdup(aa, vfx_descriptor->filename);
     }
 
@@ -150,33 +153,6 @@ bool project_loader_load(Project* project, const char* filename, int argc, const
 
 void project_loader_clean(Project* project, ArenaAllocator* aa){
     aa_reset(aa);
-    Layers layers = project->layers;
-    for(size_t i = 0; i < layers.count; i++){
-        Layer* layer = &layers.items[i];
-        if(layer->slices.items) free(layer->slices.items);
-        if(layer->mediaInstances.items) free(layer->mediaInstances.items);
-
-        for(size_t j = 0; j < layer->vfxInstances.count; j++){
-            VfxInstance* vfx_instance = &layer->vfxInstances.items[j];
-            for(size_t m = 0; m < vfx_instance->inputs.count; m++){
-                VfxInstanceInput* vfx_instance_input = &vfx_instance->inputs.items[m];
-                if(vfx_instance_input->keys.items) free(vfx_instance_input->keys.items);
-            }
-            if(vfx_instance->inputs.items) free(vfx_instance->inputs.items);
-        }
-        if(layer->vfxInstances.items) free(layer->vfxInstances.items);
-
-        if(layer->volume.keys.items) free(layer->volume.keys.items);
-        if(layer->pan.keys.items) free(layer->pan.keys.items);
-    }
-    layers.count = 0;
-
-    VfxDescriptors vfxDescriptors = project->vfxDescriptors;
-    vfxDescriptors.count = 0;
-
-    *project = (Project){
-        .layers = layers,
-        .vfxDescriptors = vfxDescriptors,
-    };
-
+    aa_reset(project->aa);
+    *project = (Project){0};
 }

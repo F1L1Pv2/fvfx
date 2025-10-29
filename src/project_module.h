@@ -187,14 +187,14 @@ typedef struct{
     void (*project_set_settings)(Project* project, Project_Settings settings);
     size_t (*project_add_vfx)(Project* project, const char* filename); //  returns vfx index
     Layer* (*project_create_and_add_layer)(Project* project, double initial_volume, double initial_panning); // creates layer inside project and returns ref to it
-    size_t (*layer_add_media)(Layer* layer, const char* filename); // returns media index
-    void (*layer_add_slice)(Layer* layer, size_t media_index, double media_start_from, double slice_duration);
-    void (*layer_add_empty)(Layer* layer, double empty_duration);
-    VfxInstance* (*layer_create_and_add_vfx_instance)(Layer* layer, size_t vfx_index, double instance_when, double instance_duration); // creates vfx instance inside project and returns ref to it
-    void (*layer_add_volume_automation_key)(Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
-    void (*layer_add_pan_automation_key)(Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
-    void (*vfx_instance_set_arg)(VfxInstance* vfx_instance, size_t input_index, VfxInputType input_type, VfxInputValue input_value);
-    void (*vfx_instance_add_automation_key)(VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputValue target_value);
+    size_t (*layer_add_media)(Project* project, Layer* layer, const char* filename); // returns media index
+    void (*layer_add_slice)(Project* project, Layer* layer, size_t media_index, double media_start_from, double slice_duration);
+    void (*layer_add_empty)(Project* project, Layer* layer, double empty_duration);
+    VfxInstance* (*layer_create_and_add_vfx_instance)(Project* project, Layer* layer, size_t vfx_index, double instance_when, double instance_duration); // creates vfx instance inside project and returns ref to it
+    void (*layer_add_volume_automation_key)(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
+    void (*layer_add_pan_automation_key)(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
+    void (*vfx_instance_set_arg)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxInputType input_type, VfxInputValue input_value);
+    void (*vfx_instance_add_automation_key)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputValue target_value);
 } Module;
 
 EXPORT_FN bool project_init(Module* module, int argc, const char** argv); // for dlls
