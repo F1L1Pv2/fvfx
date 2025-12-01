@@ -44,6 +44,12 @@ const char* vulkanSDKPathINC;
 #define LINKER_FLAGS PLATFORM_LINKER_FLAGS "-lavcodec", "-lavdevice", "-lavfilter", "-lavformat", "-lavutil", "-lswscale", "-lswresample", ADDITIONAL_LINK "-lfreetype"
 #define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
+#ifdef _WIN32
+#define DLL_END "dll"
+#else
+#define DLL_END "so"
+#endif
+
 static char* strltrim(char* s) {
     while (isspace(*s)) s++;
     return s;
@@ -278,7 +284,7 @@ static bool collect_source_files(const char* dirpath, Nob_File_Paths* paths) {
     return true;
 }
 
-static bool build(Nob_Cmd* cmd, const char* filename, bool debug) {
+static bool build_core(Nob_Cmd* cmd, const char* filename, bool debug, bool shared) {
     Nob_String_Builder obj_path = {0};
     sb_append_cstr(&obj_path, BUILD_PATH(debug));
     if (!change_extension(&obj_path, filename, "o")) return false;
@@ -298,14 +304,16 @@ static bool build(Nob_Cmd* cmd, const char* filename, bool debug) {
     nob_cmd_append(cmd, COMPILER_ARGS);
     nob_cmd_append(cmd, debug ? "-g" : "-O3");
     if (debug) nob_cmd_append(cmd, "-DDEBUG");
-
+    #ifndef _WIN32
+        if (shared) cmd_append(cmd, "-fPIC");
+    #endif
     bool res = nob_cmd_run_sync(*cmd);
     nob_sb_free(obj_path);
     return res;
 }
 
-static bool link_files(Nob_Cmd* cmd, const char* output_filename, 
-                       Nob_File_Paths* src_paths, bool debug) {
+static bool link_files_core(Nob_Cmd* cmd, const char* output_filename, 
+                       Nob_File_Paths* src_paths, bool debug, bool shared) {
     cmd->count = 0;
     nob_cc(cmd);
 
@@ -321,6 +329,7 @@ static bool link_files(Nob_Cmd* cmd, const char* output_filename,
         nob_sb_free(obj_path);
     }
 
+    if(shared) cmd_append(cmd, "-shared");
     nob_cc_output(cmd, output_filename);
     nob_cmd_append(cmd, LINKER_FLAGS);
     if (debug) nob_cmd_append(cmd, "-g");
@@ -385,6 +394,7 @@ bool collect_all_c_files(const char* filepath, Nob_File_Paths* src_paths, Nob_Fi
 }
 
 int build_needed_c_files_and_check_if_rebuild_needed(
+    bool shared,
     bool debug,
     bool* needsRebuild, 
     Nob_File_Paths* c_files, 
@@ -410,7 +420,7 @@ int build_needed_c_files_and_check_if_rebuild_needed(
 
         if (nob_c_needs_rebuild(sb, deps, obj_file, src_file)) {
             *needsRebuild = true;
-            if (!build(cmd, src_file, debug)) {
+            if (!build_core(cmd, src_file, debug, shared)) {
                 nob_log(NOB_ERROR, "Failed to build %s", src_file);
                 return 1;
             }
@@ -421,7 +431,43 @@ int build_needed_c_files_and_check_if_rebuild_needed(
     return 0;
 }
 
-int build_c_proj(
+int build_c_proj_single_file(
+    bool shared,
+    bool debug,
+    const char* source_filepath,
+    const char* output_filename, 
+    Nob_Cmd* cmd, 
+    Nob_String_Builder* sb,
+    Nob_File_Paths* deps
+){
+    cmd->count = 0;
+    sb->count = 0;
+    deps->count = 0;
+
+    Nob_File_Paths c_files = {
+        .capacity = 0,
+        .count = 1,
+        .items = (const char**)(const char*[]){
+            source_filepath
+        }
+    };
+
+    bool needsRebuild;
+    int e = build_needed_c_files_and_check_if_rebuild_needed(shared, debug, &needsRebuild, &c_files, cmd, sb, deps);
+    if(e != 0) return e;
+
+    if (needsRebuild || !file_exists(output_filename)) {
+        if (!link_files_core(cmd, output_filename, &c_files, debug, shared)) {
+            nob_log(NOB_ERROR, "Linking failed");
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+int build_c_proj_multiple_files(
+    bool shared,
     bool debug,
     const char* filepath, 
     const char* output_filename, 
@@ -440,11 +486,11 @@ int build_c_proj(
     if(!collect_all_c_files(filepath, src_paths, c_files)) return 1;
 
     bool needsRebuild;
-    int e = build_needed_c_files_and_check_if_rebuild_needed(debug, &needsRebuild, c_files, cmd, sb, deps);
+    int e = build_needed_c_files_and_check_if_rebuild_needed(shared, debug, &needsRebuild, c_files, cmd, sb, deps);
     if(e != 0) return e;
 
     if (needsRebuild || !file_exists(output_filename)) {
-        if (!link_files(cmd, output_filename, c_files, debug)) {
+        if (!link_files_core(cmd, output_filename, c_files, debug, shared)) {
             nob_log(NOB_ERROR, "Linking failed");
             return 1;
         }
@@ -453,24 +499,27 @@ int build_c_proj(
     return 0;
 }
 
-int build_example(Nob_Cmd* cmd, const char* filename, const char* output_filepath){
-    int e = needs_rebuild1(output_filepath, filename);
-    if(e <= 0) return e;
+int build_c_proj(
+    bool debug,
+    const char* filepath, 
+    const char* output_filename, 
+    Nob_File_Paths* src_paths, 
+    Nob_File_Paths* c_files, 
+    Nob_Cmd* cmd, 
+    Nob_String_Builder* sb,
+    Nob_File_Paths* deps
+){
+    return build_c_proj_multiple_files(false,debug,filepath,output_filename,src_paths,c_files,cmd,sb,deps);
+}
 
-    cmd->count = 0;
-    nob_cc(cmd);
-    nob_cmd_append(cmd, 
-        "-shared", 
-        #ifndef _WIN32
-        "-fPIC",
-        #endif
-        filename, 
-        "-o", output_filepath, 
-    );
-    nob_cmd_append(cmd, COMPILER_ARGS);
-
-    if(!nob_cmd_run_sync_and_reset(cmd)) return 1;
-    return 0;
+int build_example(bool debug,
+    const char* source_filepath,
+    const char* output_filename, 
+    Nob_Cmd* cmd, 
+    Nob_String_Builder* sb,
+    Nob_File_Paths* deps){
+    
+    return build_c_proj_single_file(true, debug, source_filepath, output_filename, cmd, sb, deps);
 }
 
 int main(int argc, char** argv) {
@@ -557,15 +606,14 @@ int main(int argc, char** argv) {
 
     //building examples
     e = build_example(
+        debug,
+        "examples/example.c",
+        debug ? "examples/example-debug."DLL_END : "examples/example."DLL_END,
         &cmd,
-        "examples/example.c", 
-        "examples/example."
-        #ifdef _WIN32
-        "dll"
-        #else
-        "so"
-        #endif
+        &sb,
+        &deps
     );
+    if(e != 0) return e;
 
     if (run_after) {
         cmd.count = 0;
