@@ -66,6 +66,7 @@ typedef struct{
     AVChannelLayout myLayers_fifo_ch_layout;
     size_t myLayers_fifo_frame_size;
     MyVfx* myVfxs;
+    VulkanizerVfxInstances vulkanizerVfxInstances;
     double time;
     double duration;
 } MyProject;
@@ -76,7 +77,7 @@ enum {
 };
 
 bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkanizer, enum AVSampleFormat expectedSampleFormat, size_t fifo_size, ArenaAllocator* aa);
-int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
+int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT);
 bool project_seek(Project* project, MyProject* myProject, double time_seconds);
 void project_uninit(Vulkanizer* vulkanizer, MyProject* myProject, ArenaAllocator* aa);
 

@@ -179,7 +179,6 @@ int preview(Project* project, const char* project_filename, int argc, const char
     MyProject myProject = {0};
     if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
-    VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
     VkImage          outComposedImage;
@@ -540,7 +539,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &myProject, &vulkanizer, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &myProject, &vulkanizer, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) {
             if(!project_seek(project, &myProject,0)) break;
         }

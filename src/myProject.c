@@ -398,7 +398,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     return true;
 }
 
-int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vulkanizerVfxInstances, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
+int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject, Vulkanizer* vulkanizer, void* push_constants_buf, VkImageView outComposedImageView, bool* enoughSamplesOUT){
     *enoughSamplesOUT = true;
     size_t finishedCount = 0;
     size_t i = 0;
@@ -413,16 +413,16 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
         }
         myLayer->volume = VfxLayerSoundParameter_Evaluate(&layer->volume, myProject->time);
         myLayer->pan = VfxLayerSoundParameter_Evaluate(&layer->pan, myProject->time);
-        vulkanizerVfxInstances->count = 0;
+        myProject->vulkanizerVfxInstances.count = 0;
         for(VfxInstance* vfx = layer->vfxInstances; vfx != NULL; vfx = vfx->next){
             if((vfx->duration != -1) && !(myProject->time > vfx->offset && myProject->time < vfx->offset + vfx->duration)) continue;
 
             if(vfx->inputs != NULL) VfxInstance_Update(myProject->myVfxs, vfx, myProject->time, push_constants_buf);
             MyVfx* myVfx = ll_at(myProject->myVfxs, vfx->vfx_index);
-            da_append(vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfx->vfx, .push_constants_data = push_constants_buf, .push_constants_size = myVfx->vfx.module.pushContantsSize}));
+            da_append(&myProject->vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfx->vfx, .push_constants_data = push_constants_buf, .push_constants_size = myVfx->vfx.module.pushContantsSize}));
         }
 
-        int e = getFrame(cmd, vulkanizer, project, layer->slices, myLayer->myMedias, vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
+        int e = getFrame(cmd, vulkanizer, project, layer->slices, myLayer->myMedias, &myProject->vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);
         
         MyMedia* myMedia = ll_at(myLayer->myMedias, myLayer->args.currentMediaIndex);
         if(myLayer->audioFifo && (myLayer->args.currentMediaIndex == EMPTY_MEDIA || (myLayer->args.currentMediaIndex != EMPTY_MEDIA && !myMedia->hasAudio))){

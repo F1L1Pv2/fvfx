@@ -55,7 +55,6 @@ int render(Project* project, ArenaAllocator* aa){
     int composedAudioBufLineSize;
     av_samples_alloc_array_and_samples(&composedAudioBuf,&composedAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
 
-    VulkanizerVfxInstances vulkanizerVfxInstances = {0};
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
     VkImage outComposedImage;
@@ -123,7 +122,7 @@ int render(Project* project, ArenaAllocator* aa){
         vkCmdEndRendering(cmd);
 
         bool enoughSamples;
-        int result = process_project(cmd, project, &myProject, &vulkanizer, &vulkanizerVfxInstances, push_constants_buf, outComposedImageView, &enoughSamples);
+        int result = process_project(cmd, project, &myProject, &vulkanizer, push_constants_buf, outComposedImageView, &enoughSamples);
         if(result == PROCESS_PROJECT_FINISHED) break;
 
         vkCmdTransitionImage(
