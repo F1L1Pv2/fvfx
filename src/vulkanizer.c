@@ -176,8 +176,8 @@ static bool init_output_image(
     )) return false;
 
     VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    vkCmdTransitionImage(tempCmd,*outImage1, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    vkCmdTransitionImage(tempCmd,*outImage2, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdTransitionImage(tempCmd,*outImage1, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdTransitionImage(tempCmd,*outImage2, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
     vkCmdEndSingleTime(tempCmd);
 
     {
@@ -207,7 +207,7 @@ static bool init_output_image(
 
 static VulkanizerImagesOut* VulkanizerImagesOutPool_get_avaliable(Vulkanizer* vulkanizer, VulkanizerImagesOutPool* pool){
     if(pool->used < pool->count) return &pool->items[pool->used++];
-    fa_reserve(pool, pool->count + 1);
+    fa_reserve(pool, 1);
     VulkanizerImagesOut* out = &pool->items[pool->count++];
 
     //initalization
@@ -336,7 +336,7 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
     )) return false;
 
     VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    vkCmdTransitionImage(tempCmd, *imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdTransitionImage(tempCmd, *imageOut, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
     vkCmdEndSingleTime(tempCmd);
     
     VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
@@ -389,8 +389,7 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_GENERAL, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-        VK_PIPELINE_STAGE_TRANSFER_BIT, 
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        VK_IMAGE_ASPECT_COLOR_BIT
     );
 
     {
@@ -428,17 +427,15 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         vkCmdTransitionImage(
             cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
         vkCmdTransitionImage(
             cmd, usedImages->currentImage == 1 ? usedImages->image1 : usedImages->image2, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
         if(!applyShadersOnFrame(
@@ -462,9 +459,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
     vkCmdTransitionImage(
         cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+        VK_IMAGE_ASPECT_COLOR_BIT
     );
 
     {
@@ -495,8 +491,7 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
         cmd, usedImages->currentImage == 0 ? usedImages->image1 : usedImages->image2, 
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
         VK_IMAGE_LAYOUT_GENERAL, 
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT
+        VK_IMAGE_ASPECT_COLOR_BIT
     );
 
     return true;

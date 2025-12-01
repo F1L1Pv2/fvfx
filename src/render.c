@@ -76,7 +76,7 @@ int render(Project* project, ArenaAllocator* aa){
     )) return 1;
 
     VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT);
     vkCmdEndSingleTime(tempCmd);
 
     MyLayer* myLayers = myProject.myLayers;
@@ -99,8 +99,7 @@ int render(Project* project, ArenaAllocator* aa){
             outComposedImage,
             VK_IMAGE_LAYOUT_GENERAL, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_PIPELINE_STAGE_TRANSFER_BIT, 
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
         vkCmdBeginRenderingEX(cmd,
@@ -132,8 +131,7 @@ int render(Project* project, ArenaAllocator* aa){
             outComposedImage,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_IMAGE_LAYOUT_GENERAL, 
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
         vkEndCommandBuffer(cmd);

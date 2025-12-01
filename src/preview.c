@@ -268,7 +268,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
 
     {
         VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-        vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
         vkCmdEndSingleTime(tempCmd);
     }
 
@@ -464,7 +464,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
             }, 0, NULL);
 
             VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-            vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            vkCmdTransitionImage(tempCmd, outComposedImage, VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
             vkCmdEndSingleTime(tempCmd);
 
             av_samples_alloc_array_and_samples(&tempAudioBuf,&tempAudioBufLineSize, project->settings.stereo ? 2 : 1, out_audio_frame_size, out_audio_format, 0);
@@ -516,8 +516,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
             outComposedImage,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
         vkCmdBeginRenderingEX(cmd,
@@ -551,11 +550,10 @@ int preview(Project* project, const char* project_filename, int argc, const char
             outComposedImage,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+            VK_IMAGE_ASPECT_COLOR_BIT
         );
 
-        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
         vkCmdBeginRenderingEX(cmd,
             .colorAttachment = swapchainImageViews.items[imageIndex],
@@ -584,7 +582,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
 
         dd_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
 
-        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
 
         vkEndCommandBuffer(cmd);
 
