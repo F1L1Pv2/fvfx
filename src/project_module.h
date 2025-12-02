@@ -154,6 +154,31 @@ typedef struct{
     } as;
 } VfxInputValue;
 
+typedef struct{
+    VfxInputType type;
+    VfxInputValue value;
+} VfxInputArg;
+
+typedef struct VfxInput VfxInput;
+struct VfxInput{
+    size_t push_constant_offset;
+    VfxInputType type;
+    const char* name;
+    VfxInputValue* defaultValue;
+    VfxInput* next;
+};
+
+typedef struct VfxModule VfxModule;
+struct VfxModule{
+    const char* filepath;
+    const char* name;
+    const char* description;
+    const char* author;
+    VfxInput* inputs;
+    size_t pushContantsSize;
+    bool hasDefaultValues;
+};
+
 typedef enum{
     VFX_AUTO_KEY_LINEAR = 0,
     VFX_AUTO_KEY_STEP,
@@ -193,8 +218,9 @@ typedef struct{
     VfxInstance* (*layer_create_and_add_vfx_instance)(Project* project, Layer* layer, size_t vfx_index, double instance_when, double instance_duration); // creates vfx instance inside project and returns ref to it
     void (*layer_add_volume_automation_key)(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
     void (*layer_add_pan_automation_key)(Project* project, Layer* layer, VfxAutomationKeyType automation_key_type, double automation_duration, double target_value);
-    void (*vfx_instance_set_arg)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxInputType input_type, VfxInputValue input_value);
-    void (*vfx_instance_add_automation_key)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputValue target_value);
+    void (*vfx_instance_set_arg)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxInputArg input_value);
+    void (*vfx_instance_add_automation_key)(Project* project, VfxInstance* vfx_instance, size_t input_index, VfxAutomationKeyType automation_key_type, double automation_duration, VfxInputArg target_value);
+    size_t (*vfx_get_input_index)(Project* project, size_t vfx_index, const char* input_name);
 } Module;
 
 EXPORT_FN bool project_init(Module* module, int argc, const char** argv); // for dlls

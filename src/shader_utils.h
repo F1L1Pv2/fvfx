@@ -6,28 +6,8 @@
 
 #include <stdint.h>
 
-#include "project.h"
+#include "project_module.h"
 #include "arena_alloc.h"
-
-typedef struct VfxInput VfxInput;
-
-struct VfxInput{
-    size_t push_constant_offset;
-    VfxInputType type;
-    const char* name;
-    VfxInputValue* defaultValue;
-    VfxInput* next;
-};
-
-typedef struct {
-    const char* filepath;
-    const char* name;
-    const char* description;
-    const char* author;
-    VfxInput* inputs;
-    size_t pushContantsSize;
-    bool hasDefaultValues;
-} VfxModule;
 
 char* get_vfxInputTypeName(VfxInputType type);
 size_t get_vfxInputTypeSize(VfxInputType type);

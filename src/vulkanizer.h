@@ -8,7 +8,7 @@
 #include "arena_alloc.h"
 
 typedef struct{
-    VfxModule module;
+    VfxModule* module;
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 } VulkanizerVfx;
@@ -51,7 +51,7 @@ bool Vulkanizer_init_image_for_media(Vulkanizer* vulkanizer, size_t width, size_
 bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* vulkanizer, VulkanizerVfxInstances* vfxInstances, VkImageView videoInView, void* videoInData, size_t videoInStride, VkDescriptorSet videoInDescriptorSet, Frame* frameIn, VkImageView composedOutView);
 void Vulkanizer_reset_pool();
 
-bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx);
+bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, VfxModule* module, VulkanizerVfx* outVfx);
 
 bool createMyImage(VkDevice device, VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty);
 

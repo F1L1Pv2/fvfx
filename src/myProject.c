@@ -95,7 +95,7 @@ static void VfxInstance_Update(MyVfx* myVfxs, VfxInstance* instance, double curr
         VfxAutomation_Evaluate(myInput->type, &myInput->initialValue, myInput->keys, localTime, &result);
 
         MyVfx* myVfx = ll_at(myVfxs, instance->vfx_index);
-        VfxInput* vfxInput = ll_at(myVfx->vfx.module.inputs, myInput->index);
+        VfxInput* vfxInput = ll_at(myVfx->vfx.module->inputs, myInput->index);
         void* dst = (uint8_t*)push_constants_data + vfxInput->push_constant_offset;
 
         memcpy(dst, &result.as, get_vfxInputTypeSize(myInput->type));
@@ -293,7 +293,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     size_t vfx_descriptors_count = 0;
     for(VfxDescriptor* vfx_descriptor = project->vfxDescriptors; vfx_descriptor != NULL; vfx_descriptor = vfx_descriptor->next){
         MyVfx vfx = {0};
-        if(!Vulkanizer_init_vfx(vulkanizer, vfx_descriptor->filename, &vfx.vfx)) return false;
+        if(!Vulkanizer_init_vfx(vulkanizer, vfx_descriptor->module, &vfx.vfx)) return false;
         ll_push(&myProject->myVfxs, vfx, ll_arena_allocator, aa);
         vfx_descriptors_count++;
     }
@@ -307,11 +307,11 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             MyVfx* myVfx_ref = ll_at(myProject->myVfxs,vfx->vfx_index);
             VulkanizerVfx* myVfx = &myVfx_ref->vfx;
             
-            if(myVfx->module.inputs != NULL){
+            if(myVfx->module->inputs != NULL){
                 size_t originputsCount = 0;
                 for(VfxInstanceInput* input = vfx->inputs; input != NULL; input = input->next) originputsCount++;
                 size_t m = 0;
-                for(VfxInput* input = myVfx->module.inputs; input != NULL; input = input->next,m++){
+                for(VfxInput* input = myVfx->module->inputs; input != NULL; input = input->next,m++){
                     bool needToAdd = true;
                     for(size_t n = 0; n < originputsCount; n++){
                         VfxInstanceInput* myInput = ll_at(vfx->inputs,n);
@@ -419,7 +419,7 @@ int process_project(VkCommandBuffer cmd, Project* project, MyProject* myProject,
 
             if(vfx->inputs != NULL) VfxInstance_Update(myProject->myVfxs, vfx, myProject->time, push_constants_buf);
             MyVfx* myVfx = ll_at(myProject->myVfxs, vfx->vfx_index);
-            da_append(&myProject->vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfx->vfx, .push_constants_data = push_constants_buf, .push_constants_size = myVfx->vfx.module.pushContantsSize}));
+            da_append(&myProject->vulkanizerVfxInstances, ((VulkanizerVfxInstance){.vfx = &myVfx->vfx, .push_constants_data = push_constants_buf, .push_constants_size = myVfx->vfx.module->pushContantsSize}));
         }
 
         int e = getFrame(cmd, vulkanizer, project, layer->slices, myLayer->myMedias, &myProject->vulkanizerVfxInstances, &myLayer->frame, myLayer->audioFifo, &myLayer->args, outComposedImageView);

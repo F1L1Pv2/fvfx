@@ -66,8 +66,8 @@ static bool applyShadersOnFrame(
 
                             VulkanizerVfx* vfx
                         ){
-    if(push_constants_size != vfx->module.pushContantsSize){
-        fprintf(stderr, "Expected push contants to have %zu bytes but got %zu bytes!\n", vfx->module.pushContantsSize, push_constants_size);
+    if(push_constants_size != vfx->module->pushContantsSize){
+        fprintf(stderr, "Expected push contants to have %zu bytes but got %zu bytes!\n", vfx->module->pushContantsSize, push_constants_size);
         return false;
     }
 
@@ -418,8 +418,8 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
 
     for(size_t i = 0; i < vfxInstances->count; i++){
         VulkanizerVfxInstance* vfx = &vfxInstances->items[i];
-        if(vfx->push_constants_data != NULL && vfx->push_constants_size != vfx->vfx->module.pushContantsSize){
-            fprintf(stderr, "%zu %s Invalid push contants size expected %zu got %zu\n", i, vfx->vfx->module.name, vfx->vfx->module.pushContantsSize, vfx->push_constants_size);
+        if(vfx->push_constants_data != NULL && vfx->push_constants_size != vfx->vfx->module->pushContantsSize){
+            fprintf(stderr, "%zu %s Invalid push contants size expected %zu got %zu\n", i, vfx->vfx->module->name, vfx->vfx->module->pushContantsSize, vfx->push_constants_size);
             return false;
         }
 
@@ -497,18 +497,18 @@ bool Vulkanizer_apply_vfx_on_frame_and_compose(VkCommandBuffer cmd, Vulkanizer* 
     return true;
 }
 
-bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, VulkanizerVfx* outVfx){
+bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, VfxModule* module, VulkanizerVfx* outVfx){
+    outVfx->module = module;
     String_Builder sb = {0};
-    if(!read_entire_file(filename,&sb)) return false;
-    if(!extractVFXModuleMetaData(nob_sb_to_sv(sb),&outVfx->module, vulkanizer->aa)) return false;
-    if(!preprocessVFXModule(&sb, &outVfx->module)) return false;
+    if(!read_entire_file(module->filepath, &sb)) return false;
+    if(!preprocessVFXModule(&sb, outVfx->module)) return false;
     sb_append_null(&sb);
 
     VkShaderModule fragmentShader;
     if(!vkCompileShader(vulkanizer->device,sb.items,shaderc_fragment_shader,&fragmentShader)) return false;
 
-    for(VfxInput* input = outVfx->module.inputs; input != NULL; input = input->next){
-        outVfx->module.pushContantsSize += get_vfxInputTypeSize(input->type);
+    for(VfxInput* input = outVfx->module->inputs; input != NULL; input = input->next){
+        outVfx->module->pushContantsSize += get_vfxInputTypeSize(input->type);
     }
 
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
@@ -518,14 +518,12 @@ bool Vulkanizer_init_vfx(Vulkanizer* vulkanizer, const char* filename, Vulkanize
         &outVfx->pipeline, 
         &outVfx->pipelineLayout,
         colorFormat,
-        .pushConstantsSize = sizeof(float)*4 + outVfx->module.pushContantsSize,
+        .pushConstantsSize = sizeof(float)*4 + outVfx->module->pushContantsSize,
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &vulkanizer->vfxDescriptorSetLayout,
     )) return false;
 
     vkDestroyShaderModule(vulkanizer->device, fragmentShader, NULL);
-
-    outVfx->module.filepath = filename;
-    nob_da_free(sb);
+    sb_free(sb);
     return true;
 }

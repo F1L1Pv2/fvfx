@@ -71,9 +71,15 @@ struct Layer{
     Layer* next;
 };
 
+typedef struct VfxModuleRef VfxModuleRef;
+struct VfxModuleRef{
+    VfxModule module;
+    VfxModuleRef* next;
+};
+
 typedef struct VfxDescriptor VfxDescriptor;
 struct VfxDescriptor{
-    const char* filename;
+    VfxModule* module;
     VfxDescriptor* next;
 };
 
@@ -82,6 +88,7 @@ struct Project{
     Project_Settings settings;
     Layer* layers;
     VfxDescriptor* vfxDescriptors;
+    VfxModuleRef* vfxModuleRefs;
     ArenaAllocator* aa;
 };
 
