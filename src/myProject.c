@@ -279,7 +279,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             if(myMedia.hasAudio) hasAudio = true;
             
             if(myMedia.hasVideo){
-                if(!Vulkanizer_init_image_for_media(vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return 1;
+                if(!Vulkanizer_init_image_for_media(vulkanizer, myMedia.media.videoCodecContext->width, myMedia.media.videoCodecContext->height, &myMedia.mediaImage, &myMedia.mediaImageMemory, &myMedia.mediaImageView, &myMedia.mediaImageStride, &myMedia.mediaDescriptorSet, &myMedia.mediaImageData)) return false;
             }
             ll_push(&myLayer.myMedias, myMedia, ll_arena_allocator, aa);
         }
@@ -315,10 +315,14 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
                     bool needToAdd = true;
                     for(size_t n = 0; n < originputsCount; n++){
                         VfxInstanceInput* myInput = ll_at(vfx->inputs,n);
+                        if(myInput->index >= originputsCount){
+                            fprintf(stderr, "layer %zu vfx instance %zu input %zu doesn't exist\n", layer_id, vfx_instance_id, m);
+                            return false;
+                        }
                         if(myInput->index == m){
                             if(myInput->type != input->type){
                                 fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", layer_id, vfx_instance_id, m, get_vfxInputTypeName(input->type), get_vfxInputTypeName(myInput->type));
-                                return 1;
+                                return false;
                             }
                             needToAdd = false;
                             break;

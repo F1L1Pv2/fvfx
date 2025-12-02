@@ -141,7 +141,58 @@ static bool pointInsideRect(float x, float y, Rect rect){
 #define PREVIEW_WIDTH_SCALER (0.75)
 #define PREVIEW_HEIGHT_SCALER (0.75)
 
-int preview(Project* project, const char* project_filename, int argc, const char** argv, ArenaAllocator* aa){
+#define FA_REALLOC(optr, osize, new_size) realloc(optr, new_size)
+#define fa_reserve(da, extra) \
+   do {\
+      if((da)->count + extra >= (da)->capacity) {\
+          void* _da_old_ptr;\
+          size_t _da_old_capacity = (da)->capacity;\
+          (void)_da_old_capacity;\
+          (void)_da_old_ptr;\
+          (da)->capacity = (da)->capacity*2+extra;\
+          _da_old_ptr = (da)->items;\
+          (da)->items = FA_REALLOC(_da_old_ptr, _da_old_capacity*sizeof(*(da)->items), (da)->capacity*sizeof(*(da)->items));\
+          assert((da)->items && "Ran out of memory");\
+      }\
+   } while(0)
+#define fa_push(da, value) \
+   do {\
+        fa_reserve(da, 1);\
+        (da)->items[(da)->count++]=value;\
+   } while(0)
+
+typedef struct{
+    const char* content;
+    float timeLeft;
+    bool alive;
+} Toast;
+
+typedef struct{
+    Toast* items;
+    size_t count;
+    size_t capacity;
+} Toasts;
+
+Toasts toasts_pool = {0};
+Toast* toasts_pool_get_toast(){
+    for(size_t i = 0; i < toasts_pool.count; i++){
+        if(toasts_pool.items[i].alive == false) return &toasts_pool.items[i];
+    }
+    fa_reserve(&toasts_pool, 1);
+    return &toasts_pool.items[toasts_pool.count++];
+}
+
+void add_toast(const char* content, float duration){
+    Toast* toast = toasts_pool_get_toast();
+    toast->content = content;
+    toast->timeLeft = duration;
+    toast->alive = true;
+}
+
+static ArenaAllocator second_aa = {0};
+static ArenaAllocator* currently_used_aa = NULL;
+int preview(Project* project, const char* project_filename, int argc, const char** argv, ArenaAllocator* aa_){
+    currently_used_aa = aa_;
     if(!vulkan_init_with_window("FVFX", 640, 480)) return 1;
 
     // TODO: optimize this byh even more
@@ -169,7 +220,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
     if(vkCreateSemaphore(device, &(VkSemaphoreCreateInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}, NULL, &readyToSwapYourChainSemaphore) != VK_SUCCESS) return 1;
 
     Vulkanizer vulkanizer = {0};
-    if(!Vulkanizer_init(device, descriptorPool, project->settings.width, project->settings.height, &vulkanizer, aa)) return 1;
+    if(!Vulkanizer_init(device, descriptorPool, project->settings.width, project->settings.height, &vulkanizer, currently_used_aa)) return 1;
 
     if(!dd_init(device, swapchainImageFormat, descriptorPool)) return 1;
 
@@ -177,7 +228,7 @@ int preview(Project* project, const char* project_filename, int argc, const char
     size_t out_audio_frame_size = project->settings.sampleRate/100;
 
     MyProject myProject = {0};
-    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
+    if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, currently_used_aa)) return 1;
 
     void* push_constants_buf = calloc(256, sizeof(uint8_t));
 
@@ -320,12 +371,18 @@ int preview(Project* project, const char* project_filename, int argc, const char
     bool scrubbed = false;
     bool hotReloaded = false;
 
+    uint64_t last_time = platform_get_time_milis();
+
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
             platform_sleep(1);
             continue;
         }
+
+        uint64_t current_time = platform_get_time_milis();
+        double deltaTime = ((double)(current_time-last_time))/1000.0;
+        last_time = current_time;
 
         hotReloaded = false;
         if(input.keys[KEY_R].justPressed) hotReloaded = true;
@@ -383,7 +440,6 @@ int preview(Project* project, const char* project_filename, int argc, const char
         }
 
         if(input.keys[KEY_SPACE].justPressed) paused = !paused;
-        if(scrubbed == false && hotReloaded == false && paused) continue;
 
         dd_begin();
 
@@ -398,21 +454,79 @@ int preview(Project* project, const char* project_filename, int argc, const char
             dd_text(buf, swapchainExtent.width/2 - dd_text_measure(buf,textSize)/2, timeline_y, textSize, 0xFFFFFFFF);
         }
 
+        float toast_width = min(swapchainExtent.height/2.25, 400);
+        float toast_height = toast_width/5;
+        float toast_gap = toast_height/10;
+        size_t i_alive = 0;
+        for(size_t i =0; i < toasts_pool.count; i++){
+            Toast* toast = &toasts_pool.items[i];
+            if(!toast->alive) continue;
+            float toast_x = swapchainExtent.width-toast_width;
+            float toast_y = (toast_height+toast_gap)*i_alive;
+            dd_rect(toast_x,toast_y,toast_width,toast_height,0xAA401818);
+            size_t text_len = strlen(toast->content);
+            float fontSize = (toast_width)/text_len;
+            dd_text(toast->content,toast_x + toast_width/2 - dd_text_measure(toast->content, fontSize)/2,toast_y+toast_height/2 - fontSize/2,fontSize,0xAAFFFFFF);
+            toast->timeLeft -= deltaTime;
+            if(toast->timeLeft <= 0) toast->alive = false;
+            i_alive++;
+        }
+
         dd_end();
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &renderingFence);
 
         if(hotReloaded){
+            bool initialPaused = paused;
+            paused = true;
+
+            Project new_project = {0};
+            MyProject new_myProject = {0};
+
+            ArenaAllocator* previousAllocator = currently_used_aa;
+            currently_used_aa = currently_used_aa == aa_ ? &second_aa : aa_;
+
+            if(!project_loader_load(&new_project, project_filename, argc, argv, currently_used_aa)) {
+                aa_reset(currently_used_aa);
+                currently_used_aa = previousAllocator;
+                add_toast("Failed to hotreload", 3);
+                goto hotReloadedAFTER;
+            }
+            new_project.settings.width *= PREVIEW_WIDTH_SCALER;
+            new_project.settings.height *= PREVIEW_HEIGHT_SCALER;
+
+            vulkanizer.aa = currently_used_aa;
+            vulkanizer.videoOutWidth = new_project.settings.width;
+            vulkanizer.videoOutHeight = new_project.settings.height;
+
+            size_t new_out_audio_frame_size = project->settings.sampleRate/100;
+            if(!prepare_project(&new_project, &new_myProject, &vulkanizer, out_audio_format, new_out_audio_frame_size, currently_used_aa)) {
+                project_uninit(&vulkanizer, &new_myProject, currently_used_aa);
+                project_loader_clean(&new_project,currently_used_aa);
+                vulkanizer.aa = previousAllocator;
+                vulkanizer.videoOutWidth = project->settings.width;
+                vulkanizer.videoOutHeight = project->settings.height;
+                aa_reset(currently_used_aa);
+                currently_used_aa = previousAllocator;
+                add_toast("Failed to hotreload", 3);
+                goto hotReloadedAFTER;
+            }
+
             ma_device_stop(&audio_device);
             ma_device_uninit(&audio_device);
             double time = myProject.time;
-            project_uninit(&vulkanizer, &myProject, aa);
-            project_loader_clean(project, aa);
+            vulkanizer.aa = previousAllocator;
+            project_uninit(&vulkanizer, &myProject, previousAllocator);
+            project_loader_clean(project, previousAllocator);
+            vulkanizer.aa = currently_used_aa;
+            memcpy(project, &new_project, sizeof(new_project));
+            memcpy(&myProject, &new_myProject, sizeof(new_myProject));
             if (tempAudioBuf) {
                 av_freep(&tempAudioBuf[0]); // Frees the actual audio buffer(s)
                 av_freep(&tempAudioBuf);    // Frees the array of pointers
             }
+            out_audio_frame_size = new_out_audio_frame_size;
             
             /*
             outComposedImage
@@ -426,16 +540,6 @@ int preview(Project* project, const char* project_filename, int argc, const char
             vkDestroyImage(device, outComposedImage, NULL);
             vkFreeMemory(device, outComposedImageMemory, NULL);
             free(outComposedVideoFrame);
-
-            if(!project_loader_load(project, project_filename, argc, argv, aa)) return 1;
-            project->settings.width *= PREVIEW_WIDTH_SCALER;
-            project->settings.height *= PREVIEW_HEIGHT_SCALER;
-
-            vulkanizer.videoOutWidth = project->settings.width;
-            vulkanizer.videoOutHeight = project->settings.height;
-
-            out_audio_frame_size = project->settings.sampleRate/100;
-            if(!prepare_project(project, &myProject, &vulkanizer, out_audio_format, out_audio_frame_size, aa)) return 1;
 
             if(!createMyImage(device, &outComposedImage, 
                 project->settings.width, project->settings.height, 
@@ -496,6 +600,8 @@ int preview(Project* project, const char* project_filename, int argc, const char
             if(time < myProject.duration) {
                 project_seek(project, &myProject, time);
             }
+        hotReloadedAFTER:
+            paused = initialPaused;
         }
 
         vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, swapchainHasImageSemaphore, NULL, &imageIndex);
@@ -508,49 +614,51 @@ int preview(Project* project, const char* project_filename, int argc, const char
             .pInheritanceInfo = NULL,
         });
 
-        Vulkanizer_reset_pool();
-
-        vkCmdTransitionImage(
-            cmd,
-            outComposedImage,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_IMAGE_ASPECT_COLOR_BIT
-        );
-
-        vkCmdBeginRenderingEX(cmd,
-            .colorAttachment = outComposedImageView,
-            .clearColor = COL_BLACK,
-            .renderArea = (
-                (VkExtent2D){.width = project->settings.width, .height= project->settings.height}
-            )
-        );
-
-        vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
-            .width = project->settings.width,
-            .height = project->settings.height
-        });
-            
-        vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-            .extent.width = project->settings.width,
-            .extent.height = project->settings.height,
-        });
-
-        vkCmdEndRendering(cmd);
-
-        bool enoughSamples;
-        int result = process_project(cmd, project, &myProject, &vulkanizer, push_constants_buf, outComposedImageView, &enoughSamples);
-        if(result == PROCESS_PROJECT_FINISHED) {
-            if(!project_seek(project, &myProject,0)) break;
+        if(paused == false || scrubbed || hotReloaded){
+            Vulkanizer_reset_pool();
+    
+            vkCmdTransitionImage(
+                cmd,
+                outComposedImage,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+                VK_IMAGE_ASPECT_COLOR_BIT
+            );
+    
+            vkCmdBeginRenderingEX(cmd,
+                .colorAttachment = outComposedImageView,
+                .clearColor = COL_BLACK,
+                .renderArea = (
+                    (VkExtent2D){.width = project->settings.width, .height= project->settings.height}
+                )
+            );
+    
+            vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+                .width = project->settings.width,
+                .height = project->settings.height
+            });
+                
+            vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
+                .extent.width = project->settings.width,
+                .extent.height = project->settings.height,
+            });
+    
+            vkCmdEndRendering(cmd);
+    
+            bool enoughSamples;
+            int result = process_project(cmd, project, &myProject, &vulkanizer, push_constants_buf, outComposedImageView, &enoughSamples);
+            if(result == PROCESS_PROJECT_FINISHED) {
+                if(!project_seek(project, &myProject,0)) break;
+            }
+    
+            vkCmdTransitionImage(
+                cmd,
+                outComposedImage,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
+                VK_IMAGE_ASPECT_COLOR_BIT
+            );
         }
-
-        vkCmdTransitionImage(
-            cmd,
-            outComposedImage,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
-            VK_IMAGE_ASPECT_COLOR_BIT
-        );
 
         vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
