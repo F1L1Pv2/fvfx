@@ -33,7 +33,7 @@ bool project_init(Module* module, int argc, const char** argv){
         module->layer_create_and_add_vfx_instance(module->project,layer, vfx_fit_id, 0, -1);
         
         VfxInstance* coloring_orange = module->layer_create_and_add_vfx_instance(module->project,layer, vfx_coloring_id, 5, 10);
-        module->vfx_instance_set_arg(module->project,coloring_orange, 0, (VfxInputArg){.type = VFX_VEC4, .value.as.vec4 = {1,0.5,0.2,1}});
+        module->vfx_instance_set_arg(module->project,coloring_orange, vfx_coloring_Color_index, (VfxInputArg){.type = VFX_VEC4, .value.as.vec4 = {1,0.5,0.2,1}});
     }
 
     {
@@ -67,16 +67,16 @@ bool project_init(Module* module, int argc, const char** argv){
 
         {
             VfxInstance* translate = module->layer_create_and_add_vfx_instance(module->project,layer, vfx_translate_id, 5, 5);
-            module->vfx_instance_set_arg(module->project,translate, 0, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.0, .y =  0.0}});
-            module->vfx_instance_add_automation_key(module->project,translate, 0, VFX_AUTO_KEY_LINEAR, 1, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
+            module->vfx_instance_set_arg(module->project,translate, vfx_translate_Offset_index, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.0, .y =  0.0}});
+            module->vfx_instance_add_automation_key(module->project,translate, vfx_translate_Offset_index, VFX_AUTO_KEY_LINEAR, 1, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
         }
      
         {
             VfxInstance* translate = module->layer_create_and_add_vfx_instance(module->project,layer, vfx_translate_id, 20.6, 2);
-            module->vfx_instance_set_arg(module->project,translate, 0,(VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
-            module->vfx_instance_add_automation_key(module->project,translate, 0, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x = -0.5, .y =  0.5}});
-            module->vfx_instance_add_automation_key(module->project,translate, 0, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x = -0.5, .y = -0.5}});
-            module->vfx_instance_add_automation_key(module->project,translate, 0, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
+            module->vfx_instance_set_arg(module->project,translate, vfx_translate_Offset_index,(VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
+            module->vfx_instance_add_automation_key(module->project,translate, vfx_translate_Offset_index, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x = -0.5, .y =  0.5}});
+            module->vfx_instance_add_automation_key(module->project,translate, vfx_translate_Offset_index, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x = -0.5, .y = -0.5}});
+            module->vfx_instance_add_automation_key(module->project,translate, vfx_translate_Offset_index, VFX_AUTO_KEY_LINEAR, .5, (VfxInputArg){.type = VFX_VEC2, .value.as.vec2 = {.x =  0.5, .y =  0.5}});
         }
     }
 
