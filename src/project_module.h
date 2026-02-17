@@ -332,6 +332,7 @@ struct VfxModule{
     VfxInput* inputs;
     size_t pushContantsSize;
     bool hasDefaultValues;
+    VfxModule *next;
 };
 
 typedef enum{

@@ -22,12 +22,9 @@ size_t project_add_vfx(Project* project, const char* filename){
     vfx_sb.count = 0;
     if(!read_entire_file(moduleIn.filepath,&vfx_sb)) return -1;
     if(!extractVFXModuleMetaData(nob_sb_to_sv(vfx_sb),&moduleIn, project->aa)) return -1;
-    VfxModuleRef* module_ref = ll_push(&project->vfxModuleRefs, ((VfxModuleRef){.module = moduleIn}), arena_alloc_func, project->aa);
-    VfxModule* module = &module_ref->module;
-
-    ll_push(&project->vfxDescriptors, (VfxDescriptor){.module = module}, arena_alloc_func, project->aa);
+    VfxModule* module = ll_push(&project->vfxModules, moduleIn, arena_alloc_func, project->aa);
     size_t count = 0;
-    for(VfxDescriptor* desc = project->vfxDescriptors; desc != NULL; desc = desc->next) count++;
+    for(VfxModule* module = project->vfxModules; module != NULL; module = module->next) count++;
     return count - 1;
 }
 Layer* project_create_and_add_layer(Project* project, double initial_volume, double initial_panning){
@@ -110,10 +107,10 @@ void vfx_instance_add_automation_key(Project* project, VfxInstance* vfx_instance
 
 size_t vfx_get_input_index(Project* project, size_t vfx_index, const char* input_name){
     VfxModule* module = NULL;
-    size_t vfxDescriptors_count = 0;
-    for(VfxDescriptor* vfxDescriptor = project->vfxDescriptors; vfxDescriptor != NULL; vfxDescriptor = vfxDescriptor->next) vfxDescriptors_count++;
-    if(vfx_index > vfxDescriptors_count) return -1;
-    module = ((VfxDescriptor*)ll_at(project->vfxDescriptors, vfx_index))->module;
+    size_t vfxModules_count = 0;
+    for(VfxModule* vfxModule = project->vfxModules; vfxModule != NULL; vfxModule = vfxModule->next) vfxModules_count++;
+    if(vfx_index > vfxModules_count) return -1;
+    module = (VfxModule*)ll_at(project->vfxModules, vfx_index);
     if(module == NULL) return -1;
     size_t i = 0;
     for(VfxInput* input = module->inputs; input != NULL; input = input->next, i++){

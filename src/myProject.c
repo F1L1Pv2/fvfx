@@ -290,12 +290,12 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     myProject->myLayers_fifo_frame_size = fifo_size;
     myProject->myLayers_fifo_ch_layout = project->settings.stereo ? (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO : (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
 
-    size_t vfx_descriptors_count = 0;
-    for(VfxDescriptor* vfx_descriptor = project->vfxDescriptors; vfx_descriptor != NULL; vfx_descriptor = vfx_descriptor->next){
+    size_t vfxModules_count = 0;
+    for(VfxModule* module = project->vfxModules; module != NULL; module = module->next){
         MyVfx vfx = {0};
-        if(!Vulkanizer_init_vfx(vulkanizer, vfx_descriptor->module, &vfx.vfx)) return false;
+        if(!Vulkanizer_init_vfx(vulkanizer, module, &vfx.vfx)) return false;
         ll_push(&myProject->myVfxs, vfx, ll_arena_allocator, aa);
-        vfx_descriptors_count++;
+        vfxModules_count++;
     }
 
     //creating rest of inputs needed + type checking
@@ -303,7 +303,10 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     for(Layer* layer = project->layers; layer != NULL; layer = layer->next, layer_id++){
         size_t vfx_instance_id = 0;
         for(VfxInstance* vfx = layer->vfxInstances; vfx != NULL; vfx = vfx->next,vfx_instance_id++){
-            assert(vfx->vfx_index < vfx_descriptors_count);
+            if(vfx->vfx_index >= vfxModules_count){
+                fprintf(stderr, "layer %zu vfx instance %zu was created with non existing vfx %zu\n", layer_id, vfx_instance_id, vfx->vfx_index);
+                return false;
+            }
             MyVfx* myVfx_ref = ll_at(myProject->myVfxs,vfx->vfx_index);
             VulkanizerVfx* myVfx = &myVfx_ref->vfx;
             
