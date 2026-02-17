@@ -299,25 +299,28 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
     }
 
     //creating rest of inputs needed + type checking
-    for(Layer* layer = project->layers; layer != NULL; layer = layer->next){
-        size_t layer_id = 0;
-        for(VfxInstance* vfx = layer->vfxInstances; vfx != NULL; vfx = vfx->next){
-            size_t vfx_instance_id = 0;
+    size_t layer_id = 0;
+    for(Layer* layer = project->layers; layer != NULL; layer = layer->next, layer_id++){
+        size_t vfx_instance_id = 0;
+        for(VfxInstance* vfx = layer->vfxInstances; vfx != NULL; vfx = vfx->next,vfx_instance_id++){
             assert(vfx->vfx_index < vfx_descriptors_count);
             MyVfx* myVfx_ref = ll_at(myProject->myVfxs,vfx->vfx_index);
             VulkanizerVfx* myVfx = &myVfx_ref->vfx;
             
             if(myVfx->module->inputs != NULL){
-                size_t instance_inputs_count = 0;
-                for(VfxInstanceInput* input = vfx->inputs; input != NULL; input = input->next) instance_inputs_count++;
+                size_t effect_inputs_count = 0;
+                for(VfxInput* input = myVfx->module->inputs; input != NULL; input = input->next) effect_inputs_count++;
                 size_t effect_input_index = 0;
                 for(VfxInput* input = myVfx->module->inputs; input != NULL; input = input->next,effect_input_index++){
                     bool needToAdd = true;
-                    for(size_t n = 0; n < instance_inputs_count; n++){
-                        VfxInstanceInput* instance_input = ll_at(vfx->inputs,n);
+                    for(VfxInstanceInput* instance_input = vfx->inputs; instance_input != NULL; instance_input = instance_input->next){
+                        if(instance_input->index >= effect_inputs_count){
+                            fprintf(stderr, "layer %zu vfx instance %zu(%s) input %zu doesnt exist\n", layer_id, vfx_instance_id, myVfx->module->name, instance_input->index);
+                            return false;
+                        }
                         if(instance_input->index == effect_input_index){
                             if(instance_input->type != input->type){
-                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", layer_id, vfx_instance_id, effect_input_index, get_vfxInputTypeName(input->type), get_vfxInputTypeName(instance_input->type));
+                                fprintf(stderr, "layer %zu vfx instance %zu(%s) input %s expected type %s got type %s\n", layer_id, vfx_instance_id, myVfx->module->name, input->name, get_vfxInputTypeName(input->type), get_vfxInputTypeName(instance_input->type));
                                 return false;
                             }
                             needToAdd = false;
@@ -338,13 +341,11 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
                 if(vfx->inputs != NULL){
                     size_t originputsCount = 0;
                     for(VfxInstanceInput* input = vfx->inputs; input != NULL; input = input->next) originputsCount++;
-                    fprintf(stderr, "layer %zu vfx instance %zu expected 0 inputs got %zu\n", layer_id, vfx_instance_id, originputsCount);
+                    fprintf(stderr, "layer %zu vfx instance %zu(%s) expected 0 inputs got %zu\n", layer_id, vfx_instance_id, myVfx->module->name, originputsCount);
                     return false;
                 }
             }
-            vfx_instance_id++;
         }
-        layer_id++;
     }
 
     myProject->time = 0;

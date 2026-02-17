@@ -159,6 +159,161 @@ typedef struct{
     VfxInputValue value;
 } VfxInputArg;
 
+static inline VfxInputArg InputBool(bool Bool){
+    return (VfxInputArg){
+        .type = VFX_BOOL,
+        .value.as.Bool = Bool
+    };
+}
+
+static inline VfxInputArg InputInt(int32_t Int){
+    return (VfxInputArg){
+        .type = VFX_INT,
+        .value.as.Int = Int
+    };
+}
+
+static inline VfxInputArg InputUint(uint32_t Uint){
+    return (VfxInputArg){
+        .type = VFX_UINT,
+        .value.as.Uint = Uint
+    };
+}
+
+static inline VfxInputArg InputFloat(float Float){
+    return (VfxInputArg){
+        .type = VFX_FLOAT,
+        .value.as.Float = Float
+    };
+}
+
+static inline VfxInputArg InputDouble(double Double){
+    return (VfxInputArg){
+        .type = VFX_DOUBLE,
+        .value.as.Double = Double
+    };
+}
+
+static inline VfxInputArg InputBVec2(bool x, bool y){
+    BVec2 Bvec2 = {x, y};
+    return (VfxInputArg){
+        .type = VFX_BVEC2,
+        .value.as.Bvec2 = Bvec2
+    };
+}
+
+static inline VfxInputArg InputBVec3(bool x, bool y, bool z){
+    BVec3 Bvec3 = {x, y, z};
+    return (VfxInputArg){
+        .type = VFX_BVEC3,
+        .value.as.Bvec3 = Bvec3
+    };
+}
+
+static inline VfxInputArg InputBVec4(bool x, bool y, bool z, bool w){
+    BVec4 Bvec4 = {x,y,z,w};
+    return (VfxInputArg){
+        .type = VFX_BVEC4,
+        .value.as.Bvec4 = Bvec4
+    };
+}
+
+static inline VfxInputArg InputIVec2(int32_t x, int32_t y){
+    IVec2 Ivec2 = {x, y};
+    return (VfxInputArg){
+        .type = VFX_IVEC2,
+        .value.as.Ivec2 = Ivec2
+    };
+}
+
+static inline VfxInputArg InputIVec3(int32_t x, int32_t y, int32_t z){
+    IVec3 Ivec3 = {x,y,z};
+    return (VfxInputArg){
+        .type = VFX_IVEC3,
+        .value.as.Ivec3 = Ivec3
+    };
+}
+
+static inline VfxInputArg InputIVec4(int32_t x, int32_t y, int32_t z, int32_t w){
+    IVec4 Ivec4 = {x,y,z,w};
+    return (VfxInputArg){
+        .type = VFX_IVEC4,
+        .value.as.Ivec4 = Ivec4
+    };
+}
+
+static inline VfxInputArg InputUVec2(uint32_t x, uint32_t y){
+    UVec2 Uvec2 = {x,y};
+    return (VfxInputArg){
+        .type = VFX_UVEC2,
+        .value.as.Uvec2 = Uvec2
+    };
+}
+
+static inline VfxInputArg InputUVec3(uint32_t x, uint32_t y, uint32_t z){
+    UVec3 Uvec3 = {x,y,z};
+    return (VfxInputArg){
+        .type = VFX_UVEC3,
+        .value.as.Uvec3 = Uvec3
+    };
+}
+
+static inline VfxInputArg InputUVec4(uint32_t x, uint32_t y, uint32_t z, uint32_t w){
+    UVec4 Uvec4 = {x,y,z,w};
+    return (VfxInputArg){
+        .type = VFX_UVEC4,
+        .value.as.Uvec4 = Uvec4
+    };
+}
+
+static inline VfxInputArg InputVec2(float x, float y){
+    Vec2 vec2 = {x,y};
+    return (VfxInputArg){
+        .type = VFX_VEC2,
+        .value.as.vec2 = vec2
+    };
+}
+
+static inline VfxInputArg InputVec3(float x, float y, float z){
+    Vec3 vec3 = {x,y,z};
+    return (VfxInputArg){
+        .type = VFX_VEC3,
+        .value.as.vec3 = vec3
+    };
+}
+
+static inline VfxInputArg InputVec4(float x, float y, float z, float w){
+    Vec4 vec4 = {x,y,z,w};
+    return (VfxInputArg){
+        .type = VFX_VEC4,
+        .value.as.vec4 = vec4
+    };
+}
+
+static inline VfxInputArg InputDVec2(double x, double y){
+    DVec2 Dvec2 = {x, y};
+    return (VfxInputArg){
+        .type = VFX_DVEC2,
+        .value.as.Dvec2 = Dvec2
+    };
+}
+
+static inline VfxInputArg InputDVec3(double x, double y, double z){
+    DVec3 Dvec3 = {x,y,z};
+    return (VfxInputArg){
+        .type = VFX_DVEC3,
+        .value.as.Dvec3 = Dvec3
+    };
+}
+
+static inline VfxInputArg InputDVec4(double x, double y, double z, double w){
+    DVec4 Dvec4 = {x,y,z,w};
+    return (VfxInputArg){
+        .type = VFX_DVEC4,
+        .value.as.Dvec4 = Dvec4
+    };
+}
+
 typedef struct VfxInput VfxInput;
 struct VfxInput{
     size_t push_constant_offset;

@@ -90,6 +90,7 @@ bool extractVFXModuleMetaData(String_View sv, VfxModule* out, ArenaAllocator* aa
         sv = sv_trim_left(sv);
 
         String_View arg = sv_chop_by_delim(&sv, '\n');
+        arg = sv_trim(arg);
         if(arg.count == 0) printf("Expected value for "SV_Fmt"\n",SV_Arg(leftSide));
         if(sv_eq(leftSide, sv_from_cstr("Name"))){
             sb.count = 0;

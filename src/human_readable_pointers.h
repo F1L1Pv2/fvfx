@@ -45,16 +45,37 @@ void hrp_reset(void);
 static const char* HRP_WORDS[] = {
     "apple", "banana", "orange", "grape", "pear", "peach", "cherry", "plum", "lemon", "lime",
     "strawberry", "blueberry", "raspberry", "melon", "watermelon", "mango", "pineapple", "coconut", "kiwi", "papaya",
+    "apricot", "fig", "date", "guava", "nectarine", "passionfruit", "pomegranate", "tangerine", "grapefruit", "currant",
     "wood", "stone", "metal", "iron", "gold", "silver", "copper", "glass", "plastic", "paper",
     "cloth", "wool", "cotton", "silk", "leather", "sand", "clay", "brick", "cement", "oil",
+    "steel", "bronze", "tin", "chrome", "rubber", "foam", "ceramic", "granite", "marble", "dust",
     "chair", "table", "book", "cup", "plate", "spoon", "fork", "knife", "door", "window",
     "bed", "lamp", "phone", "computer", "pen", "pencil", "bag", "shoe", "hat", "bottle",
+    "box", "clock", "watch", "radio", "screen", "keyboard", "mousepad", "speaker", "camera", "tripod",
+    "mirror", "frame", "shelf", "drawer", "cabinet", "desk", "notebook", "folder", "envelope", "stamp",
     "dog", "cat", "bird", "fish", "horse", "cow", "sheep", "pig", "duck", "goat",
     "lion", "tiger", "bear", "wolf", "fox", "deer", "mouse", "rat", "rabbit", "monkey",
+    "zebra", "giraffe", "elephant", "rhino", "hippo", "panda", "koala", "kangaroo", "otter", "beaver",
+    "eagle", "hawk", "falcon", "owl", "crow", "sparrow", "parrot", "swan", "penguin", "flamingo",
     "bread", "cheese", "milk", "butter", "egg", "rice", "bean", "soup", "meat", "cake",
     "sugar", "salt", "pepper", "honey", "coffee", "tea", "juice", "water", "flour", "corn",
+    "pasta", "noodle", "pizza", "burger", "sausage", "bacon", "salad", "sandwich", "cookie", "biscuit",
+    "chocolate", "candy", "jam", "jelly", "syrup", "cream", "yogurt", "icecream", "pie", "muffin",
     "tree", "flower", "grass", "leaf", "root", "branch", "seed", "fruit", "river", "lake",
-    "sea", "ocean", "mountain", "hill", "valley", "rock", "cloud", "rain", "snow", "wind"
+    "sea", "ocean", "mountain", "hill", "valley", "rock", "cloud", "rain", "snow", "wind",
+    "storm", "fog", "mist", "ice", "frost", "sun", "moon", "star", "sky", "shadow",
+    "forest", "jungle", "desert", "island", "beach", "shore", "cliff", "cave", "field", "meadow",
+    "house", "home", "room", "kitchen", "bathroom", "bedroom", "garage", "garden", "yard", "hall",
+    "school", "office", "shop", "store", "market", "bank", "hotel", "restaurant", "cafe", "library",
+    "hospital", "church", "tower", "bridge", "road", "street", "path", "station", "airport", "harbor",
+    "hammer", "nail", "screw", "bolt", "nut", "wrench", "pliers", "saw", "drill", "blade",
+    "axe", "shovel", "pickaxe", "rake", "hoe", "bucket", "rope", "chain", "hook", "ladder",
+    "car", "truck", "bus", "train", "plane", "boat", "ship", "bike", "bicycle", "motorcycle",
+    "scooter", "van", "taxi", "subway", "tram", "wagon", "cart", "canoe", "kayak", "yacht",
+    "shirt", "pants", "jacket", "coat", "sock", "glove", "scarf", "belt", "boot", "helmet",
+    "cap", "jeans", "sweater", "hoodie", "uniform", "tie", "suit", "vest", "shorts", "skirt",
+    "time", "day", "night", "year", "moment", "sound", "light", "dark", "color", "shape",
+    "pattern", "signal", "code", "data", "value", "number", "symbol", "mark", "line", "point"
 };
 
 #define HRP_WORD_COUNT (sizeof(HRP_WORDS) / sizeof(HRP_WORDS[0]))
