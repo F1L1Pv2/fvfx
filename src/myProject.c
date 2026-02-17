@@ -308,20 +308,16 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
             VulkanizerVfx* myVfx = &myVfx_ref->vfx;
             
             if(myVfx->module->inputs != NULL){
-                size_t originputsCount = 0;
-                for(VfxInstanceInput* input = vfx->inputs; input != NULL; input = input->next) originputsCount++;
-                size_t m = 0;
-                for(VfxInput* input = myVfx->module->inputs; input != NULL; input = input->next,m++){
+                size_t instance_inputs_count = 0;
+                for(VfxInstanceInput* input = vfx->inputs; input != NULL; input = input->next) instance_inputs_count++;
+                size_t effect_input_index = 0;
+                for(VfxInput* input = myVfx->module->inputs; input != NULL; input = input->next,effect_input_index++){
                     bool needToAdd = true;
-                    for(size_t n = 0; n < originputsCount; n++){
-                        VfxInstanceInput* myInput = ll_at(vfx->inputs,n);
-                        if(myInput->index >= originputsCount){
-                            fprintf(stderr, "layer %zu vfx instance %zu input %zu doesn't exist\n", layer_id, vfx_instance_id, m);
-                            return false;
-                        }
-                        if(myInput->index == m){
-                            if(myInput->type != input->type){
-                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", layer_id, vfx_instance_id, m, get_vfxInputTypeName(input->type), get_vfxInputTypeName(myInput->type));
+                    for(size_t n = 0; n < instance_inputs_count; n++){
+                        VfxInstanceInput* instance_input = ll_at(vfx->inputs,n);
+                        if(instance_input->index == effect_input_index){
+                            if(instance_input->type != input->type){
+                                fprintf(stderr, "layer %zu vfx instance %zu input %zu expected type %s got type %s\n", layer_id, vfx_instance_id, effect_input_index, get_vfxInputTypeName(input->type), get_vfxInputTypeName(instance_input->type));
                                 return false;
                             }
                             needToAdd = false;
@@ -331,7 +327,7 @@ bool prepare_project(Project* project, MyProject* myProject, Vulkanizer* vulkani
 
                     if(!needToAdd) continue;
                     ll_push(&vfx->inputs, ((VfxInstanceInput){
-                        .index = m,
+                        .index = effect_input_index,
                         .type = input->type,
                         .initialValue = (input->defaultValue != NULL ? *input->defaultValue : (VfxInputValue){0}),
                     }), ll_arena_allocator, aa);
